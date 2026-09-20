@@ -1,0 +1,9 @@
+# Page override — Settings (`/settings`, `/settings/notifications`, `/settings/appearance`)
+
+> Overrides `../MASTER.md` for the configuration surface. `SUPER_ADMIN` only for `/settings`.
+
+- **Shell:** `SettingsTabs` under a `StickyPageHeader` on every settings route (general · notification templates · users · appearance · audit log). Tab is a segmented control, not a nav rail.
+- **General (`SettingsPage`):** one long form, grouped into labelled `section`s — Business profile · Localization · Exchange rates · Booking rules · Queue · Notifications · Security · Data. Each row is a `SettingRow` (label + hint on the left, control right-aligned; `stack` variant on mobile). Currency / language / week-start / date-format are `Select`s; booleans are the controlled `Toggle`; numeric fields are `inputMode="numeric"` with unit suffixes. Single "Save changes" button, sticky at the bottom of the form on scroll; dirty-state gated. `GET`/`PUT /settings` (flat blob, shallow-merged server-side; unknown keys ignored).
+- **Notification templates (`SettingsNotificationsPage`):** one `Card` per template — channel badge (`sms` / `push`), an enable `Toggle`, and a monospace `Textarea` for the body with a `{{token}}` legend below it. Autosave on blur (`PUT /notification-templates/:key`), inline "saved" tick.
+- **Appearance (`AppearanceCard`):** per-device, never persisted to the server. Two `radiogroup`s — colour mode (light / dark / system, drives `.dark` on `<html>` via `useUiStore.colorMode`) and brand tone (azure / teal / indigo / cobalt, drives `[data-theme]`). Each swatch shows the 4-step primary ramp. `system` live-follows `prefers-color-scheme`.
+- **Colour:** neutral surface throughout; `--color-primary` only on the save button and the selected appearance swatch. Destructive settings (data retention, 2FA enforcement) get a `--color-warning` hint, not red.

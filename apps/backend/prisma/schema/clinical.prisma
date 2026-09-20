@@ -1,0 +1,115 @@
+// ໝວດ: Clinical EMR, Multi-photo, AI, Chat bot — ໂມດູນ 15, 16, 30, 35
+
+enum TreatmentPhotoType {
+  BEFORE
+  AFTER
+  PROGRESS
+}
+
+enum BotPlatform {
+  WHATSAPP
+  LINE
+  MESSENGER
+  TELEGRAM
+  VOICE_AI
+}
+
+model TreatmentRecord {
+  id            String   @id @default(uuid())
+  appointmentId String   @unique
+  customerId    String
+  medicalNotes  String?
+  treatmentDate DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  appointment Appointment      @relation(fields: [appointmentId], references: [id])
+  customer    User             @relation(fields: [customerId], references: [id])
+  photos      TreatmentPhoto[]
+
+  @@map("treatment_records")
+}
+
+model TreatmentPhoto {
+  id                String             @id @default(uuid())
+  treatmentRecordId String
+  photoUrl          String
+  type              TreatmentPhotoType @default(PROGRESS)
+  caption           String?
+  createdAt         DateTime           @default(now())
+
+  treatmentRecord TreatmentRecord @relation(fields: [treatmentRecordId], references: [id], onDelete: Cascade)
+
+  @@map("treatment_photos")
+}
+
+model ConsentForm {
+  id           String   @id @default(uuid())
+  userId       String
+  serviceId    String?
+  serviceName  String
+  signatureUrl String
+  signedAt     DateTime @default(now())
+
+  user    User     @relation(fields: [userId], references: [id])
+  service Service? @relation(fields: [serviceId], references: [id])
+
+  @@map("consent_forms")
+}
+
+model Review {
+  id            String   @id @default(uuid())
+  appointmentId String   @unique
+  userId        String
+  rating        Int
+  comment       String?
+  createdAt     DateTime @default(now())
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id])
+  user        User        @relation(fields: [userId], references: [id])
+
+  @@map("reviews")
+}
+
+model SkinHairAnalysis {
+  id                 String   @id @default(uuid())
+  userId             String
+  photoUrl           String
+  analysisType       String
+  detectedIssues     Json
+  recommendedService Json
+  createdAt          DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("skin_hair_analyses")
+}
+
+model BotConversation {
+  id             String      @id @default(uuid())
+  platform       BotPlatform
+  externalUserId String
+  intentDetected String?
+  extractedSlots Json?
+  isResolved     Boolean     @default(false)
+  createdAt      DateTime    @default(now())
+
+  @@map("bot_conversations")
+}
+
+/// ໂມດູນ 35 (Phase 7C, de-scoped ໃຫ້ Telegram ຢ່າງດຽວ) — ຜູກ Telegram chat ກັບ User ບັນຊີ.
+/// `linkCode` ໃຊ້ຄັ້ງດຽວ ຕອນລູກຄ້າສົ່ງ `/link CODE` ໃຫ້ bot; ຫຼັງຈາກຜູກແລ້ວ `telegramChatId` ຄົງທີ່.
+model TelegramLink {
+  id                String    @id @default(uuid())
+  userId            String    @unique
+  telegramChatId    String?   @unique
+  linkCode          String?   @unique
+  linkCodeExpiresAt DateTime?
+  linkedAt          DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("telegram_links")
+}

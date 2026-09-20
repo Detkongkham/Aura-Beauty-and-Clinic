@@ -1,0 +1,190 @@
+// ໝວດ: Inventory, BOM Ledger, B2B PO, Expenses — ໂມດູນ 11, 14, 32
+
+enum StockMovementType {
+  PURCHASE_IN
+  SERVICE_CONSUMED
+  ADJUSTMENT_ADD
+  ADJUSTMENT_DEDUCT
+  RETURN_TO_SUPPLIER
+  TRANSFER_OUT
+  TRANSFER_IN
+}
+
+enum POStatus {
+  DRAFT
+  ORDERED
+  RECEIVED
+  CANCELLED
+}
+
+/// ໂມດູນການໂອນສິນຄ້າຂ້າມສາຂາ — DRAFT (ຮ່າງ, ຍັງບໍ່ຕັດສະຕັອກ) → IN_TRANSIT (ສົ່ງແລ້ວ, ຕັດສະຕັອກ
+/// ຕົ້ນທາງແລ້ວ, ກຳລັງເດີນທາງ) → COMPLETED (ປາຍທາງຮັບແລ້ວ, ບວກສະຕັອກປາຍທາງ). CANCELLED ອະນຸຍາດ
+/// ສະເພາະຈາກ DRAFT ເທົ່ານັ້ນ (ຄືກັນກັບ PurchaseOrder) — ຖ້າອອກເດີນທາງໄປແລ້ວຕ້ອງຮັບເຄື່ອງ ແລ້ວແກ້
+/// ຍ້ອນຫຼັງດ້ວຍ adjust/return ແທນ, ບໍ່ໃຫ້ຍົກເລີກກາງທາງ (ຈະເຮັດໃຫ້ສະຕັອກຫາຍໂດຍບໍ່ມີຮ່ອງຮອຍ).
+enum StockTransferStatus {
+  DRAFT
+  IN_TRANSIT
+  COMPLETED
+  CANCELLED
+}
+
+model Supplier {
+  id            String   @id @default(uuid())
+  name          String
+  contactPerson String?
+  phone         String
+  email         String?
+  address       String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  purchaseOrders PurchaseOrder[]
+
+  @@map("suppliers")
+}
+
+model Product {
+  id          String    @id @default(uuid())
+  branchId    String
+  name        String
+  // SKU ບໍ່ unique ທົ່ວລະບົບອີກຕໍ່ໄປ — unique ຕໍ່ສາຂາເທົ່ານັ້ນ (ດູ @@unique ລຸ່ມ).
+  // ຕອນ soft-delete, service ຈະຕໍ່ທ້າຍ sku ດ້ວຍ `:deleted:<timestamp>` ເພື່ອປົດປ່ອຍ SKU ໃຫ້ໃຊ້ຄືນໄດ້.
+  sku         String
+  // ສະຕັອກ + ຈຸດສັ່ງຊື້ໃໝ່ ເປັນ Decimal(16,3) ເພື່ອຮອງຮັບ BOM ແບບເສດ (ເຊັ່ນ 0.03 ຕຸກ/ຄັ້ງ).
+  stockQty    Decimal   @default(0) @db.Decimal(16, 3)
+  minStockQty Decimal   @default(5) @db.Decimal(16, 3)
+  costPrice   Decimal   @db.Decimal(16, 2)
+  unit        String
+  isActive    Boolean   @default(true)
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  branch             Branch              @relation(fields: [branchId], references: [id])
+  consumableServices ServiceConsumable[]
+  purchaseOrderItems PurchaseOrderItem[]
+  stockMovements     StockMovement[]
+  transferItems      StockTransferItem[]
+
+  @@unique([branchId, sku])
+  @@index([branchId, isActive])
+  @@map("products")
+}
+
+model StockMovement {
+  id              String            @id @default(uuid())
+  branchId        String
+  productId       String
+  type            StockMovementType
+  qty             Decimal           @db.Decimal(16, 3)
+  balanceAfter    Decimal           @db.Decimal(16, 3)
+  refId           String?
+  notes           String?
+  /// ຜູ້ເຮັດລາຍການ — null = ລະບົບອັດຕະໂນມັດ (ເຊັ່ນ BOM ຕັດຕອນ COMPLETED).
+  createdByUserId String?
+  createdAt       DateTime          @default(now())
+
+  branch        Branch  @relation(fields: [branchId], references: [id])
+  product       Product @relation(fields: [productId], references: [id])
+  createdByUser User?   @relation(fields: [createdByUserId], references: [id])
+
+  @@index([productId, createdAt])
+  @@index([branchId, createdAt])
+  @@index([refId])
+  @@map("stock_movements")
+}
+
+model PurchaseOrder {
+  id           String    @id @default(uuid())
+  branchId     String
+  supplierId   String
+  poNumber     String    @unique
+  totalAmount  Decimal   @db.Decimal(16, 2)
+  status       POStatus  @default(DRAFT)
+  orderDate    DateTime  @default(now())
+  receivedDate DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  branch   Branch              @relation(fields: [branchId], references: [id])
+  supplier Supplier            @relation(fields: [supplierId], references: [id])
+  items    PurchaseOrderItem[]
+
+  @@index([branchId, status])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id              String  @id @default(uuid())
+  purchaseOrderId String
+  productId       String
+  quantity        Decimal @db.Decimal(16, 3)
+  unitCost        Decimal @db.Decimal(16, 2)
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  product       Product       @relation(fields: [productId], references: [id])
+
+  @@unique([purchaseOrderId, productId])
+  @@map("purchase_order_items")
+}
+
+model StockTransfer {
+  id              String              @id @default(uuid())
+  transferNumber  String              @unique
+  fromBranchId    String
+  toBranchId      String
+  status          StockTransferStatus @default(DRAFT)
+  notes           String?
+  sentAt          DateTime?
+  receivedAt      DateTime?
+  createdByUserId String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  fromBranch    Branch              @relation("StockTransferFrom", fields: [fromBranchId], references: [id])
+  toBranch      Branch              @relation("StockTransferTo", fields: [toBranchId], references: [id])
+  createdByUser User?               @relation(fields: [createdByUserId], references: [id])
+  items         StockTransferItem[]
+
+  @@index([fromBranchId, status])
+  @@index([toBranchId, status])
+  @@map("stock_transfers")
+}
+
+model StockTransferItem {
+  id                String  @id @default(uuid())
+  stockTransferId   String
+  /// ສິນຄ້າຕົ້ນທາງ (ສາຂາ fromBranch) — ຈຸດອ້າງອີງໃນການຕັດສະຕັອກຕອນ "ສົ່ງ".
+  productId         String
+  /// snapshot ຂອງ name/sku/unit/costPrice ຕອນສ້າງລາຍການ — ໃຊ້ສ້າງສິນຄ້າໃໝ່ຢູ່ສາຂາປາຍທາງ
+  /// (ຕອນ "ຮັບ") ຖ້າສາຂານັ້ນຍັງບໍ່ມີ SKU ນີ້ຢູ່ໃນລະບົບ.
+  productName       String
+  sku               String
+  unit              String
+  quantity          Decimal @db.Decimal(16, 3)
+  unitCost          Decimal @db.Decimal(16, 2)
+  /// ສິນຄ້າປາຍທາງທີ່ຖືກ resolve (ຫາ ຫຼື ສ້າງໃໝ່) ຕອນ "ຮັບ" — null ຈົນກວ່າຈະຮັບ.
+  receivedProductId String?
+
+  stockTransfer StockTransfer @relation(fields: [stockTransferId], references: [id], onDelete: Cascade)
+  product       Product       @relation(fields: [productId], references: [id])
+
+  @@unique([stockTransferId, productId])
+  @@map("stock_transfer_items")
+}
+
+model Expense {
+  id          String   @id @default(uuid())
+  branchId    String
+  category    String
+  amount      Decimal  @db.Decimal(16, 2)
+  currency    String   @default("LAK")
+  expenseDate DateTime @db.Date
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  branch Branch @relation(fields: [branchId], references: [id])
+
+  @@map("expenses")
+}

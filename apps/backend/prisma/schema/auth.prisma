@@ -1,0 +1,142 @@
+// ໝວດ: Users, Access Control, Affiliates — ໂມດູນ 01, 19, 33
+
+enum UserRole {
+  SUPER_ADMIN
+  BRANCH_ADMIN
+  STAFF
+  CUSTOMER
+  AFFILIATE_PARTNER
+}
+
+enum PayoutStatus {
+  PENDING
+  PROCESSING
+  PAID
+  REJECTED
+}
+
+model User {
+  id                  String    @id @default(uuid())
+  branchId            String?
+  role                UserRole  @default(CUSTOMER)
+  roleRefId           String?
+  name                String
+  email               String?   @unique
+  phone               String    @unique
+  password            String?
+  avatarUrl           String?
+  dateOfBirth         DateTime?
+  /// ເພດ ('MALE' | 'FEMALE' | 'OTHER') — ໃຊ້ໃນໜ້າ CRM ຂອງ Web Admin.
+  gender              String?
+  /// ບັນທຶກພາຍໃນຂອງພະນັກງານກ່ຽວກັບລູກຄ້າ (Web Admin ▸ Customer detail).
+  notes               String?
+  expoPushToken       String?
+  isActive            Boolean   @default(true)
+  deletedAt           DateTime?
+  /// opt-in ອະນຸຍາດໃຫ້ລູກຄ້າອື່ນທັກແຊັດ DIRECT ໄດ້ (Module 38 Wave 8D) — default ປິດ, ຫຼຸດຄວາມສ່ຽງ
+  /// abuse ໂດຍບໍ່ຕ້ອງລໍຖ້າ report ກ່ອນ.
+  allowDirectMessages Boolean   @default(false)
+  quickLoginPin       String?
+  quickLoginEnabled   Boolean   @default(false)
+  quickLoginUpdatedAt DateTime?
+  lastLoginAt         DateTime?
+  lastLoginDevice     String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  branch                Branch?                   @relation(fields: [branchId], references: [id])
+  roleRef               Role?                     @relation(fields: [roleRefId], references: [id])
+  permissionOverrides   UserPermissionOverride[]
+  staffProfile          StaffProfile?
+  affiliateProfile      AffiliateProfile?
+  appointments          Appointment[]             @relation("CustomerAppointments")
+  bookedGroups          BookingGroup[]            @relation("GroupPayer")
+  loyaltyAccount        LoyaltyAccount?
+  treatmentNotes        TreatmentRecord[]
+  consentForms          ConsentForm[]
+  reviews               Review[]
+  userPackages          UserPackage[]
+  skinAnalyses          SkinHairAnalysis[]
+  telegramLink          TelegramLink?
+  referralCode          ReferralCode?
+  usedReferrals         ReferralUsage[]           @relation("ReferredUser")
+  purchasedCards        GiftCard[]                @relation("BuyerCards")
+  redeemedCards         GiftCard[]                @relation("RedeemedCards")
+  issuedCards           GiftCard[]                @relation("IssuedCards")
+  auditLogs             AuditLog[]
+  stockMovements        StockMovement[]
+  stockTransfers        StockTransfer[]
+  waitlists             Waitlist[]
+  chatParticipants      ConversationParticipant[]
+  sentMessages          ChatMessage[]             @relation("SentMessages")
+  campaigns             CampaignRecipient[]
+  notifications         NotificationLog[]
+  resolvedNotifications NotificationLog[]         @relation("NotificationResolvedBy")
+  pushDevices           PushDevice[]
+
+  @@index([phone, role])
+  @@index([deletedAt])
+  @@map("users")
+}
+
+/// Dynamic, admin-editable job role — carries its own permission set, icon, and colour.
+model Role {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  icon        String   @default("UsersRound")
+  color       String   @default("#4f46e5")
+  permissions String[] @default([])
+  /// Seeded built-in roles (Super Admin / Branch Admin) — cannot be deleted.
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users User[]
+
+  @@map("roles")
+}
+
+model UserPermissionOverride {
+  id         String   @id @default(uuid())
+  userId     String
+  permission String
+  granted    Boolean
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, permission])
+  @@map("user_permission_overrides")
+}
+
+model AffiliateProfile {
+  id             String   @id @default(uuid())
+  userId         String   @unique
+  commissionRate Float    @default(0.10)
+  totalEarnings  Decimal  @default(0.0) @db.Decimal(16, 2)
+  unpaidBalance  Decimal  @default(0.0) @db.Decimal(16, 2)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payouts AffiliatePayout[]
+
+  @@map("affiliate_profiles")
+}
+
+model AffiliatePayout {
+  id                 String       @id @default(uuid())
+  affiliateProfileId String
+  amount             Decimal      @db.Decimal(16, 2)
+  status             PayoutStatus @default(PENDING)
+  payoutMethod       String
+  accountDetails     String
+  paidAt             DateTime?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  affiliateProfile AffiliateProfile @relation(fields: [affiliateProfileId], references: [id], onDelete: Cascade)
+
+  @@map("affiliate_payouts")
+}

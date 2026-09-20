@@ -1,0 +1,9 @@
+# Page override — Queue Board & Walk-in (`/queue`)
+
+> Overrides `../MASTER.md` for the live walk-in queue.
+
+- **Board:** 3 lane `Card`s side-by-side at `md` (stack below) — WAITING / CALLED / IN_SERVICE. Lane border/header tint: WAITING → **neutral** (`--color-muted-foreground/50`), CALLED → **`--color-primary`** (the system blue / brand azure — also the now-serving band), IN_SERVICE → `--color-success` (green = "actively being served"). The COMPLETED summary card takes **`--color-primary`** (azure header + count, `bg-primary/[0.07]` tint) — not green, so it never reads as a second IN_SERVICE lane, and it ties in with the primary-tinted service-time badges + throughput bars inside it. Amber + red are reserved for the per-card ageing spine and the SLA-breach badge (so WAITING is not `warning`). `--color-info` (cyan) is no longer used on this board. Header shows the localised status name + a count.
+- **Ticket card:** ticket number in Playfair `text-lg` `--color-primary`; issued time top-right; customer name (medium, truncated); `service · staff` muted line. A full-width secondary "advance" button (`WAITING→CALLED→IN_SERVICE→COMPLETED`) shown only with `queue:manage`.
+- **Freshness:** `useQuery` with `refetchInterval: 15_000`; the "now serving" changes should be perceivable — a brief opacity fade is fine, no motion under reduced-motion.
+- **Walk-in:** "Add walk-in" primary button in the PageHeader opens a right `Sheet` (`max-width: 28rem`). Fields: Branch `Select` (defaults to active branch) → Customer name → Phone → Service `Select` (active only) → Staff `Select` (filtered by chosen branch, optional "Any staff"). On submit: POST `/appointments/walk-in`, toast the issued ticket number, close, invalidate `queue` + `appointments` + `dashboard`.
+- **Empty lane:** small `EmptyState` ("Empty"), `border-0`, `py-6`.

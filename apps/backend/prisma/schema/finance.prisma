@@ -1,0 +1,314 @@
+// ໝວດ: Payments, Split Tender, Commissions, Loyalty, Packages, Referrals
+// ໂມດູນ 08, 09, 13, 18, 19, 33
+
+enum PaymentStatus {
+  PENDING
+  DEPOSIT_PAID
+  FULLY_PAID
+  REFUNDED
+  FAILED
+}
+
+enum PaymentMethod {
+  CASH
+  BCEL_ONE_QR
+  CREDIT_CARD
+  GIFT_CARD
+  PACKAGE_CREDIT
+  LOYALTY_POINTS
+}
+
+enum LoyaltyTier {
+  SILVER
+  GOLD
+  PLATINUM
+}
+
+enum LoyaltyTxType {
+  EARN
+  REDEEM
+  EXPIRE
+  ADJUST
+}
+
+/// Wave 10A (ອຸດ C1) — ບັດຂອງຂວັນຕ້ອງຜ່ານສະຖານະນີ້ກ່ອນຈຶ່ງໃຊ້ໄດ້. PENDING_PAYMENT = ລູກຄ້າສັ່ງຊື້ແຕ່ຍັງບໍ່ຈ່າຍ
+/// (ຕ້ອງແກ້ status ເປັນ ACTIVE ໂດຍ payments.recomputeAndSettle ເມື່ອ Payment ຮອດ FULLY_PAID ເທົ່ານັ້ນ).
+/// ສະຖານະຄອສ/ແພັກເກັດຂອງລູກຄ້າ — ACTIVE ເທົ່ານັ້ນທີ່ໃຊ້ຈອງໄດ້.
+enum UserPackageStatus {
+  PENDING_PAYMENT
+  ACTIVE
+  VOID
+}
+
+enum GiftCardStatus {
+  PENDING_PAYMENT
+  ACTIVE
+  DEPLETED
+  EXPIRED
+  VOID
+}
+
+model Payment {
+  id             String        @id @default(uuid())
+  branchId       String
+  appointmentId  String?       @unique
+  bookingGroupId String?
+  totalAmount    Decimal       @db.Decimal(16, 2)
+  depositAmount  Decimal       @default(0.0) @db.Decimal(16, 2)
+  currency       String        @default("LAK")
+  paymentStatus  PaymentStatus @default(PENDING)
+  paidAt         DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  branch           Branch               @relation(fields: [branchId], references: [id])
+  appointment      Appointment?         @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  bookingGroup     BookingGroup?        @relation(fields: [bookingGroupId], references: [id])
+  transactions     PaymentTransaction[]
+  /// Wave 10A — ຖ້າບິນນີ້ຄືການຊື້ບັດຂອງຂວັນ self-purchase, ນີ້ຄືບັດທີ່ຈະ activate ເມື່ອ FULLY_PAID.
+  giftCardPurchase GiftCard?
+  /// ບິນຊື້ແພັກເກັດເອງໃນແອັບ — activate UserPackage ເມື່ອ FULLY_PAID.
+  packagePurchase  UserPackage?
+
+  @@index([paymentStatus, paidAt])
+  @@map("payments")
+}
+
+model PaymentTransaction {
+  id               String        @id @default(uuid())
+  paymentId        String
+  method           PaymentMethod
+  amount           Decimal       @db.Decimal(16, 2)
+  currency         String        @default("LAK")
+  giftCardId       String?
+  loyaltyAccountId String?
+  userPackageId    String?
+  qrReference      String?
+  status           String        @default("SUCCESS")
+  /// Wave 10A (ອຸດ H1) — QR/deposit-intent ໝົດອາຍຸເມື່ອໃດ; null = ບໍ່ມີກຳນົດ (ເຊັ່ນ tender ທີ່ commit ທັນທີ).
+  expiresAt        DateTime?
+  createdAt        DateTime      @default(now())
+
+  payment        Payment               @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  giftCard       GiftCard?             @relation(fields: [giftCardId], references: [id])
+  loyaltyAccount LoyaltyAccount?       @relation(fields: [loyaltyAccountId], references: [id])
+  userPackage    UserPackage?          @relation(fields: [userPackageId], references: [id])
+  giftCardTxs    GiftCardTransaction[]
+  loyaltyTxs     LoyaltyTransaction[]
+
+  @@map("payment_transactions")
+}
+
+model StaffCommission {
+  id             String   @id @default(uuid())
+  staffProfileId String
+  appointmentId  String   @unique
+  serviceAmount  Decimal  @db.Decimal(16, 2)
+  commissionRate Float
+  payoutAmount   Decimal  @db.Decimal(16, 2)
+  isPaid         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  staffProfile StaffProfile @relation(fields: [staffProfileId], references: [id])
+  appointment  Appointment  @relation(fields: [appointmentId], references: [id])
+
+  @@map("staff_commissions")
+}
+
+model GiftCard {
+  id                String         @id @default(uuid())
+  branchId          String
+  code              String         @unique
+  initialBalance    Decimal        @db.Decimal(16, 2)
+  currentBalance    Decimal        @db.Decimal(16, 2)
+  currency          String         @default("LAK")
+  buyerId           String?
+  redeemedByUserId  String?
+  recipientEmail    String
+  expireDate        DateTime
+  isRedeemed        Boolean        @default(false)
+  /// Wave 10A (ອຸດ C1) — ACTIVE ເທົ່ານັ້ນທີ່ໃຊ້ tender ໄດ້. ບັດເກົ່າ backfill ເປັນ ACTIVE (migration).
+  status            GiftCardStatus @default(ACTIVE)
+  /// ຊື້ຜ່ານແອັບ (self-purchase) — ຜູກ Payment ທີ່ຕ້ອງ FULLY_PAID ກ່ອນ activate. null = admin ອອກດ້ວຍມື.
+  purchasePaymentId String?        @unique
+  /// admin ອອກດ້ວຍມື (free issue) — null = ລູກຄ້າຊື້ເອງ.
+  issuedByUserId    String?
+  issueReason       String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  branch          Branch                @relation(fields: [branchId], references: [id])
+  buyer           User?                 @relation("BuyerCards", fields: [buyerId], references: [id])
+  redeemedBy      User?                 @relation("RedeemedCards", fields: [redeemedByUserId], references: [id])
+  issuedBy        User?                 @relation("IssuedCards", fields: [issuedByUserId], references: [id])
+  purchasePayment Payment?              @relation(fields: [purchasePaymentId], references: [id])
+  paymentTxs      PaymentTransaction[]
+  transactions    GiftCardTransaction[]
+
+  @@index([status])
+  @@map("gift_cards")
+}
+
+model GiftCardTransaction {
+  id                   String   @id @default(uuid())
+  giftCardId           String
+  paymentTransactionId String?
+  amount               Decimal  @db.Decimal(16, 2)
+  balanceAfter         Decimal  @db.Decimal(16, 2)
+  createdAt            DateTime @default(now())
+
+  giftCard           GiftCard            @relation(fields: [giftCardId], references: [id], onDelete: Cascade)
+  paymentTransaction PaymentTransaction? @relation(fields: [paymentTransactionId], references: [id])
+
+  @@map("gift_card_transactions")
+}
+
+model LoyaltyAccount {
+  id        String      @id @default(uuid())
+  userId    String      @unique
+  points    Int         @default(0)
+  tierLevel LoyaltyTier @default(SILVER)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  user         User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions LoyaltyTransaction[]
+  paymentTxs   PaymentTransaction[]
+
+  @@map("loyalty_accounts")
+}
+
+model LoyaltyTransaction {
+  id                   String        @id @default(uuid())
+  loyaltyAccountId     String
+  paymentTransactionId String?
+  points               Int
+  type                 LoyaltyTxType
+  refId                String?
+  notes                String?
+  createdAt            DateTime      @default(now())
+
+  loyaltyAccount     LoyaltyAccount      @relation(fields: [loyaltyAccountId], references: [id], onDelete: Cascade)
+  paymentTransaction PaymentTransaction? @relation(fields: [paymentTransactionId], references: [id])
+
+  // Wave 10A (ອຸດ H5) — partial unique index (type = 'EARN') ຖືກຕໍ່ເຕີມດ້ວຍມືໃນໄຟລ໌ migration SQL
+  // ເພາະ Prisma schema ບໍ່ຮອງຮັບ partial unique index ໂດຍກົງ; earnPoints() catch P2002 ແທນ findFirst.
+  @@map("loyalty_transactions")
+}
+
+/// Wave 10A (ອຸດ C3) — ຫ້າມ mutation ການເງິນຊ້ຳກັນຈາກ retry/double-tap. key = header `Idempotency-Key`
+/// (client-generated UUID), scoped ຕໍ່ userId+endpoint. ບັນທຶກ response ຄັ້ງທຳອິດ ແລ້ວຄືນຄືນເມື່ອຮຽກຊ້ຳ.
+model IdempotencyKey {
+  id           String   @id @default(uuid())
+  key          String
+  userId       String
+  endpoint     String
+  requestHash  String
+  statusCode   Int?
+  responseBody Json?
+  createdAt    DateTime @default(now())
+
+  @@unique([key, userId, endpoint])
+  @@map("idempotency_keys")
+}
+
+model Package {
+  id           String   @id @default(uuid())
+  branchId     String
+  name         String
+  /// ຄຳອະທິບາຍສັ້ນສຳລັບໜ້າຮ້ານຄ້າໃນແອັບ.
+  description  String?
+  imageUrl     String?
+  totalPrice   Decimal  @db.Decimal(16, 2)
+  currency     String   @default("LAK")
+  /// ອາຍຸໃຊ້ງານນັບແຕ່ມື້ຈ່າຍຄົບ (activate).
+  validityDays Int      @default(365)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  branch       Branch        @relation(fields: [branchId], references: [id])
+  items        PackageItem[]
+  userPackages UserPackage[]
+
+  @@map("packages")
+}
+
+model PackageItem {
+  id         String @id @default(uuid())
+  packageId  String
+  serviceId  String
+  totalUnits Int
+
+  package Package @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  service Service @relation(fields: [serviceId], references: [id])
+
+  @@map("package_items")
+}
+
+model UserPackage {
+  id                String            @id @default(uuid())
+  userId            String
+  packageId         String
+  expireDate        DateTime
+  /// ACTIVE ເທົ່ານັ້ນທີ່ຈອງໄດ້. ແຖວເກົ່າ backfill ເປັນ ACTIVE (default).
+  status            UserPackageStatus @default(ACTIVE)
+  /// ຊື້ຜ່ານແອັບ — ຜູກ Payment ທີ່ຕ້ອງ FULLY_PAID ກ່ອນ activate. null = ຂາຍ/ມອບທີ່ໜ້າຮ້ານ.
+  purchasePaymentId String?           @unique
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  user            User                 @relation(fields: [userId], references: [id])
+  package         Package              @relation(fields: [packageId], references: [id])
+  purchasePayment Payment?             @relation(fields: [purchasePaymentId], references: [id])
+  items           UserPackageItem[]
+  paymentTxs      PaymentTransaction[]
+
+  @@index([userId, status])
+  @@map("user_packages")
+}
+
+model UserPackageItem {
+  id             String   @id @default(uuid())
+  userPackageId  String
+  serviceId      String
+  totalUnits     Int
+  remainingUnits Int
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  userPackage  UserPackage   @relation(fields: [userPackageId], references: [id], onDelete: Cascade)
+  service      Service       @relation(fields: [serviceId], references: [id])
+  appointments Appointment[]
+
+  @@map("user_package_items")
+}
+
+model ReferralCode {
+  id             String   @id @default(uuid())
+  userId         String   @unique
+  code           String   @unique
+  discountAmount Decimal  @default(50000.0) @db.Decimal(16, 2)
+  currency       String   @default("LAK")
+  createdAt      DateTime @default(now())
+
+  user   User            @relation(fields: [userId], references: [id])
+  usages ReferralUsage[]
+
+  @@map("referral_codes")
+}
+
+model ReferralUsage {
+  id             String   @id @default(uuid())
+  referralCodeId String
+  referredUserId String
+  appointmentId  String?
+  rewardClaimed  Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  referralCode ReferralCode @relation(fields: [referralCodeId], references: [id])
+  referredUser User         @relation("ReferredUser", fields: [referredUserId], references: [id])
+
+  @@map("referral_usages")
+}

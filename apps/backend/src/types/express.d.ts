@@ -1,0 +1,12 @@
+import type { AccessTokenPayload } from '@abcp/shared-types';
+
+declare global {
+  namespace Express {
+    interface Request {
+      /** ຖືກ set ໂດຍ authGuard ຫຼັງ verify JWT access token. */
+      auth?: AccessTokenPayload;
+    }
+  }
+}
+
+export {};

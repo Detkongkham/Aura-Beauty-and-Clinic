@@ -1,0 +1,13 @@
+# Page override — Services & Categories (`/services`, `/services/categories`, `/services/:id`)
+
+> Overrides `../MASTER.md` for the catalog CRUD screens.
+
+- **Stats strip:** above the toolbar — a 5-up `CardCount` row (total · active/inactive · avg price · avg duration · requires-deposit) where the active/inactive card is a toggle that cycles the list's `isActive` filter, plus a token-only CSS "services by category" bar list (top 8 + "+N more") — each row a leading colour dot + bar cycling `hsl(var(--chart-1..6) / 0.85)` so bars are told apart by hue as well as length. Fed by a server-aggregated `GET /services/stats` (`useServiceStats`), never the paginated list; invalidated by any service mutation via the `['services']` key prefix.
+- **List:** `DataTable` — columns Name (medium weight) · Category · Price (right-aligned `CurrencyText`, tabular) · Duration (right, `′` suffix) · Status (`success`/`neutral` badge) · row kebab (`MoreHorizontal`) with Edit / Delete. Row height 44px (36px in compact).
+- **Filters:** `FilterBar` = debounced search (300ms) + Category `Select` + Status `Select`; "Clear" appears only when a filter is active. Pagination footer stays visible (25/50/100).
+- **Create/Edit:** centered `Dialog` (`ServiceFormDialog`), `max-width: 42rem`, `p-0` with an icon-chip header (`Sparkles` on `bg-primary/10`) + subtitle, a scrollable body (`max-h-[calc(100vh-13rem)]`) grouped into labelled sections — **Basic details** (name / category / price+duration grid with `₭` prefix / description), **Settings** (bordered `divide-y` list of switch rows; deposit toggle progressively reveals the amount on a tinted sub-row), **BOM** — and a sticky footer (Cancel + Save). React Hook Form + Zod; visible labels; inline errors with `role="alert"`. Section headings are plain weight — never uppercase/tracked (Lao text).
+- **BOM editor:** `useFieldArray` list inside the sheet — each row = Product name / Qty (`step=0.1`) / Unit + a destructive icon button; "Add" ghost button in the section header; empty hint when none. This is the Phase 2 step-5 deliverable — keep it in the same sheet, not a separate screen.
+- **Deposit:** `depositAmount` field is revealed only when `requireDeposit` is checked; cleared to `null` on submit when unchecked.
+- **Delete:** always via `ConfirmDialog`, destructive variant, names the service, "cannot be undone" copy; success + error toasts.
+- **Categories page:** simple bordered table (Name / Service count) + an "Add category" `Dialog` (single field, Enter submits).
+- **Service detail:** read-only — info card + BOM table + linked-staff chips (each links to `/staff/:id`).

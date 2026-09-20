@@ -1,0 +1,223 @@
+// ໝວດ: Chat, Notifications, Marketing, Audit — ໂມດູນ 21, 23, 24, 37, 38
+
+enum CampaignType {
+  BIRTHDAY
+  WIN_BACK
+  FESTIVAL_PROMO
+  CUSTOM
+}
+
+/// ໂມດູນ 38 — Platform-Wide Messaging (Phase 8, Wave 8A). CONSULTATION = ໂມດູນ 21 ເດີມ (ຜູກນັດໝາຍ,
+/// ຕ້ອງມີ branchId). STAFF_INTERNAL/DIRECT = ບໍ່ຜູກສາຂາ (branchId null) — ໃຊ້ ConversationParticipant
+/// ເປັນ membership ແທນ.
+enum ConversationType {
+  CONSULTATION
+  STAFF_INTERNAL
+  DIRECT
+}
+
+/// ໂມດູນ 21 — In-App Chat & Consultation Threads (Wave 7C.2). ນີ້ແມ່ນ scaffolding ເດີມຈາກ §2 Master
+/// Schema (ບໍ່ເຄີຍຖືກໃຊ້ໃນໂຄ້ດ — ບໍ່ມີ service/route ອ້າງອີງເລີຍ, ຄືກັນກັບ Room/Equipment ກ່ອນ 7C.1) —
+/// wave ນີ້ຕໍ່ເຕີມ appointmentId ເພື່ອຜູກແຕ່ລະ thread ກັບນັດໝາຍໜຶ່ງ (lazy-created, ຄືກັນກັບ
+/// ReferralCode.ensureCode) ແທນທີ່ຈະສ້າງ model ໃໝ່ຊ້ຳຊ້ອນ. ຊື່ Prisma model ປ່ຽນເປັນ ChatThread ແຕ່
+/// @@map ຄົງໄວ້ຄືເກົ່າ (conversations/chat_messages) — ບໍ່ມີຜົນກະທົບ SQL.
+/// Wave 8A ຕໍ່ເຕີມ `type` + ເຮັດ `branchId` ເປັນ optional (STAFF_INTERNAL/DIRECT ບໍ່ຜູກສາຂາ).
+model ChatThread {
+  id            String           @id @default(uuid())
+  type          ConversationType @default(CONSULTATION)
+  branchId      String?
+  title         String?
+  appointmentId String?          @unique
+  /// admin ປິດຫ້ອງ (moderation) ຫຼືອັດຕະໂນມັດຫຼັງ appointment ສຳເລັດ/ຍົກເລີກເກີນ N ວັນ — ໂມດູນ 38
+  /// Wave 8C. ຍັງອ່ານປະຫວັດໄດ້, ພຽງແຕ່ສົ່ງຂໍ້ຄວາມໃໝ່ບໍ່ໄດ້.
+  isLocked      Boolean          @default(false)
+  lastMessageAt DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  branch       Branch?                   @relation(fields: [branchId], references: [id])
+  appointment  Appointment?              @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  participants ConversationParticipant[]
+  messages     ChatMessage[]
+
+  @@index([type])
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  id         String    @id @default(uuid())
+  threadId   String
+  userId     String
+  joinedAt   DateTime  @default(now())
+  /// ຈຸດທີ່ participant ອ່ານເຖິງ — ໃຊ້ນັບ unread ໃນໜ້າ inbox (null = ຍັງບໍ່ເຄີຍອ່ານ, ນັບຈາກ joinedAt).
+  lastReadAt DateTime?
+
+  thread ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([threadId, userId])
+  @@map("conversation_participants")
+}
+
+model ChatMessage {
+  id          String    @id @default(uuid())
+  threadId    String
+  senderId    String
+  senderRole  UserRole  @default(CUSTOMER)
+  receiverId  String?
+  body        String
+  mediaUrl    String?
+  /// "TEXT" | "IMAGE" | "SYSTEM" (join/leave/lock events) — ໂມດູນ 38, Wave 8A.
+  messageType String    @default("TEXT")
+  isRead      Boolean   @default(false)
+  readAt      DateTime?
+  /// soft-delete ສຳລັບ moderation (ບໍ່ລຶບຖາວອນ, ເພື່ອ audit) — ໂມດູນ 38, Wave 8A. ບໍ່ໄດ້ໃຊ້ຈົນ Wave 8D.
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  thread ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  sender User       @relation("SentMessages", fields: [senderId], references: [id])
+
+  @@index([threadId, createdAt])
+  @@index([receiverId, isRead])
+  @@map("chat_messages")
+}
+
+/// ໂມດູນ 38, Wave 8A — ໃຊ້ຈິງຈາກ Wave 8D (DIRECT customer↔customer moderation). ບໍ່ໄດ້ໃຊ້ໃນ 8B/8C.
+model ChatReport {
+  id             String   @id @default(uuid())
+  conversationId String
+  messageId      String?
+  reportedById   String
+  reason         String
+  status         String   @default("PENDING") // PENDING | REVIEWED | ACTIONED
+  createdAt      DateTime @default(now())
+
+  @@index([status])
+  @@map("chat_reports")
+}
+
+/// ໂມດູນ 38, Wave 8A — ໃຊ້ຈິງຈາກ Wave 8D (DIRECT customer↔customer block). ບໍ່ໄດ້ໃຊ້ໃນ 8B/8C.
+model ChatBlock {
+  id        String   @id @default(uuid())
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+
+  @@unique([blockerId, blockedId])
+  @@map("chat_blocks")
+}
+
+model MarketingCampaign {
+  id           String       @id @default(uuid())
+  branchId     String
+  name         String
+  type         CampaignType
+  discountCode String?
+  triggerRule  Json?
+  isActive     Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  branch     Branch              @relation(fields: [branchId], references: [id])
+  recipients CampaignRecipient[]
+
+  @@map("marketing_campaigns")
+}
+
+model CampaignRecipient {
+  id          String    @id @default(uuid())
+  campaignId  String
+  userId      String
+  status      String
+  sentAt      DateTime  @default(now())
+  convertedAt DateTime?
+
+  campaign MarketingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  user     User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, userId])
+  @@map("campaign_recipients")
+}
+
+model NotificationLog {
+  id           String    @id @default(uuid())
+  userId       String
+  title        String
+  body         String
+  type         String
+  /// idempotency key ກັນສົ່ງຊ້ຳ (reminder 24h/1h, campaign sweep). null = ບໍ່ບັງຄັບ unique.
+  dedupeKey    String?   @unique
+  isRead       Boolean   @default(false)
+  sentAt       DateTime  @default(now())
+  /// 'info' | 'warning' | 'critical' — ຕັ້ງຕອນສ້າງ (notifyUser) ຫຼື infer ຈາກ type.
+  severity     String    @default("info")
+  /// payload ທີ່ສົ່ງໄປກັບ push (appointmentId, tripId, …) — ໃຊ້ສ້າງ deep link ໃນ inbox.
+  data         Json?
+  readAt       DateTime?
+  /// Inbox triage: admin ກົດ "ຈັດການແລ້ວ".
+  resolvedAt   DateTime?
+  resolvedById String?
+
+  user       User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resolvedBy User? @relation("NotificationResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@index([userId, isRead])
+  @@index([userId, sentAt])
+  @@map("notification_logs")
+}
+
+/// Expo push token ຕໍ່ອຸປະກອນ (multi-device). ໂມດູນ 23 — reminder/waitlist/campaign push.
+model PushDevice {
+  id         String   @id @default(uuid())
+  userId     String
+  token      String   @unique
+  platform   String
+  deviceName String?
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_devices")
+}
+
+/// ຄ່າຕັ້ງລະບົບແບບ key/value (ໜ້າ Settings ໃນ Web Admin). value ເປັນ JSON ອິດສະຫຼະ.
+model AppSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+/// ແມ່ແບບຂໍ້ຄວາມແຈ້ງເຕືອນ (SMS / push / email) — ໜ້າ Settings ▸ Notification Templates.
+model NotificationTemplate {
+  key       String   @id
+  channel   String
+  subject   String
+  body      String
+  enabled   Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+
+  @@map("notification_templates")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  branchId   String?
+  userId     String?
+  action     String
+  entityName String
+  entityId   String?
+  oldValue   Json?
+  newValue   Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  branch Branch? @relation(fields: [branchId], references: [id])
+  user   User?   @relation(fields: [userId], references: [id])
+
+  @@index([entityName, entityId])
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}

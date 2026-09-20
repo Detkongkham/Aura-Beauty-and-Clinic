@@ -1,0 +1,745 @@
+openapi: 3.1.0
+info:
+  title: Aura Beauty & Clinic Platform API
+  version: 0.1.0
+  description: >
+    API contract ຂອງ abcp backend. Phase 1 ຄຸ້ມ Auth (Module 01) ແລະ
+    Booking Slot Engine (Module 04). Phase 3 ເພີ່ມ Catalog + Staff (read) ແລະ
+    Customer booking flow (Module 05). Phase 6 ເພີ່ມ Inventory / B2B PO / BOM
+    (Module 14 + 32) ແລະ Staff KPI / Payroll (Module 34 + 09). ໂມດູນອື່ນຈະເພີ່ມຕາມ roadmap.
+servers:
+  - url: http://localhost:4000/api/v1
+    description: local dev
+
+tags:
+  - name: Auth
+  - name: Booking
+  - name: Catalog
+  - name: Staff
+  - name: Inventory
+  - name: Payroll
+
+paths:
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: ລົງທະບຽນລູກຄ້າໃໝ່
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterInput' }
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponseEnvelope' }
+        '409': { $ref: '#/components/responses/Error' }
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: ເຂົ້າສູ່ລະບົບ
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginInput' }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponseEnvelope' }
+        '401': { $ref: '#/components/responses/Error' }
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: ຂໍ access token ໃໝ່ຈາກ refresh token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponseEnvelope' }
+        '401': { $ref: '#/components/responses/Error' }
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: ຂໍ້ມູນຜູ້ໃຊ້ປັດຈຸບັນ
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: ok
+        '401': { $ref: '#/components/responses/Error' }
+
+  /booking/availability:
+    get:
+      tags: [Booking]
+      summary: slot ວ່າງຂອງບໍລິການໃນມື້ໃດໜຶ່ງ
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: branchId, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: serviceId, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: date, in: query, required: true, schema: { type: string, format: date } }
+        - { name: staffProfileId, in: query, required: false, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: ok
+        '404': { $ref: '#/components/responses/Error' }
+
+  /booking/appointments:
+    post:
+      tags: [Booking]
+      summary: ສ້າງຄິວ (ປ້ອງກັນ double-booking)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateAppointmentInput' }
+      responses:
+        '201': { description: created }
+        '409': { $ref: '#/components/responses/Error' }
+
+  /booking/appointments/me:
+    get:
+      tags: [Booking]
+      summary: ນັດໝາຍຂອງລູກຄ້າປັດຈຸບັນ (upcoming/history/all)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: scope, in: query, schema: { type: string, enum: [upcoming, history, all], default: upcoming } }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        '200': { description: ok — Paginated<AppointmentListItem> }
+        '401': { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Booking]
+      summary: ຈອງຄິວໃຫ້ຕົນເອງ (customerId ມາຈາກ JWT, role CUSTOMER)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerCreateAppointmentInput' }
+      responses:
+        '201': { description: created }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+
+  /booking/appointments/{id}:
+    get:
+      tags: [Booking]
+      summary: ລາຍລະອຽດນັດໝາຍ (ຕ້ອງເປັນເຈົ້າຂອງ)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: ok — AppointmentDetailView }
+        '404': { $ref: '#/components/responses/Error' }
+
+  /booking/appointments/{id}/cancel:
+    patch:
+      tags: [Booking]
+      summary: ຍົກເລີກນັດໝາຍ
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { reason: { type: string, maxLength: 500 } }
+      responses:
+        '200': { description: ok — AppointmentListItem }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+
+  /booking/appointments/{id}/reschedule:
+    patch:
+      tags: [Booking]
+      summary: ເລື່ອນນັດ (ຢືນຢັນ slot ໃໝ່)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [startAt]
+              properties:
+                startAt: { type: string, format: date-time }
+                staffProfileId: { type: string, format: uuid }
+      responses:
+        '200': { description: ok — AppointmentListItem }
+        '409': { $ref: '#/components/responses/Error' }
+
+  /booking/appointments/{id}/review:
+    post:
+      tags: [Booking]
+      summary: ໃຫ້ຄະແນນ/ຣີວິວ (ຫຼັງ COMPLETED)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rating]
+              properties:
+                rating: { type: integer, minimum: 1, maximum: 5 }
+                comment: { type: string, maxLength: 1000 }
+      responses:
+        '201': { description: created }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+
+  /appointments:
+    get:
+      tags: [Appointments]
+      summary: ລາຍການນັດໝາຍ (admin / front-desk — Master Calendar)
+      description: SUPER_ADMIN / BRANCH_ADMIN / STAFF. ກັ່ນຕອງ q/status/branchId/staffId/from/to + ແບ່ງໜ້າ.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 100 } }
+        - { name: status, in: query, schema: { type: string } }
+        - { name: branchId, in: query, schema: { type: string, format: uuid } }
+        - { name: staffId, in: query, schema: { type: string, format: uuid } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        '200': { description: ok — Paginated<AdminAppointmentListItem> }
+        '403': { $ref: '#/components/responses/Error' }
+
+  /appointments/calendar:
+    get:
+      tags: [Appointments]
+      summary: ນັດໝາຍທັງໝົດໃນຊ່ວງວັນທີ (day/week view)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: branchId, in: query, schema: { type: string, format: uuid } }
+        - { name: staffId, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: 'ok — { items: AdminAppointmentListItem[] }' }
+        '403': { $ref: '#/components/responses/Error' }
+
+  /appointments/{id}:
+    get:
+      tags: [Appointments]
+      summary: ລາຍລະອຽດນັດໝາຍ + timeline
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: ok — AdminAppointmentDetailView }
+        '404': { $ref: '#/components/responses/Error' }
+
+  /appointments/{id}/status:
+    patch:
+      tags: [Appointments]
+      summary: ປ່ຽນສະຖານະນັດໝາຍ (SUPER_ADMIN / BRANCH_ADMIN)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string }
+                staffNotes: { type: string, maxLength: 1000 }
+      responses:
+        '200': { description: ok — AdminAppointmentDetailView }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+
+  /catalog/categories:
+    get:
+      tags: [Catalog]
+      summary: ໝວດໝູ່ບໍລິການ + ຈຳນວນບໍລິການ
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: ok — ServiceCategoryView[] }
+
+  /catalog/services:
+    get:
+      tags: [Catalog]
+      summary: ລາຍການບໍລິການ (filter/ຄົ້ນຫາ/ຍອດນິຍົມ, ແບ່ງໜ້າ)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: branchId, in: query, schema: { type: string, format: uuid } }
+        - { name: categoryId, in: query, schema: { type: string, format: uuid } }
+        - { name: q, in: query, schema: { type: string } }
+        - { name: popular, in: query, schema: { type: boolean } }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        '200': { description: ok — Paginated<ServiceListItem> }
+
+  /catalog/services/{id}:
+    get:
+      tags: [Catalog]
+      summary: ລາຍລະອຽດບໍລິການ + ຊ່າງທີ່ໃຫ້ບໍລິການໄດ້
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: ok — ServiceDetailView }
+        '404': { $ref: '#/components/responses/Error' }
+
+  /staff:
+    get:
+      tags: [Staff]
+      summary: ລາຍຊື່ຊ່າງ (filter ຕາມ branchId / serviceId)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: branchId, in: query, schema: { type: string, format: uuid } }
+        - { name: serviceId, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: ok — StaffListItem[] }
+
+  /staff/{id}:
+    get:
+      tags: [Staff]
+      summary: ໂປຣຟາຍຊ່າງ 1 ຄົນ
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: ok — StaffListItem }
+        '404': { $ref: '#/components/responses/Error' }
+
+  # ---- Phase 6 — Inventory (Module 14 + 32) --------------------------
+  # ທຸກ write: SUPER_ADMIN / BRANCH_ADMIN. BRANCH_ADMIN ແກ້ໄຂໄດ້ສະເພາະສາຂາຕົນ.
+
+  /suppliers:
+    get:
+      tags: [Inventory]
+      summary: ລາຍການຜູ້ສະໜອງ (filter q + ແບ່ງໜ້າ)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 120 } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        '200': { description: ok — Paginated<SupplierView> }
+    post:
+      tags: [Inventory]
+      summary: ເພີ່ມຜູ້ສະໜອງ
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/SupplierWriteInput' } } }
+      responses:
+        '201': { description: ok — SupplierView }
+        '403': { $ref: '#/components/responses/Error' }
+
+  /suppliers/{id}:
+    get:
+      tags: [Inventory]
+      summary: ຜູ້ສະໜອງ 1 ລາຍ
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: ok — SupplierView }
+        '404': { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Inventory]
+      summary: ແກ້ໄຂຜູ້ສະໜອງ
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/SupplierWriteInput' } } }
+      responses:
+        '200': { description: ok — SupplierView }
+    delete:
+      tags: [Inventory]
+      summary: ລຶບຜູ້ສະໜອງ (409 ຖ້າຍັງມີ PO ຜູກຢູ່)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: deleted }
+        '409': { $ref: '#/components/responses/Error' }
+
+  /products:
+    get:
+      tags: [Inventory]
+      summary: ລາຍການສິນຄ້າ/ສະຕັອກ (filter branchId/q/isActive/lowStock + ແບ່ງໜ້າ)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 120 } }
+        - { name: branchId, in: query, schema: { type: string, format: uuid } }
+        - { name: isActive, in: query, schema: { type: string, enum: ['true', 'false'] } }
+        - { name: lowStock, in: query, schema: { type: string, enum: ['true', 'false'] } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        '200': { description: ok — Paginated<ProductView> }
+    post:
+      tags: [Inventory]
+      summary: ເພີ່ມສິນຄ້າ (openingStock > 0 ຂຽນ movement ADJUSTMENT_ADD)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ProductCreateInput' } } }
+      responses:
+        '201': { description: ok — ProductView }
+        '409': { $ref: '#/components/responses/Error' }
+
+  /products/stats:
+    get:
+      tags: [Inventory]
+      summary: ສະຫຼຸບສະຕັອກ (total / low / out / stock value / open PO)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: branchId, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: ok — InventoryStatsView }
+
+  /products/{id}:
+    get:
+      tags: [Inventory]
+      summary: ສິນຄ້າ 1 ລາຍ
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: ok — ProductView }
+        '404': { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Inventory]
+      summary: ແກ້ໄຂສິນຄ້າ (stockQty ປ່ຽນຜ່ານ /stock-movements/adjust ເທົ່ານັ້ນ)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ProductUpdateInput' } } }
+      responses:
+        '200': { description: ok — ProductView }
+    delete:
+      tags: [Inventory]
+      summary: ລຶບສິນຄ້າ (soft delete)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: deleted }
+
+  /stock-movements:
+    get:
+      tags: [Inventory]
+      summary: ບັນຊີເໜັງຕີງສະຕັອກ (filter productId/branchId/type/from/to + ແບ່ງໜ້າ)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: productId, in: query, schema: { type: string, format: uuid } }
+        - { name: branchId, in: query, schema: { type: string, format: uuid } }
+        - { name: type, in: query, schema: { type: string, enum: [PURCHASE_IN, SERVICE_CONSUMED, ADJUSTMENT_ADD, ADJUSTMENT_DEDUCT, RETURN_TO_SUPPLIER] } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        '200': { description: ok — Paginated<StockMovementView> }
+
+  /stock-movements/adjust:
+    post:
+      tags: [Inventory]
+      summary: ປັບສະຕັອກດ້ວຍມື (delta ≠ 0; 409 ຖ້າຜົນຕິດລົບ)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [productId, delta]
+              properties:
+                productId: { type: string, format: uuid }
+                delta: { type: number }
+                notes: { type: string, maxLength: 400 }
+      responses:
+        '201': { description: ok — StockMovementView }
+        '409': { $ref: '#/components/responses/Error' }
+
+  /purchase-orders:
+    get:
+      tags: [Inventory]
+      summary: ລາຍການໃບສັ່ງຊື້ (filter branchId/supplierId/status + ແບ່ງໜ້າ)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: branchId, in: query, schema: { type: string, format: uuid } }
+        - { name: supplierId, in: query, schema: { type: string, format: uuid } }
+        - { name: status, in: query, schema: { type: string, enum: [DRAFT, ORDERED, RECEIVED, CANCELLED] } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        '200': { description: ok — Paginated<PurchaseOrderView> }
+    post:
+      tags: [Inventory]
+      summary: ສ້າງໃບສັ່ງຊື້ (poNumber auto, totalAmount ຄິດເອງ)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PurchaseOrderCreateInput' } } }
+      responses:
+        '201': { description: ok — PurchaseOrderView }
+        '400': { $ref: '#/components/responses/Error' }
+
+  /purchase-orders/{id}:
+    get:
+      tags: [Inventory]
+      summary: ໃບສັ່ງຊື້ 1 ລາຍ (+ items)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: ok — PurchaseOrderView }
+        '404': { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Inventory]
+      summary: ແກ້ໄຂ PO (items ໄດ້ສະເພາະ DRAFT; status DRAFT→ORDERED / *→CANCELLED)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PurchaseOrderUpdateInput' } } }
+      responses:
+        '200': { description: ok — PurchaseOrderView }
+        '409': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Inventory]
+      summary: ລຶບ PO (DRAFT ເທົ່ານັ້ນ)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: deleted }
+        '409': { $ref: '#/components/responses/Error' }
+
+  /purchase-orders/{id}/receive:
+    post:
+      tags: [Inventory]
+      summary: ຮັບເຄື່ອງ (stockQty += qty, movement PURCHASE_IN; 409 ຖ້າ RECEIVED/CANCELLED ແລ້ວ)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: ok — PurchaseOrderView }
+        '409': { $ref: '#/components/responses/Error' }
+
+  # ---- Phase 6 — Staff KPI / Payroll (Module 34 + 09) --------------
+  # ທັງໝົດ SUPER_ADMIN / BRANCH_ADMIN.
+
+  /payroll/kpi:
+    get:
+      tags: [Payroll]
+      summary: ລາຍງານ payroll ຕໍ່ເດືອນ (ຈັດອັນດັບ + commission + bonus + totals)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: monthYear, in: query, schema: { type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$' } }
+        - { name: branchId, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: ok — PayrollReport }
+        '403': { $ref: '#/components/responses/Error' }
+
+  /payroll/export:
+    get:
+      tags: [Payroll]
+      summary: ສົ່ງອອກ payroll ເປັນ CSV (text/csv, UTF-8 BOM)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: monthYear, in: query, schema: { type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$' } }
+        - { name: branchId, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: 'ok — text/csv attachment payroll-<YYYY-MM>.csv' }
+
+  /payroll/kpi/{staffProfileId}:
+    put:
+      tags: [Payroll]
+      summary: ຕັ້ງເປົ້າ KPI ຂອງຊ່າງ (upsert StaffKpiGoal + recompute)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: staffProfileId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [monthYear, targetRevenue]
+              properties:
+                monthYear: { type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$' }
+                targetRevenue: { type: number, minimum: 0 }
+      responses:
+        '200': { description: ok — PayrollRow }
+        '404': { $ref: '#/components/responses/Error' }
+
+  /payroll/kpi/recompute:
+    post:
+      tags: [Payroll]
+      summary: ຄິດໄລ່ actualRevenue + bonus ໃໝ່ໃຫ້ທຸກຊ່າງໃນເດືອນນັ້ນ
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [monthYear]
+              properties:
+                monthYear: { type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$' }
+                branchId: { type: string, format: uuid }
+      responses:
+        '200': { description: 'ok — { monthYear, updated }' }
+
+  /payroll/kpi/{staffProfileId}/bonus-paid:
+    patch:
+      tags: [Payroll]
+      summary: ໝາຍ / ຍົກເລີກ ໂບນັດ KPI ວ່າຈ່າຍແລ້ວ
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: staffProfileId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [monthYear, isBonusPaid]
+              properties:
+                monthYear: { type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$' }
+                isBonusPaid: { type: boolean }
+      responses:
+        '200': { description: ok }
+        '404': { $ref: '#/components/responses/Error' }
+
+  /payroll/commissions/pay:
+    post:
+      tags: [Payroll]
+      summary: ໝາຍ StaffCommission ຂອງຊ່າງ+ເດືອນ ວ່າຈ່າຍແລ້ວ/ຄ້າງ (bulk)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [staffProfileId, monthYear, isPaid]
+              properties:
+                staffProfileId: { type: string, format: uuid }
+                monthYear: { type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$' }
+                isPaid: { type: boolean }
+      responses:
+        '200': { description: 'ok — { staffProfileId, monthYear, isPaid, affected }' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  responses:
+    Error:
+      description: error envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  code: { type: string }
+                  message: { type: string }
+                  details: {}
+  schemas:
+    RegisterInput:
+      type: object
+      required: [name, phone, password]
+      properties:
+        name: { type: string }
+        phone: { type: string }
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8 }
+        branchId: { type: string, format: uuid }
+    LoginInput:
+      type: object
+      required: [phone, password]
+      properties:
+        phone: { type: string }
+        password: { type: string }
+    CreateAppointmentInput:
+      type: object
+      required: [branchId, customerId, staffProfileId, serviceId, startAt]
+      properties:
+        branchId: { type: string, format: uuid }
+        customerId: { type: string, format: uuid }
+        staffProfileId: { type: string, format: uuid }
+        serviceId: { type: string, format: uuid }
+        roomId: { type: string, format: uuid }
+        equipmentId: { type: string, format: uuid }
+        bookingGroupId: { type: string, format: uuid }
+        userPackageItemId: { type: string, format: uuid }
+        startAt: { type: string, format: date-time }
+        deliveryType: { type: string, enum: [IN_STORE, HOME_SERVICE] }
+        customerNotes: { type: string }
+    CustomerCreateAppointmentInput:
+      type: object
+      required: [branchId, staffProfileId, serviceId, startAt]
+      properties:
+        branchId: { type: string, format: uuid }
+        staffProfileId: { type: string, format: uuid }
+        serviceId: { type: string, format: uuid }
+        roomId: { type: string, format: uuid }
+        equipmentId: { type: string, format: uuid }
+        userPackageItemId: { type: string, format: uuid }
+        startAt: { type: string, format: date-time }
+        deliveryType: { type: string, enum: [IN_STORE, HOME_SERVICE] }
+        homeAddress: { type: string }
+        destLatitude: { type: number }
+        destLongitude: { type: number }
+        customerNotes: { type: string }
+    AuthResponseEnvelope:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            user: { type: object }
+            tokens:
+              type: object
+              properties:
+                accessToken: { type: string }
+                refreshToken: { type: string }
+                expiresIn: { type: integer }

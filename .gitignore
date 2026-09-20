@@ -1,0 +1,42 @@
+# deps
+node_modules/
+.pnpm-store/
+
+# project-local dev stack (Postgres + Redis binaries + data)
+.devstack/
+
+# build output
+dist/
+build/
+.turbo/
+coverage/
+*.tsbuildinfo
+
+# expo / react-native (apps/mobile)
+.expo/
+apps/mobile/.expo/
+*.jks
+*.p8
+*.p12
+*.mobileprovision
+apps/mobile/ios/
+apps/mobile/android/
+
+# env
+.env
+.env.*
+!.env.example
+
+# prisma
+apps/backend/prisma/migrations/dev.db*
+
+# uploads (local dev storage)
+apps/backend/uploads/*
+!apps/backend/uploads/.gitkeep
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.log

@@ -1,0 +1,11 @@
+# Page override — Branches / Locations (`/branches`, `/branches/closures`)
+
+> Overrides `../MASTER.md` for the map-centric location console.
+
+- **Layout:** three-pane at `xl` — a `BranchStatsRow` (4 local `StatCard`s, not shared `CardCount`: icon chip + figure + context line + progress bar; first card is a 2-segment open/closed bar; compact `p-2.5`) spans the top; below it a left `BranchListPanel` (province-grouped, collapsible "layer list" + text search, sticky), a centre `LaoProvinceMap` (inline SVG choropleth shaded by branch count, centroid-anchored pins, fanned when >1 per province), and a right `BranchDetailPanel`. Below `lg` the map collapses first, then the panels stack.
+- **Detail panel:** header icon tile + "open now" strip (pulsing `--color-success` dot, `openUntil` / `opensAt`) + 3 `MiniStats` (staff count, next-7d appts, hrs/week) + `BranchLocatorMap` (single-province SVG crop) + action row (`tel:` / Google Maps directions+search / copy address).
+- **Add/Edit:** centered `BranchFormDialog` (`max-w-2xl`) mirroring `ServiceFormDialog` — icon-tile header + subtitle, RHF + zod, sectioned (info / address+location / hours / status) with `Field` + `SettingRow` + `Toggle` helpers, computed hrs/day hint. **`Toggle` must be controlled** (`watch` + `setValue`), never `{...register}` — `reset()` does not resync a bare `sr-only` checkbox, which strands the switch off in edit mode.
+- **In-form map picker:** real Leaflet + OpenStreetMap tiles; gold `L.divIcon` pin; click/drag → lat/lng into the form; number inputs reverse-sync the marker; "use my location" = `navigator.geolocation`. Degrades to a blank pannable map with no network.
+- **Province:** `province` is a real `Branch` column (migration `phase2_admin_web`); slug set is the 18 Lao first-level areas, shared with `@abcp/shared-types` `laoProvinceSchema`.
+- **Closures (`/branches/closures`):** plain bordered form row (date `DateField` + branch `Select` incl. "All branches" + reason) above a `Table`; `branches:manage` gates add/delete. `branchId: 'all'` = company-wide (stored as `null`). Backend `GET/POST/DELETE /branch-closures`.
+- **Colour:** status filter toggles in the stats row use `--color-success` (open) / `--color-muted-foreground` (closed). No `dark:` literals — project tokens carry dark mode.

@@ -1,0 +1,280 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Design tokens — mirror of docs/design.md §1 / design-system/aura-admin/MASTER.md.
+ * Colours are stored as `H S% L%` channels so Tailwind alpha modifiers work
+ * (e.g. `bg-primary/40`). Do not hardcode hex in components — use the token classes.
+ * Dark mode (design.md §1.5) re-points the same tokens under `.dark` — component
+ * code never needs a `dark:` variant.
+ */
+@layer base {
+  :root {
+    /* Surfaces */
+    --background: 210 40% 98%; /* #F6F9FC — faint sky tint */
+    --foreground: 210 24% 14%; /* #1B2732 */
+    --card: 0 0% 100%; /* #FFFFFF */
+    --card-foreground: 210 24% 14%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 210 24% 14%;
+
+    /*
+     * Brand — cool tonal ramp (4 steps in one hue family).
+     * Switchable at runtime via [data-theme] (Settings ▸ Appearance) — the
+     * blocks below only re-point these same 5 vars, nothing else moves.
+     *   subtle  → tinted fills (active nav row, soft chips)
+     *   primary → default fill (buttons, links)
+     *   hover   → hover / focus fill
+     *   strong  → pressed state, heading accents
+     */
+    --primary-subtle: 204 94% 94%; /* Sky-100  #E0F2FE */
+    --primary: 201 96% 32%; /* Azure   #0369A1 (sky-700) — 5.7:1 on white */
+    --primary-hover: 200 98% 39%; /* Sky-600  #0284C7 */
+    --primary-strong: 201 90% 27%; /* Sky-800  #075985 */
+    --primary-foreground: 0 0% 100%;
+    --accent: 46 65% 52%; /* Soft Gold #D4AF37 — VIP / highlight only */
+    --accent-soft: 38 56% 74%; /* Champagne #E2C799 */
+    --accent-foreground: 45 100% 11%; /* #3A2E00 */
+
+    /* Neutrals — cooled toward blue */
+    --muted: 210 50% 95%; /* #EAF2FA */
+    --muted-foreground: 209 15% 37%; /* #51606E — 6.4:1 on white */
+    --border: 210 40% 90%; /* #DCE6F0 */
+    --input: 208 36% 84%; /* #C6D6E4 */
+    --ring: 199 89% 48%; /* focus ring = Sky #0EA5E9 */
+
+    /* Semantic status */
+    --success: 142 71% 29%; /* #15803D */
+    --success-soft: 141 78% 93%; /* #DCFCE7 */
+    --success-foreground: 0 0% 100%;
+    --warning: 27 90% 37%; /* #B45309 */
+    --warning-soft: 48 96% 89%; /* #FEF3C7 */
+    --warning-foreground: 0 0% 100%;
+    --destructive: 0 74% 42%; /* #B91C1C */
+    --destructive-soft: 0 93% 94%; /* #FEE2E2 */
+    --destructive-foreground: 0 0% 100%;
+    --info: 192 91% 36%; /* Cyan #0891B2 — distinct from brand azure */
+    --info-soft: 190 78% 92%; /* #D6F4FB */
+    --info-foreground: 0 0% 100%;
+
+    /* Charts (design.md §13) */
+    --chart-1: 200 98% 39%; /* Sky #0284C7 */
+    --chart-2: 46 65% 52%; /* Soft Gold #D4AF37 */
+    --chart-3: 262 83% 58%; /* Violet #7C3AED */
+    --chart-4: 175 84% 32%; /* Teal #0D9488 */
+    --chart-5: 330 81% 52%; /* Pink #DB2777 */
+    --chart-6: 27 90% 37%; /* Amber #B45309 */
+
+    --radius: 10px;
+  }
+
+  /*
+   * Alternate brand tones — same cool family, same 4-step ramp shape.
+   * Only the 5 --primary* / --ring / --chart-1 vars change; surfaces,
+   * neutrals and status colours stay identical so contrast holds.
+   * Default (no attribute) = Azure above.
+   */
+  [data-theme='teal'] {
+    --primary-subtle: 167 85% 89%; /* #CCFBF1 */
+    --primary: 175 77% 26%; /* Teal-700 #0F766E — 4.9:1 on white */
+    --primary-hover: 175 84% 32%; /* Teal-600 #0D9488 */
+    --primary-strong: 176 69% 22%; /* Teal-800 #115E59 */
+    --ring: 173 80% 40%; /* Teal-500 #14B8A6 */
+    --chart-1: 175 84% 32%;
+  }
+
+  [data-theme='indigo'] {
+    --primary-subtle: 226 100% 94%; /* #E0E7FF */
+    --primary: 245 58% 51%; /* Indigo-700 #4338CA — 7.0:1 on white */
+    --primary-hover: 243 75% 59%; /* Indigo-600 #4F46E5 */
+    --primary-strong: 244 55% 41%; /* Indigo-800 #3730A3 */
+    --ring: 239 84% 67%; /* Indigo-500 #6366F1 */
+    --chart-1: 243 75% 59%;
+  }
+
+  [data-theme='cobalt'] {
+    --primary-subtle: 214 95% 93%; /* #DBEAFE */
+    --primary: 224 76% 48%; /* Blue-700 #1D4ED8 — 6.5:1 on white */
+    --primary-hover: 221 83% 53%; /* Blue-600 #2563EB */
+    --primary-strong: 226 71% 40%; /* Blue-800 #1E40AF */
+    --ring: 217 91% 60%; /* Blue-500 #3B82F6 */
+    --chart-1: 221 83% 53%;
+  }
+
+  /*
+   * Dark mode — toggled by adding `.dark` to <html> (Settings ▸ Appearance,
+   * driven by useUiStore.colorMode). Surfaces invert; brand primaries move to
+   * a brighter step of the same ramp since they now sit on a dark card instead
+   * of white, so `--primary-foreground` flips to a dark ink for contrast.
+   * Deliberately soft, not OLED-black-and-neon: background is a desaturated
+   * charcoal (not nea-black), foreground stops short of pure white, and every
+   * saturated colour (primary/accent/status/chart) is pulled down a notch so
+   * nothing reads as glaring on a dark surface.
+   */
+  .dark {
+    --background: 222 18% 12%; /* #171B22 */
+    --foreground: 210 14% 85%; /* #CBD1D8 */
+    --card: 220 16% 15%; /* #1D222B */
+    --card-foreground: 210 14% 85%;
+    --popover: 220 16% 15%;
+    --popover-foreground: 210 14% 85%;
+
+    --primary-subtle: 201 35% 20%;
+    --primary: 199 75% 52%; /* Sky-500, softened from Sky-400 */
+    --primary-hover: 199 80% 58%;
+    --primary-strong: 201 70% 40%;
+    --primary-foreground: 222 18% 10%; /* dark ink — primary is now a bright fill */
+    --accent: 46 55% 55%;
+    --accent-soft: 38 28% 26%;
+    --accent-foreground: 45 90% 12%;
+
+    --muted: 220 14% 19%;
+    --muted-foreground: 210 12% 63%; /* 5:1 on card */
+    --border: 220 12% 24%;
+    --input: 220 12% 28%;
+    --ring: 199 75% 52%;
+
+    --success: 142 45% 38%;
+    --success-soft: 142 30% 17%;
+    --warning: 27 65% 42%;
+    --warning-soft: 32 32% 18%;
+    --destructive: 0 55% 46%;
+    --destructive-soft: 0 30% 19%;
+    --info: 192 60% 38%;
+    --info-soft: 192 30% 18%;
+
+    --chart-1: 199 75% 52%;
+    --chart-2: 46 55% 55%;
+    --chart-3: 262 55% 62%;
+    --chart-4: 175 48% 42%;
+    --chart-5: 330 50% 56%;
+    --chart-6: 32 65% 46%;
+  }
+
+  .dark[data-theme='teal'] {
+    --primary-subtle: 173 30% 18%;
+    --primary: 173 55% 40%;
+    --primary-hover: 173 58% 46%;
+    --primary-strong: 175 50% 30%;
+    --ring: 173 55% 44%;
+    --chart-1: 173 55% 40%;
+  }
+
+  .dark[data-theme='indigo'] {
+    --primary-subtle: 245 28% 22%;
+    --primary: 239 55% 60%;
+    --primary-hover: 243 58% 65%;
+    --primary-strong: 244 45% 48%;
+    --ring: 239 55% 60%;
+    --chart-1: 239 55% 60%;
+  }
+
+  .dark[data-theme='cobalt'] {
+    --primary-subtle: 221 30% 20%;
+    --primary: 213 60% 54%;
+    --primary-hover: 217 62% 58%;
+    --primary-strong: 224 50% 46%;
+    --ring: 217 62% 54%;
+    --chart-1: 213 60% 54%;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: theme('fontFamily.sans');
+    font-feature-settings: 'cv11', 'ss01';
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* ຕົວເລກ/ເຄື່ອງໝາຍທີ່ຢູ່ໃນປະໂຫຍກລາວ ຕ້ອງມາຈາກຟອນລາວອັນດຽວກັນ — Plus Jakarta Sans/Playfair Display ມີ
+     ໂຕເລກຂອງມັນເອງ (ບໍ່ dependent ໃສ່ fallback) ເຮັດໃຫ້ໂຕເລກໜ້າຕາບໍ່ຄືກັນກັບໂຕໜັງສືລາວອ້ອມຂ້າງເມື່ອຢູ່ໃນ
+     ປະໂຫຍກດຽວກັນ — ແກ້ໂດຍໃຫ້ຟອນລາວມາກ່ອນໃນ locale ນີ້ (ເບິ່ງ tailwind.config.ts `fontFamily.lao`). */
+  :lang(lo) {
+    line-height: 1.6;
+    font-family: theme('fontFamily.lao');
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: theme('fontFamily.display');
+    font-weight: 600;
+  }
+
+  /* Same digit-mismatch fix as above, scoped to the serif display font so Lao headings keep their
+     serif treatment (Noto Serif Lao) instead of jumping to the sans family for just the numbers. */
+  :lang(lo) h1,
+  :lang(lo) h2,
+  :lang(lo) h3 {
+    font-family: theme('fontFamily.display-lao');
+  }
+
+  /* Visible keyboard focus everywhere (design.md §10) — never removed */
+  :focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px hsl(var(--ring) / 0.4);
+    border-radius: 4px;
+  }
+
+  /* Numeric alignment in data-dense views (design.md §9) */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/*
+ * "Print only this element" isolation for single-document dialogs (e.g. the
+ * purchase-order print view). Scoped behind `body.printing-po` — toggled by
+ * the triggering component right before `window.print()` and removed on
+ * `afterprint` — so it never affects the app shell or any other print flow
+ * (the reports module prints the whole page and does not use this class).
+ */
+@media print {
+  body.printing-po * {
+    visibility: hidden;
+  }
+  body.printing-po .po-print-area,
+  body.printing-po .po-print-area * {
+    visibility: visible;
+  }
+  /* Reset the Radix dialog surface (fixed + centered + clipped) back to a
+     normal static block so the printable content can flow and paginate. */
+  body.printing-po [role='dialog'] {
+    position: static !important;
+    transform: none !important;
+    inset: auto !important;
+    max-width: none !important;
+    width: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+  }
+  body.printing-po [role='dialog'] > *:not(.po-print-area) {
+    display: none !important;
+  }
+}

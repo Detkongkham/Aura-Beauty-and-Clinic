@@ -1,0 +1,12 @@
+// Prisma Schema Folder — ໂຕແບບຄົບ 37 ໂມດູນ ຖືກແຍກຕາມ domain ໃນ *.prisma ໄຟລ໌ອື່ນ.
+// ອ້າງອີງ: implementation_plan.md §2 (Master Database Schema).
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["prismaSchemaFolder"]
+}

@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * ຄ່າເລີ່ມຕົ້ນຂອງ token (ໂທນ azure · ໂໝດສະຫວ່າງ) — ຊຸດດຽວກັນກັບ apps/web-admin/src/index.css.
+ * ຄ່າຈິງຕອນ runtime ຖືກປ້ອນທັບໂດຍ src/theme/ThemeProvider.tsx ດ້ວຍ `vars()` ຕາມ
+ * ໂທນ/ໂໝດ ທີ່ຜູ້ໃຊ້ເລືອກ (ໂປຣໄຟລ໌ ▸ ຮູບລັກສະນະ). ບ່ອນນີ້ມີໄວ້ເປັນ fallback ກ່ອນ
+ * store hydrate ເທົ່ານັ້ນ — ຢ່າແກ້ບ່ອນດຽວ, ແກ້ src/theme/palette.ts ນຳ.
+ */
+@layer base {
+  :root {
+    --color-background: 248 250 252; /* #F8FAFC */
+    --color-foreground: 27 36 44; /* #1B242C */
+    --color-card: 255 255 255; /* #FFFFFF */
+    --color-card-foreground: 27 36 44; /* #1B242C */
+    --color-popover: 255 255 255; /* #FFFFFF */
+    --color-popover-foreground: 27 36 44; /* #1B242C */
+    --color-primary-subtle: 225 243 254; /* #E1F3FE */
+    --color-primary: 3 105 160; /* #0369A0 */
+    --color-primary-hover: 2 132 197; /* #0284C5 */
+    --color-primary-strong: 7 87 131; /* #075783 */
+    --color-primary-foreground: 255 255 255; /* #FFFFFF */
+    --color-accent: 212 175 53; /* #D4AF35 */
+    --color-accent-soft: 226 199 152; /* #E2C798 */
+    --color-accent-foreground: 56 42 0; /* #382A00 */
+    --color-muted: 236 242 249; /* #ECF2F9 */
+    --color-muted-foreground: 80 95 109; /* #505F6D */
+    --color-border: 219 230 240; /* #DBE6F0 */
+    --color-input: 200 215 229; /* #C8D7E5 */
+    --color-ring: 13 162 231; /* #0DA2E7 */
+    --color-success: 21 126 60; /* #157E3C */
+    --color-success-soft: 223 251 233; /* #DFFBE9 */
+    --color-success-foreground: 255 255 255; /* #FFFFFF */
+    --color-warning: 179 86 9; /* #B35609 */
+    --color-warning-soft: 254 243 200; /* #FEF3C8 */
+    --color-warning-foreground: 255 255 255; /* #FFFFFF */
+    --color-destructive: 186 28 28; /* #BA1C1C */
+    --color-destructive-soft: 254 225 225; /* #FEE1E1 */
+    --color-destructive-foreground: 255 255 255; /* #FFFFFF */
+    --color-info: 8 142 175; /* #088EAF */
+    --color-info-soft: 219 245 251; /* #DBF5FB */
+    --color-info-foreground: 255 255 255; /* #FFFFFF */
+    --color-chart-1: 2 132 197; /* #0284C5 */
+    --color-chart-2: 212 175 53; /* #D4AF35 */
+    --color-chart-3: 124 59 237; /* #7C3BED */
+    --color-chart-4: 13 150 139; /* #0D968B */
+    --color-chart-5: 232 33 133; /* #E82185 */
+    --color-chart-6: 179 86 9; /* #B35609 */
+    --color-aura-50: 240 249 255; /* #F0F9FF */
+    --color-aura-100: 224 242 254; /* #E0F2FE */
+    --color-aura-200: 186 230 253; /* #BAE6FD */
+    --color-aura-300: 125 211 252; /* #7DD3FC */
+    --color-aura-400: 56 189 248; /* #38BDF8 */
+    --color-aura-500: 14 165 233; /* #0EA5E9 */
+    --color-aura-600: 2 132 199; /* #0284C7 */
+    --color-aura-700: 3 105 161; /* #0369A1 */
+    --color-aura-900: 8 47 73; /* #082F49 */
+    --color-champagne: 226 199 152; /* #E2C798 */
+  }
+}

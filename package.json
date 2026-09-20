@@ -1,0 +1,33 @@
+{
+  "name": "abcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Aura Beauty & Clinic Platform — monorepo",
+  "packageManager": "pnpm@11.24.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "predev": "bash scripts/devstack.sh start",
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "db:generate": "turbo run db:generate",
+    "db:migrate": "pnpm --filter @abcp/backend db:migrate",
+    "db:seed": "pnpm --filter @abcp/backend db:seed",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "db:setup": "bash scripts/devstack.sh setup",
+    "db:up": "bash scripts/devstack.sh start",
+    "db:down": "bash scripts/devstack.sh stop",
+    "db:status": "bash scripts/devstack.sh status",
+    "db:psql": "bash scripts/devstack.sh psql"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3",
+    "turbo": "^2.1.3",
+    "typescript": "^5.6.2"
+  }
+}

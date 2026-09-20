@@ -1,0 +1,120 @@
+// ໝວດ: Staff, Working Hours, Attendance, KPI — ໂມດູນ 03, 09, 25, 26, 34
+
+enum AttendanceStatus {
+  ON_TIME
+  LATE
+  OVERTIME
+  ABSENT
+}
+
+model StaffProfile {
+  id             String    @id @default(uuid())
+  userId         String    @unique
+  title          String
+  bio            String?
+  commissionRate Float     @default(0.0)
+  rating         Float     @default(5.0)
+  totalReviews   Int       @default(0)
+  isActive       Boolean   @default(true)
+  deletedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  /// ໂມດູນ 29 — ຊ່າງເປີດຮັບວຽກ Home Service ຢູ່ບໍ່ (ສະຫຼັບເອງໃນແອັບມືຖື).
+  isHomeServiceAvailable Boolean   @default(false)
+  lastKnownLatitude      Float?
+  lastKnownLongitude     Float?
+  lastLocationAt         DateTime?
+
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  staffBranches    StaffBranch[]
+  workingHours     WorkingHour[]
+  timeOffs         StaffTimeOff[]
+  staffServices    StaffService[]
+  appointments     Appointment[]     @relation("StaffAppointments")
+  commissions      StaffCommission[]
+  attendances      StaffAttendance[]
+  kpiGoals         StaffKpiGoal[]
+  homeServiceTrips HomeServiceTrip[] @relation("HomeServiceTrips")
+
+  @@map("staff_profiles")
+}
+
+model StaffBranch {
+  id             String  @id @default(uuid())
+  staffProfileId String
+  branchId       String
+  isPrimary      Boolean @default(false)
+
+  staffProfile StaffProfile @relation(fields: [staffProfileId], references: [id], onDelete: Cascade)
+  branch       Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([staffProfileId, branchId])
+  @@map("staff_branches")
+}
+
+model WorkingHour {
+  id             String   @id @default(uuid())
+  staffProfileId String
+  dayOfWeek      Int
+  startTime      String
+  endTime        String
+  breakStartTime String?
+  breakEndTime   String?
+  isDayOff       Boolean  @default(false)
+  updatedAt      DateTime @updatedAt
+
+  staffProfile StaffProfile @relation(fields: [staffProfileId], references: [id], onDelete: Cascade)
+
+  @@map("working_hours")
+}
+
+model StaffTimeOff {
+  id             String   @id @default(uuid())
+  staffProfileId String
+  startDate      DateTime
+  endDate        DateTime
+  reason         String?
+  isApproved     Boolean  @default(false)
+  /// ສະຖານະຄຳຮ້ອງ: PENDING | APPROVED | REJECTED (ໃຊ້ໃນໜ້າອະນຸມັດຂອງ Web Admin).
+  /// `isApproved` ຍັງຖືກ sync ໄວ້ໃຫ້ slot engine.
+  status         String   @default("PENDING")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  staffProfile StaffProfile @relation(fields: [staffProfileId], references: [id], onDelete: Cascade)
+
+  @@map("staff_time_offs")
+}
+
+model StaffAttendance {
+  id             String           @id @default(uuid())
+  staffProfileId String
+  date           DateTime         @db.Date
+  checkIn        DateTime
+  checkOut       DateTime?
+  latitude       Float?
+  longitude      Float?
+  status         AttendanceStatus @default(ON_TIME)
+  createdAt      DateTime         @default(now())
+
+  staffProfile StaffProfile @relation(fields: [staffProfileId], references: [id], onDelete: Cascade)
+
+  @@map("staff_attendances")
+}
+
+model StaffKpiGoal {
+  id             String   @id @default(uuid())
+  staffProfileId String
+  monthYear      String
+  targetRevenue  Decimal  @db.Decimal(16, 2)
+  actualRevenue  Decimal  @default(0.0) @db.Decimal(16, 2)
+  bonusAmount    Decimal  @default(0.0) @db.Decimal(16, 2)
+  isBonusPaid    Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  staffProfile StaffProfile @relation(fields: [staffProfileId], references: [id], onDelete: Cascade)
+
+  @@map("staff_kpi_goals")
+}

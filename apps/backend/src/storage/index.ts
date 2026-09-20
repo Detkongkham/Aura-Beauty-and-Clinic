@@ -1,0 +1,19 @@
+import { env } from '../config/env.js';
+import { LocalDiskStorage } from './localDisk.js';
+
+export interface StorageAdapter {
+  /** ບັນທຶກ buffer, ຄືນ public URL. */
+  save(key: string, data: Buffer, contentType?: string): Promise<{ url: string; key: string }>;
+  delete(key: string): Promise<void>;
+  url(key: string): string;
+}
+
+function createStorage(): StorageAdapter {
+  switch (env.STORAGE_DRIVER) {
+    case 'local':
+    default:
+      return new LocalDiskStorage(env.STORAGE_LOCAL_DIR, env.STORAGE_PUBLIC_URL);
+  }
+}
+
+export const storage: StorageAdapter = createStorage();
