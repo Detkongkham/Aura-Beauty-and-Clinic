@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AppointmentStatus } from './enums.js';
+import type { AppointmentStatus } from './enums.js';
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * Packages (ຄອສ/ແພັກເກັດ) — ລູກຄ້າຊື້ເອງໃນແອັບ ແລ້ວໃຊ້ສິດຈອງບໍລິການ.
@@ -129,7 +129,7 @@ export type UserPackageUsageView = {
   serviceId: string;
   serviceName: string;
   startAt: string;
-  status: z.infer<typeof AppointmentStatus>;
+  status: AppointmentStatus;
   staffName: string | null;
   /** ນັດຖືກຍົກເລີກ/ບໍ່ມາ → ສິດຖືກຄືນເຂົ້າແພັກເກັດແລ້ວ. */
   returned: boolean;

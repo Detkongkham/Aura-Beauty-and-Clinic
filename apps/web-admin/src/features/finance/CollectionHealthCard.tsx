@@ -27,6 +27,7 @@ const STATUS_DOT: Record<PaymentStatus, string> = {
   PENDING: 'bg-warning',
   REFUNDED: 'bg-muted-foreground/50',
   FAILED: 'bg-destructive',
+  VOIDED: 'bg-muted-foreground/30',
 };
 
 const AGING_TONE: Record<AgingBucket, string> = {

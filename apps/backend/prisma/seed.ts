@@ -494,6 +494,77 @@ async function main(): Promise<void> {
     });
   }
 
+  // ---- Module 39 W1: ທະນາຄານລາວ + provider adapter config -------------------
+  const banks: Array<{
+    code: string;
+    nameLo: string;
+    nameEn: string;
+    supportsQr: boolean;
+  }> = [
+    { code: 'BCEL', nameLo: 'ທະນາຄານການຄ້າຕ່າງປະເທດລາວ', nameEn: 'BCEL', supportsQr: true },
+    { code: 'LDB', nameLo: 'ທະນາຄານພັດທະນາລາວ', nameEn: 'Lao Development Bank', supportsQr: true },
+    { code: 'JDB', nameLo: 'ທະນາຄານຮ່ວມພັດທະນາ', nameEn: 'Joint Development Bank', supportsQr: false },
+    { code: 'APB', nameLo: 'ທະນາຄານສົ່ງເສີມກະສິກຳ', nameEn: 'Agricultural Promotion Bank', supportsQr: false },
+    { code: 'ST_BANK', nameLo: 'ທະນາຄານ ເອສທີ', nameEn: 'ST Bank', supportsQr: true },
+    { code: 'LAO_VIET', nameLo: 'ທະນາຄານຮ່ວມທຸລະກິດລາວ-ຫວຽດ', nameEn: 'Lao-Viet Bank', supportsQr: true },
+    { code: 'BIC', nameLo: 'ທະນາຄານການຄ້າຕ່າງປະເທດລາວ ມະຫາຊົນ', nameEn: 'BIC Bank', supportsQr: false },
+  ];
+  for (const b of banks) {
+    await prisma.bank.upsert({ where: { code: b.code }, update: {}, create: b });
+  }
+
+  const providers: Array<{
+    code: string;
+    nameLo: string;
+    nameEn: string;
+    mode: string;
+  }> = [
+    { code: 'MOCK_BCEL', nameLo: 'BCEL One (ຈຳລອງ)', nameEn: 'BCEL One (mock)', mode: 'MOCK' },
+    { code: 'MOCK_LAO_QR', nameLo: 'ລາວ QR ມາດຕະຖານ (ຈຳລອງ)', nameEn: 'Lao QR standard (mock)', mode: 'MOCK' },
+    { code: 'MANUAL_TRANSFER', nameLo: 'ໂອນເງິນດ້ວຍມື', nameEn: 'Manual bank transfer', mode: 'MOCK' },
+  ];
+  for (const p of providers) {
+    await prisma.paymentProvider.upsert({ where: { code: p.code }, update: {}, create: p });
+  }
+
+  const bcel = await prisma.bank.findUniqueOrThrow({ where: { code: 'BCEL' } });
+  const defaultAccount = await prisma.bankAccount.findFirst({
+    where: { branchId: branch.id, bankId: bcel.id },
+  });
+  if (!defaultAccount) {
+    await prisma.bankAccount.create({
+      data: {
+        bankId: bcel.id,
+        branchId: branch.id,
+        accountName: 'Aura Beauty and Clinic',
+        accountNumber: '010120001234567',
+        isDefault: true,
+      },
+    });
+  }
+
+  // ---- Module 39 W4: ໝວດລາຍຈ່າຍມາດຕະຖານ --------------------------------------
+  const expenseCategories: Array<{
+    code: string;
+    nameLo: string;
+    nameEn: string;
+    kind: 'OPERATING' | 'PAYROLL' | 'INVENTORY';
+    sortOrder: number;
+  }> = [
+    { code: 'RENT', nameLo: 'ຄ່າເຊົ່າ', nameEn: 'Rent', kind: 'OPERATING', sortOrder: 10 },
+    { code: 'SALARY', nameLo: 'ເງິນເດືອນ', nameEn: 'Salaries', kind: 'PAYROLL', sortOrder: 20 },
+    { code: 'MATERIALS', nameLo: 'ວັດຖຸດິບ / ສິນຄ້າ', nameEn: 'Materials & stock', kind: 'INVENTORY', sortOrder: 30 },
+    { code: 'UTILITIES', nameLo: 'ຄ່າໄຟ / ນ້ຳ / ອິນເຕີເນັດ', nameEn: 'Utilities', kind: 'OPERATING', sortOrder: 40 },
+    { code: 'MARKETING', nameLo: 'ການຕະຫຼາດ', nameEn: 'Marketing', kind: 'OPERATING', sortOrder: 50 },
+    { code: 'TRANSPORT', nameLo: 'ຂົນສົ່ງ', nameEn: 'Transport', kind: 'OPERATING', sortOrder: 60 },
+    { code: 'MAINTENANCE', nameLo: 'ບຳລຸງຮັກສາ', nameEn: 'Maintenance', kind: 'OPERATING', sortOrder: 70 },
+    { code: 'TAX', nameLo: 'ພາສີ / ຄ່າທຳນຽມ', nameEn: 'Taxes & fees', kind: 'OPERATING', sortOrder: 80 },
+    { code: 'OTHER', nameLo: 'ອື່ນໆ', nameEn: 'Other', kind: 'OPERATING', sortOrder: 90 },
+  ];
+  for (const c of expenseCategories) {
+    await prisma.expenseCategory.upsert({ where: { code: c.code }, update: {}, create: c });
+  }
+
   console.log('✅ Seed ສຳເລັດ', {
     branch: branch.name,
     superAdmin: superAdmin.phone,
@@ -504,6 +575,9 @@ async function main(): Promise<void> {
     notificationTemplates: notificationTemplates.length,
     packages: seedPackages.length,
     depositRate: 0.2,
+    banks: banks.length,
+    paymentProviders: providers.length,
+    expenseCategories: expenseCategories.length,
   });
 }
 

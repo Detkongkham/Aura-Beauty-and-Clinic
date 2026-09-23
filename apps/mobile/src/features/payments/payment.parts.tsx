@@ -1,44 +1,20 @@
 import type { GiftCardView, PaymentTransactionView, PaymentView } from '@abcp/shared-types';
-import { Ionicons } from '@expo/vector-icons';
-import * as Clipboard from 'expo-clipboard';
-import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ScrollView, Switch, View } from 'react-native';
-import QRCode from 'react-native-qrcode-svg';
 import { Touchable } from '../../components/ui/Touchable';
 import { cn } from '../../lib/cn';
 import { formatLAK, formatTime, formatDate } from '../../lib/format';
-import { haptics } from '../../lib/haptics';
 import { colors } from '../../theme';
 import {
   Card,
   IconTile,
   MoneyRow,
-  NUM,
   Pill,
   SMALL,
   T,
   TOTAL,
   type IconName,
 } from '../booking/booking-kit';
-
-/** ໂມງນັບຖອຍຫຼັງ (ວິນາທີທີ່ເຫຼືອ) — tick ທຸກ 1 ວິ. */
-export function useCountdown(expiresAt: string | null): number | null {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!expiresAt) return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [expiresAt]);
-  if (!expiresAt) return null;
-  return Math.max(0, Math.floor((new Date(expiresAt).getTime() - now) / 1000));
-}
-
-function mmss(sec: number): string {
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
 
 /** ບັດບໍລິບົດນັດ — ບໍລິການ · ວັນ-ເວລາ · ສາຂາ. */
 export function AppointmentContext({
@@ -111,141 +87,6 @@ export function BillSummary({ bill }: { bill: PaymentView }): React.JSX.Element 
           <MoneyRow label={t('payment.deposit')} value={formatLAK(bill.depositAmount)} />
         ) : null}
         <MoneyRow label={t('payment.paid')} value={formatLAK(bill.paidAmount)} tone={bill.paidAmount > 0 ? 'success' : undefined} />
-      </View>
-    </Card>
-  );
-}
-
-/** ກ່ອນສ້າງ QR — ອະທິບາຍ 3 ຂັ້ນ. */
-export function DepositIntro({ amount }: { amount: number }): React.JSX.Element {
-  const { t } = useTranslation();
-  const steps = [t('payment.qrStep1'), t('payment.qrStep2'), t('payment.qrStep3')];
-  return (
-    <Card flat className="gap-3 p-3.5">
-      <View className="flex-row items-center gap-3">
-        <IconTile icon="qr-code-outline" size={40} />
-        <View className="flex-1">
-          <T className="font-lao-semibold text-foreground">{t('payment.bcelTitle')}</T>
-          <T className="font-lao text-muted-foreground" style={SMALL}>
-            {t('payment.bcelDesc')}
-          </T>
-        </View>
-        <T className="font-lao-semibold text-primary-strong" style={NUM}>
-          {formatLAK(amount)}
-        </T>
-      </View>
-      <View className="gap-2 border-t border-border/70 pt-3">
-        {steps.map((s, i) => (
-          <View key={i} className="flex-row items-center gap-2.5">
-            <View className="h-5 w-5 items-center justify-center rounded-full bg-primary-subtle">
-              <T className="font-sans-semibold text-primary-strong" style={SMALL}>
-                {i + 1}
-              </T>
-            </View>
-            <T className="flex-1 font-lao text-foreground">{s}</T>
-          </View>
-        ))}
-      </View>
-    </Card>
-  );
-}
-
-/** ບັດ QR — ຈຳນວນ, ໂມງນັບຖອຍຫຼັງ, ຄັດລອກເລກອ້າງອີງ. */
-export function QrCard({
-  payload,
-  amount,
-  reference,
-  expiresAt,
-  onRegenerate,
-}: {
-  payload: string;
-  amount: number;
-  reference: string;
-  expiresAt: string;
-  onRegenerate: () => void;
-}): React.JSX.Element {
-  const { t } = useTranslation();
-  const left = useCountdown(expiresAt) ?? 0;
-  const expired = left === 0;
-  const [copied, setCopied] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => {
-    if (timer.current) clearTimeout(timer.current);
-  }, []);
-
-  const copy = async (): Promise<void> => {
-    await Clipboard.setStringAsync(reference);
-    haptics.select();
-    setCopied(true);
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setCopied(false), 1800);
-  };
-
-  return (
-    <Card className="items-center gap-3 p-4">
-      <View className="w-full flex-row items-center justify-between">
-        <T className="font-lao-semibold text-foreground">{t('payment.scanTitle')}</T>
-        <Pill
-          tone={expired ? 'destructive' : left < 60 ? 'warning' : 'muted'}
-          icon="timer-outline"
-          label={expired ? t('payment.qrExpired') : t('payment.expiresIn', { time: mmss(left) })}
-        />
-      </View>
-
-      <View
-        className={cn('rounded-2xl border border-border bg-card p-3', expired && 'opacity-30')}
-        accessibilityLabel={t('payment.scanTitle')}
-      >
-        <QRCode value={payload} size={176} />
-      </View>
-
-      <View className="items-center">
-        <T className="font-lao text-muted-foreground" style={SMALL}>
-          {t('payment.amountToPay')}
-        </T>
-        <T className="font-lao-semibold text-foreground" style={TOTAL}>
-          {formatLAK(amount)}
-        </T>
-      </View>
-
-      {expired ? (
-        <Touchable
-          onPress={onRegenerate}
-          pressScale={0.96}
-          accessibilityRole="button"
-          className="h-9 flex-row items-center gap-1.5 rounded-full bg-primary-subtle px-4"
-        >
-          <Ionicons name="refresh" size={14} color={colors.primaryStrong} />
-          <T className="font-lao-semibold text-primary-strong">{t('payment.regenerate')}</T>
-        </Touchable>
-      ) : (
-        <Touchable
-          onPress={() => void copy()}
-          pressScale={0.96}
-          hitSlop={6}
-          accessibilityRole="button"
-          accessibilityLabel={t('payment.copyRef', { ref: reference })}
-          className="h-8 flex-row items-center gap-1.5 rounded-full bg-muted px-3"
-        >
-          <T className="font-lao text-muted-foreground" style={SMALL}>
-            {t('payment.refLabel')}
-          </T>
-          <T className="font-sans-semibold text-foreground" style={SMALL}>
-            {reference}
-          </T>
-          <Ionicons
-            name={copied ? 'checkmark-circle' : 'copy-outline'}
-            size={12}
-            color={copied ? colors.success : colors.mutedForeground}
-          />
-        </Touchable>
-      )}
-
-      <View className="w-full flex-row items-center justify-center gap-1.5 rounded-xl bg-warning-soft px-3 py-2">
-        <Ionicons name="flask-outline" size={12} color={colors.warning} />
-        <T className="font-lao text-warning" style={SMALL}>
-          {t('payment.mockHint')}
-        </T>
       </View>
     </Card>
   );
@@ -343,6 +184,8 @@ export function GiftCardChips({
 const METHOD_ICON: Record<string, IconName> = {
   CASH: 'cash-outline',
   BCEL_ONE_QR: 'qr-code-outline',
+  BANK_TRANSFER: 'swap-horizontal-outline',
+  BANK_QR: 'qr-code-outline',
   CREDIT_CARD: 'card-outline',
   GIFT_CARD: 'gift-outline',
   PACKAGE_CREDIT: 'albums-outline',

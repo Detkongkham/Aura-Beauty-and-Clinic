@@ -9,6 +9,10 @@ import { processMarketing } from './marketing.job.js';
 import { processHomeServiceSla } from './home-service-sla.job.js';
 import { processStockReconciliation } from './stock-reconciliation.job.js';
 import { processPaymentExpiry } from './payment-expiry.job.js';
+import { processSlipOcr } from './slip-ocr.job.js';
+import { processSlipSla } from './slip-sla.job.js';
+import { processRecurringExpense } from './recurring-expense.job.js';
+import { processReconReminder } from './reconciliation-reminder.job.js';
 
 /** Bootstrap ທຸກ BullMQ worker. ຮຽກຈາກ src/jobs/main.ts (process ແຍກ). */
 export function startWorkers(): Worker[] {
@@ -31,6 +35,21 @@ export function startWorkers(): Worker[] {
     concurrency: 1,
   });
 
+  const recurringExpenseWorker = new Worker(QueueName.RECURRING_EXPENSE, processRecurringExpense, {
+    connection,
+    concurrency: 1,
+  });
+
+  const reconReminderWorker = new Worker(QueueName.RECON_REMINDER, processReconReminder, {
+    connection,
+    concurrency: 1,
+  });
+
+  // OCR ໜັກ CPU (WASM) — ຈຳກັດ 2 ພ້ອມກັນ
+  const slipOcrWorker = new Worker(QueueName.SLIP_OCR, processSlipOcr, { connection, concurrency: 2 });
+
+  const slipSlaWorker = new Worker(QueueName.SLIP_SLA, processSlipSla, { connection, concurrency: 1 });
+
   const workers = [
     reminderWorker,
     waitlistWorker,
@@ -39,6 +58,10 @@ export function startWorkers(): Worker[] {
     homeServiceSlaWorker,
     stockReconcileWorker,
     paymentExpiryWorker,
+    recurringExpenseWorker,
+    reconReminderWorker,
+    slipOcrWorker,
+    slipSlaWorker,
   ];
   for (const w of workers) {
     w.on('failed', (job, err) => logger.error({ jobId: job?.id, err }, `${w.name} job failed`));
@@ -48,7 +71,7 @@ export function startWorkers(): Worker[] {
   void registerRepeatableJobs();
 
   logger.info(
-    '⚙️  BullMQ workers ເລີ່ມແລ້ວ (reminder, waitlist, marketing, chat-lock, home-service SLA, stock reconcile, payment expiry)',
+    '⚙️  BullMQ workers ເລີ່ມແລ້ວ (reminder, waitlist, marketing, chat-lock, home-service SLA, stock reconcile, payment expiry, recurring expense, slip OCR, slip SLA)',
   );
   return workers;
 }

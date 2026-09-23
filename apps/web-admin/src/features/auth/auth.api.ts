@@ -12,6 +12,11 @@ export const authApi = {
     return data.data;
   },
 
+  /** Revokes this device's session server-side. Best-effort — local sign-out never waits on it. */
+  async logout(refreshToken: string): Promise<void> {
+    await http.post('/auth/logout', { refreshToken });
+  },
+
   async me(): Promise<AuthUser> {
     const { data } = await http.get<Envelope<AuthUser>>('/auth/me');
     return data.data;

@@ -28,18 +28,22 @@ http.interceptors.request.use((config) => {
   return config;
 });
 
+const PUBLIC_AUTH_PATH = /\/auth\/(login|register|refresh|quick-login|logout)\b/;
+
 // --- Single-flight refresh: concurrent 401s share one refresh call ---
 let refreshPromise: Promise<string> | null = null;
 
 async function runRefresh(): Promise<string> {
   const refreshToken = authStore.getRefreshToken();
-  if (!refreshToken) throw new NormalizedApiError({ code: 'UNAUTHORIZED', message: 'No session', status: 401 });
+  if (!refreshToken)
+    throw new NormalizedApiError({ code: 'UNAUTHORIZED', message: 'No session', status: 401 });
 
-  const { data } = await axios.post<{ data: { user: unknown; tokens: { accessToken: string; refreshToken: string; expiresIn: number } } }>(
-    '/auth/refresh',
-    { refreshToken },
-    { baseURL: env.apiBaseUrl },
-  );
+  const { data } = await axios.post<{
+    data: {
+      user: unknown;
+      tokens: { accessToken: string; refreshToken: string; expiresIn: number };
+    };
+  }>('/auth/refresh', { refreshToken }, { baseURL: env.apiBaseUrl });
   const tokens = data.data.tokens;
   useAuthStore.getState().setTokens(tokens);
   return tokens.accessToken;
@@ -51,7 +55,10 @@ http.interceptors.response.use(
     const normalized = normalizeError(error);
     const original = (error as { config?: AxiosRequestConfig & { _retried?: boolean } }).config;
 
-    const isAuthEndpoint = typeof original?.url === 'string' && original.url.includes('/auth/');
+    // Only the credential-exchange endpoints are exempt; /auth/me/* are ordinary authed calls.
+    const isAuthEndpoint = typeof original?.url === 'string' && PUBLIC_AUTH_PATH.test(original.url);
+    // A wrong *current* password (change-password, PIN setup) is a 401 about the input, not the session.
+    if (normalized.code === 'INVALID_CREDENTIALS') throw normalized;
     const canRetry =
       normalized.status === 401 && original != null && !original._retried && !isAuthEndpoint;
 

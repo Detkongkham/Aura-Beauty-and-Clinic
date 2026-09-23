@@ -1,4 +1,5 @@
 import {
+  ArrowRightLeft,
   CreditCard,
   Gift,
   Landmark,
@@ -16,6 +17,8 @@ export const METHOD_ICON: Record<PaymentMethod, LucideIcon> = {
   GIFT_CARD: Gift,
   LOYALTY_POINTS: Star,
   PACKAGE_CREDIT: PiggyBank,
+  BANK_TRANSFER: ArrowRightLeft,
+  BANK_QR: QrCode,
 };
 
 /** Fixed method → chart-token color so a method keeps the same hue everywhere. */
@@ -55,5 +58,17 @@ export const METHOD_COLOR: Record<PaymentMethod, { bar: string; to: string; text
     to: 'to-[hsl(var(--chart-6))]',
     text: 'text-[hsl(var(--chart-6))]',
     hsl: 'hsl(var(--chart-6))',
+  },  // ໂມດູນ 39 — ໃຊ້ hue ຂອງຕະກູນດຽວກັນ (QR ຮ່ວມກັບ BCEL One QR); legend ມີປ້າຍຊື່ສະເໝີ ບໍ່ອີງສີຢ່າງດຽວ.
+  BANK_TRANSFER: {
+    bar: 'bg-[hsl(var(--chart-4))]',
+    to: 'to-[hsl(var(--chart-4))]',
+    text: 'text-[hsl(var(--chart-4))]',
+    hsl: 'hsl(var(--chart-4))',
+  },
+  BANK_QR: {
+    bar: 'bg-[hsl(var(--chart-2))]',
+    to: 'to-[hsl(var(--chart-2))]',
+    text: 'text-[hsl(var(--chart-2))]',
+    hsl: 'hsl(var(--chart-2))',
   },
 };

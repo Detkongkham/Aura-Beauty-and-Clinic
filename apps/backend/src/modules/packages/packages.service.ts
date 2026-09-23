@@ -13,6 +13,7 @@ import { notifyUser } from '../../services/push.js';
 import { ApiError } from '../../utils/ApiError.js';
 import { vientianeDateKey } from '../../utils/dateHelpers.js';
 import { dec, toNum } from '../../utils/money.js';
+import { exclusiveBillVat } from '../payments/vat.js';
 
 const DAY_MS = 86_400_000;
 
@@ -164,27 +165,32 @@ export async function purchasePackage(userId: string, packageId: string): Promis
 
   const existing = await prisma.userPackage.findFirst({
     where: { userId, packageId, status: 'PENDING_PAYMENT', purchasePaymentId: { not: null } },
-    select: { id: true, purchasePaymentId: true, purchasePayment: { select: { paymentStatus: true } } },
+    select: { id: true, purchasePaymentId: true, purchasePayment: { select: { paymentStatus: true, totalAmount: true } } },
     orderBy: { createdAt: 'desc' },
   });
   if (existing?.purchasePaymentId && existing.purchasePayment?.paymentStatus !== 'FULLY_PAID') {
     return {
       userPackageId: existing.id,
       paymentId: existing.purchasePaymentId,
-      amount: toNum(pkg.totalPrice),
+      amount: toNum(existing.purchasePayment?.totalAmount ?? pkg.totalPrice),
       currency: pkg.currency,
       packageName: pkg.name,
     };
   }
 
+  // VAT ແບບ EXCLUSIVE → ບວກພາສີເທິງລາຄາແພັກເກັດ ແລະ ຢຸດໄວ້ໃນບິນ.
+  const { total, vat } = await exclusiveBillVat(toNum(pkg.totalPrice));
   const created = await prisma.$transaction(async (tx) => {
     const payment = await tx.payment.create({
       data: {
         branchId: pkg.branchId,
-        totalAmount: pkg.totalPrice,
+        totalAmount: dec(total),
         depositAmount: dec(0),
         currency: pkg.currency,
         paymentStatus: 'PENDING',
+        ...(vat
+          ? { vatRate: vat.vatRate, vatMode: vat.vatMode, taxAmount: dec(vat.taxAmount), netAmount: dec(vat.netAmount) }
+          : {}),
       },
       select: { id: true },
     });
@@ -211,7 +217,7 @@ export async function purchasePackage(userId: string, packageId: string): Promis
 
   return {
     ...created,
-    amount: toNum(pkg.totalPrice),
+    amount: total,
     currency: pkg.currency,
     packageName: pkg.name,
   };

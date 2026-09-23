@@ -8,6 +8,7 @@ import type {
   HomeServiceLocationEvent,
   HomeServiceStatusEvent,
   HomeServiceTripView,
+  PaymentSlipEvent,
 } from '@abcp/shared-types';
 import { locationPingSchema, sendChatMessageSchema } from '@abcp/shared-types';
 import { env } from '../config/env.js';
@@ -31,6 +32,8 @@ type ClientToServerEvents = {
   'leave-chat': (payload: { threadId?: string }) => void;
   'chat:message': (payload: unknown) => void;
   'chat:read': (payload: { threadId?: string }) => void;
+  'join-slip-review': () => void;
+  'leave-slip-review': () => void;
 };
 
 type ServerToClientEvents = {
@@ -40,6 +43,7 @@ type ServerToClientEvents = {
   unauthorized: (payload: { appointmentId?: string; threadId?: string }) => void;
   'chat:message': (event: ChatMessageEvent) => void;
   'chat:read': (event: ChatReadEvent) => void;
+  'payment-slip:updated': (event: PaymentSlipEvent) => void;
 };
 
 type InterServerEvents = Record<string, never>;
@@ -56,6 +60,16 @@ function tripRoom(appointmentId: string): string {
 
 function chatRoom(threadId: string): string {
   return `chat:${threadId}`;
+}
+
+/** ຫ້ອງສ່ວນຕົວຂອງຜູ້ໃຊ້ — ໃຊ້ push ຜົນທີ່ກ່ຽວກັບຕົວເອງ (ເຊັ່ນ ຜົນກວດສະລິບ). */
+function userRoom(userId: string): string {
+  return `user:${userId}`;
+}
+
+/** ຫ້ອງກວດສະລິບ (ໂມດູນ 39 W3): SUPER_ADMIN ໄດ້ທຸກສາຂາ, ຜູ້ອື່ນສະເພາະສາຂາຕົນ. */
+function slipReviewRoom(branchId: string | 'all'): string {
+  return `slip-review:${branchId}`;
 }
 
 /** ຫ້ອງດຽວ ໃຫ້ admin/branch-admin ທຸກຄົນທີ່ເປີດໜ້າ dispatch console ຮ່ວມ — ໄດ້ trip update ທຸກອັນສົດໆ. */
@@ -100,6 +114,27 @@ export function createSocketServer(httpServer: HttpServer): typeof io {
   });
 
   io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>) => {
+    void socket.join(userRoom(socket.data.auth.sub));
+
+    // ໜ້າກວດສະລິບ — ສະເພາະ admin / branch-admin / staff. event ບໍ່ມີຂໍ້ມູນສ່ວນຕົວ (ມີແຕ່ id + ສະຖານະ);
+    // ລາຍລະອຽດດຶງຜ່ານ REST ທີ່ກວດສິດ payments:review ແລະ ສາຂາ.
+    socket.on('join-slip-review', () => {
+      const { role, branchId } = socket.data.auth;
+      if (role === 'SUPER_ADMIN') {
+        void socket.join(slipReviewRoom('all'));
+      } else if ((role === 'BRANCH_ADMIN' || role === 'STAFF') && branchId) {
+        void socket.join(slipReviewRoom(branchId));
+      } else {
+        socket.emit('unauthorized', {});
+      }
+    });
+
+    socket.on('leave-slip-review', () => {
+      const { branchId } = socket.data.auth;
+      void socket.leave(slipReviewRoom('all'));
+      if (branchId) void socket.leave(slipReviewRoom(branchId));
+    });
+
     socket.on('join-trip', async (payload: { appointmentId?: string }) => {
       const appointmentId = payload?.appointmentId;
       if (!appointmentId) return;
@@ -224,4 +259,12 @@ export function emitChatMessage(event: ChatMessageEvent): void {
 
 export function emitChatRead(event: ChatReadEvent): void {
   io?.to(chatRoom(event.threadId)).emit('chat:read', event);
+}
+
+/** ໂມດູນ 39 W3 — ແຈ້ງຜົນສະລິບໃຫ້ຜູ້ອັບໂຫຼດ + ໜ້າກວດສະລິບຂອງສາຂານັ້ນ (ແລະ SUPER_ADMIN). */
+export function emitPaymentSlipUpdated(event: PaymentSlipEvent, uploadedById: string): void {
+  io?.to([userRoom(uploadedById), slipReviewRoom(event.branchId), slipReviewRoom('all')]).emit(
+    'payment-slip:updated',
+    event,
+  );
 }

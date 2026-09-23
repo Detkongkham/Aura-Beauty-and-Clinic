@@ -41,16 +41,18 @@ model User {
   quickLoginUpdatedAt DateTime?
   lastLoginAt         DateTime?
   lastLoginDevice     String?
+  /// ເວລາປ່ຽນລະຫັດຜ່ານຫຼ້າສຸດ (ໜ້າ /account ▸ Security) — null = ຍັງບໍ່ເຄີຍປ່ຽນ.
+  passwordChangedAt   DateTime?
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
-  branch                Branch?                   @relation(fields: [branchId], references: [id])
-  roleRef               Role?                     @relation(fields: [roleRefId], references: [id])
+  branch                Branch?                    @relation(fields: [branchId], references: [id])
+  roleRef               Role?                      @relation(fields: [roleRefId], references: [id])
   permissionOverrides   UserPermissionOverride[]
   staffProfile          StaffProfile?
   affiliateProfile      AffiliateProfile?
-  appointments          Appointment[]             @relation("CustomerAppointments")
-  bookedGroups          BookingGroup[]            @relation("GroupPayer")
+  appointments          Appointment[]              @relation("CustomerAppointments")
+  bookedGroups          BookingGroup[]             @relation("GroupPayer")
   loyaltyAccount        LoyaltyAccount?
   treatmentNotes        TreatmentRecord[]
   consentForms          ConsentForm[]
@@ -58,25 +60,64 @@ model User {
   userPackages          UserPackage[]
   skinAnalyses          SkinHairAnalysis[]
   telegramLink          TelegramLink?
+  lineLink              LineLink?
   referralCode          ReferralCode?
-  usedReferrals         ReferralUsage[]           @relation("ReferredUser")
-  purchasedCards        GiftCard[]                @relation("BuyerCards")
-  redeemedCards         GiftCard[]                @relation("RedeemedCards")
-  issuedCards           GiftCard[]                @relation("IssuedCards")
+  usedReferrals         ReferralUsage[]            @relation("ReferredUser")
+  purchasedCards        GiftCard[]                 @relation("BuyerCards")
+  redeemedCards         GiftCard[]                 @relation("RedeemedCards")
+  issuedCards           GiftCard[]                 @relation("IssuedCards")
   auditLogs             AuditLog[]
   stockMovements        StockMovement[]
   stockTransfers        StockTransfer[]
+  expensesCreated       Expense[]                  @relation("ExpenseCreatedBy")
+  expensesApproved      Expense[]                  @relation("ExpenseApprovedBy")
+  recurringExpenses     RecurringExpense[]
+  expensesVoided        Expense[]                  @relation("ExpenseVoidedBy")
+  expenseBudgetsUpdated ExpenseBudget[]            @relation("ExpenseBudgetUpdatedBy")
+  cashFundsCreated      CashFund[]                 @relation("CashFundCreatedBy")
+  cashFundEntries       CashFundEntry[]            @relation("CashFundEntryCreatedBy")
   waitlists             Waitlist[]
   chatParticipants      ConversationParticipant[]
-  sentMessages          ChatMessage[]             @relation("SentMessages")
+  sentMessages          ChatMessage[]              @relation("SentMessages")
   campaigns             CampaignRecipient[]
+  marketingConsents     MarketingConsent[]
   notifications         NotificationLog[]
-  resolvedNotifications NotificationLog[]         @relation("NotificationResolvedBy")
+  resolvedNotifications NotificationLog[]          @relation("NotificationResolvedBy")
   pushDevices           PushDevice[]
+  sessions              UserSession[]
+  requestedRefunds      Refund[]                   @relation("RefundRequestedBy")
+  approvedRefunds       Refund[]                   @relation("RefundApprovedBy")
+  bankChangesRequested  BankAccountChangeRequest[] @relation("BankChangeRequestedBy")
+  bankChangesReviewed   BankAccountChangeRequest[] @relation("BankChangeReviewedBy")
+  uploadedSlips         PaymentSlip[]              @relation("SlipUploadedBy")
+  reviewedSlips         PaymentSlip[]              @relation("SlipReviewedBy")
+  claimedSlips          PaymentSlip[]              @relation("SlipClaimedBy")
+  reversedSlips         PaymentSlip[]              @relation("SlipReversedBy")
 
   @@index([phone, role])
   @@index([deletedAt])
   @@map("users")
+}
+
+/// ເຊດຊັນເຂົ້າສູ່ລະບົບ 1 ແຖວຕໍ່ 1 ອຸປະກອນ — refresh token ຖື `sid` ຂອງແຖວນີ້.
+/// ຖອນ (revokedAt) ແລ້ວ → /auth/refresh ປະຕິເສດ; access token ທີ່ອອກແລ້ວຍັງໃຊ້ໄດ້ຈົນໝົດ TTL (15 ນາທີ).
+model UserSession {
+  id          String    @id @default(uuid())
+  userId      String
+  /// PASSWORD | PIN | REGISTER | LEGACY (token ເກົ່າທີ່ບໍ່ມີ sid, ສ້າງແຖວໃຫ້ຕອນ refresh).
+  method      String    @default("PASSWORD")
+  deviceLabel String?
+  userAgent   String?
+  ipAddress   String?
+  createdAt   DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
+  expiresAt   DateTime
+  revokedAt   DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@map("user_sessions")
 }
 
 /// Dynamic, admin-editable job role — carries its own permission set, icon, and colour.

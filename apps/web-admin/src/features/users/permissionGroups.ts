@@ -2,11 +2,13 @@ import {
   Boxes,
   CalendarDays,
   ClipboardList,
+  CreditCard,
   FileBarChart,
   LayoutDashboard,
   ListChecks,
   MapPin,
   Megaphone,
+  Receipt,
   Scissors,
   Settings as SettingsIcon,
   UserCog,
@@ -32,6 +34,8 @@ export const GROUP_ICONS: Record<string, LucideIcon> = {
   finance: Wallet,
   marketing: Megaphone,
   inventory: Boxes,
+  payments: CreditCard,
+  expenses: Receipt,
 };
 
 const GROUP_COLOR_ORDER = [

@@ -9,6 +9,7 @@ allowBuilds:
   esbuild: true
   msgpackr-extract: true
   msw: true
+  tesseract.js: false
 
 patchedDependencies:
   '@expo/cli@0.22.28': patches/@expo__cli@0.22.28.patch

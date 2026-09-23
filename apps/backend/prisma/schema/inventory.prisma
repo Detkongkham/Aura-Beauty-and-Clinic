@@ -39,6 +39,7 @@ model Supplier {
   updatedAt     DateTime @updatedAt
 
   purchaseOrders PurchaseOrder[]
+  expenses       Expense[]
 
   @@map("suppliers")
 }
@@ -109,6 +110,7 @@ model PurchaseOrder {
   branch   Branch              @relation(fields: [branchId], references: [id])
   supplier Supplier            @relation(fields: [supplierId], references: [id])
   items    PurchaseOrderItem[]
+  expenses Expense[]
 
   @@index([branchId, status])
   @@map("purchase_orders")
@@ -173,18 +175,69 @@ model StockTransferItem {
   @@map("stock_transfer_items")
 }
 
+/// ລາຍຈ່າຍ — DRAFT → SUBMITTED → APPROVED → PAID (REJECTED ກັບໄປແກ້ໄຂ/ສົ່ງໃໝ່ໄດ້).
+/// ໂມດູນ 39 W4: ເພີ່ມໝວດ, workflow, ຜູ້ຂາຍ/PO, ບັນຊີທີ່ຈ່າຍອອກ ແລະ ຮອບຊ້ຳປະຈຳເດືອນ.
+/// ຄ່າ `APPROVED`/`PAID` ເທົ່ານັ້ນທີ່ນັບເປັນລາຍຈ່າຍຈິງ (dashboard + P&L).
 model Expense {
-  id          String   @id @default(uuid())
-  branchId    String
-  category    String
-  amount      Decimal  @db.Decimal(16, 2)
-  currency    String   @default("LAK")
-  expenseDate DateTime @db.Date
-  notes       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                 String        @id @default(uuid())
+  branchId           String
+  categoryId         String
+  status             ExpenseStatus @default(DRAFT)
+  title              String        @default("")
+  amount             Decimal       @db.Decimal(16, 2)
+  currency           String        @default("LAK")
+  /// E1 — ອັດຕາ (1 ໜ່ວຍ `currency` = ? LAK) ທີ່ບັນທຶກໄວ້ຕອນສ້າງ/ແກ້. LAK = 1.
+  fxRate             Decimal       @default(1) @db.Decimal(18, 6)
+  /// E1 — amount × fxRate ເປັນ LAK. ທຸກຍອດລວມ (summary, P&L, dashboard) ລວມຈາກ column ນີ້.
+  amountBase         Decimal       @default(0) @db.Decimal(16, 2)
+  /// E8 — ພາສີ (VAT) ທີ່ລວມຢູ່ໃນ amount (ສະກຸນດຽວກັບ amount).
+  taxAmount          Decimal?      @db.Decimal(16, 2)
+  /// E8 — ເລກໃບແຈ້ງໜີ້ຂອງຜູ້ຂາຍ.
+  invoiceNumber      String?
+  /// E8 — ວັນຄົບກຳນົດຈ່າຍ (ວັນຕາມເວລາວຽງຈັນ).
+  dueDate            DateTime?     @db.Date
+  expenseDate        DateTime      @db.Date
+  notes              String?
+  supplierId         String?
+  purchaseOrderId    String?
+  /// ບັນຊີທະນາຄານທີ່ຈ່າຍອອກ (ຕັ້ງຕອນ mark PAID; null ສຳລັບເງິນສດ).
+  paidFromAccountId  String?
+  /// E9 — ຈ່າຍເງິນສົດຈາກກ່ອງເງິນສົດຍ່ອຍນີ້ (null = ເງິນສົດນອກລະບົບກ່ອງ ຫຼື ໂອນທະນາຄານ).
+  paidFromCashFundId String?
+  paidReference      String?
+  createdById        String
+  submittedAt        DateTime?
+  approvedById       String?
+  approvedAt         DateTime?
+  rejectedReason     String?
+  paidAt             DateTime?
+  /// E5 — ຍົກເລີກລາຍການທີ່ອະນຸມັດ/ຈ່າຍແລ້ວ (ບໍ່ລຶບ, ເກັບປະຫວັດໄວ້).
+  voidedAt           DateTime?
+  voidedById         String?
+  voidReason         String?
+  /// ຮອບຊ້ຳທີ່ສ້າງລາຍການນີ້ + ເດືອນ `YYYY-MM` — @@unique ກັນ job ສ້າງຊ້ຳໃນເດືອນດຽວກັນ.
+  recurringExpenseId String?
+  recurringPeriod    String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
 
-  branch Branch @relation(fields: [branchId], references: [id])
+  branch           Branch              @relation(fields: [branchId], references: [id])
+  category         ExpenseCategory     @relation(fields: [categoryId], references: [id])
+  supplier         Supplier?           @relation(fields: [supplierId], references: [id])
+  purchaseOrder    PurchaseOrder?      @relation(fields: [purchaseOrderId], references: [id])
+  paidFromAccount  BankAccount?        @relation(fields: [paidFromAccountId], references: [id])
+  createdBy        User                @relation("ExpenseCreatedBy", fields: [createdById], references: [id])
+  approvedBy       User?               @relation("ExpenseApprovedBy", fields: [approvedById], references: [id])
+  voidedBy         User?               @relation("ExpenseVoidedBy", fields: [voidedById], references: [id])
+  paidFromCashFund CashFund?           @relation(fields: [paidFromCashFundId], references: [id])
+  cashEntries      CashFundEntry[]
+  allocations      ExpenseAllocation[]
+  recurringExpense RecurringExpense?   @relation(fields: [recurringExpenseId], references: [id])
+  attachments      ExpenseAttachment[]
 
+  @@unique([recurringExpenseId, recurringPeriod])
+  @@index([branchId, status, expenseDate])
+  @@index([categoryId])
+  @@index([status, dueDate])
   @@map("expenses")
 }

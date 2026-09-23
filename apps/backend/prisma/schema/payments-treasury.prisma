@@ -1,0 +1,361 @@
+// ໝວດ: Payments & Treasury (ໂມດູນ 39) — Bank registry, provider adapter, webhook events, refunds.
+// ວັນທີ: 2026-09-20 · ອ້າງອີງ: docs/payments-treasury-plan.md §4 (W1: Bank/BankAccount/PaymentProvider; W3: PaymentSlip)
+
+enum ProviderIntentStatus {
+  PENDING
+  SUCCESS
+  EXPIRED
+  FAILED
+}
+
+enum RefundStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PAID
+}
+
+enum RefundMethod {
+  CASH
+  BANK_TRANSFER
+  ORIGINAL_TENDER
+}
+
+/// ລາຍຊື່ທະນາຄານທີ່ຮອງຮັບ (ຂໍ້ມູນອ້າງອີງ, seed ໄວ້ລ່ວງໜ້າ).
+model Bank {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  nameLo      String
+  nameEn      String
+  logoUrl     String?
+  supportsQr  Boolean  @default(false)
+  /// ຊື່ template OCR ທີ່ໃຊ້ parse ສະລິບຂອງທະນາຄານນີ້ (Wave 3) — null = ຍັງບໍ່ມີ template.
+  ocrTemplate String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  accounts BankAccount[]
+
+  @@map("banks")
+}
+
+/// ບັນຊີຮັບເງິນຂອງແຕ່ລະສາຂາ — ຕໍ່ທະນາຄານໜຶ່ງ ສາຂາໜຶ່ງອາດມີຫຼາຍບັນຊີ, ແຕ່ຕ້ອງມີ default ດຽວ.
+model BankAccount {
+  id            String   @id @default(uuid())
+  bankId        String
+  branchId      String
+  accountName   String
+  accountNumber String
+  currency      String   @default("LAK")
+  /// ຮູບ QR ຄົງທີ່ຂອງບັນຊີ (ຖ້າທະນາຄານຮອງຮັບ) — key ໃນ storage adapter.
+  qrImageKey    String?
+  isActive      Boolean  @default(true)
+  isDefault     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  bank             Bank                       @relation(fields: [bankId], references: [id])
+  branch           Branch                     @relation(fields: [branchId], references: [id])
+  providerIntents  ProviderIntent[]
+  paymentTxs       PaymentTransaction[]
+  slips            PaymentSlip[]
+  expenses         Expense[]
+  statements       BankStatementEntry[]
+  changeRequests   BankAccountChangeRequest[]
+  statementImports BankStatementImport[]
+  statementLines   BankStatementLine[]
+
+  @@index([branchId, isActive])
+  @@map("bank_accounts")
+}
+
+/// Config ຕໍ່ຊ່ອງທາງຈ່າຍ (adapter code ↔ mode ↔ ຄ່າທຳນຽມ). ບໍ່ເກັບ secret ຈິງ — ເກັບແຕ່ reference.
+model PaymentProvider {
+  id               String   @id @default(uuid())
+  code             String   @unique
+  nameLo           String
+  nameEn           String
+  /// MOCK = ຈຳລອງ (ບໍ່ຮຽກ network ຈິງ), LIVE = ຕໍ່ API ຈິງ.
+  mode             String   @default("MOCK")
+  /// ຊື່ environment variable ທີ່ເກັບ webhook secret ຈິງ (ບໍ່ເກັບຄ່າໃນ DB).
+  webhookSecretRef String?
+  feeRate          Float    @default(0)
+  /// true = ທະນາຄານໂອນເງິນເຂົ້າບັນຊີເປັນຍອດສຸດທິ (ຫັກ feeRate ແລ້ວ) — ກະທົບຍອດທຽບກັບ gross − fee.
+  settlesNet       Boolean  @default(false)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  intents ProviderIntent[]
+  events  ProviderEvent[]
+
+  @@map("payment_providers")
+}
+
+/// Intent ທີ່ສ້າງໄປຫາ provider ໜຶ່ງ — ຜູກກັບ Payment ດຽວ, ອາດຫຼາຍ intent ຕໍ່ Payment (retry).
+model ProviderIntent {
+  id            String               @id @default(uuid())
+  paymentId     String
+  providerCode  String
+  bankAccountId String?
+  amount        Decimal              @db.Decimal(16, 2)
+  currency      String               @default("LAK")
+  reference     String               @unique
+  status        ProviderIntentStatus @default(PENDING)
+  expiresAt     DateTime
+  rawRequest    Json?
+  rawResponse   Json?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  payment            Payment             @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  provider           PaymentProvider     @relation(fields: [providerCode], references: [code])
+  bankAccount        BankAccount?        @relation(fields: [bankAccountId], references: [id])
+  events             ProviderEvent[]
+  paymentTransaction PaymentTransaction?
+
+  @@index([paymentId])
+  @@index([status, expiresAt])
+  @@map("provider_intents")
+}
+
+/// Webhook ດິບທຸກອັນທີ່ຮັບຈາກ provider — idempotent ຕໍ່ (providerCode, eventId), replay ໄດ້.
+model ProviderEvent {
+  id               String    @id @default(uuid())
+  providerCode     String
+  providerIntentId String?
+  eventId          String
+  signature        String?
+  payload          Json
+  processedAt      DateTime?
+  result           String?
+  createdAt        DateTime  @default(now())
+
+  provider       PaymentProvider @relation(fields: [providerCode], references: [code])
+  providerIntent ProviderIntent? @relation(fields: [providerIntentId], references: [id])
+
+  @@unique([providerCode, eventId])
+  @@map("provider_events")
+}
+
+/// ຄຳຮ້ອງຄືນເງິນ — ຕ້ອງອະນຸມັດກ່ອນຈ່າຍອອກ.
+model Refund {
+  id                String       @id @default(uuid())
+  paymentId         String
+  amount            Decimal      @db.Decimal(16, 2)
+  reason            String
+  method            RefundMethod @default(ORIGINAL_TENDER)
+  status            RefundStatus @default(PENDING)
+  requestedById     String
+  approvedById      String?
+  providerRef       String?
+  /// ບັນຊີທະນາຄານທີ່ໂອນຄືນອອກ (method BANK_TRANSFER) — ນັບເປັນເງິນອອກໃນການກະທົບຍອດ.
+  bankAccountId     String?
+  paidAt            DateTime?
+  /// Wave 10B — `amount` = ເງິນທີ່ຈ່າຍອອກຈິງ (ເງິນສົດ/ໂອນ). ສ່ວນທີ່ຄືນເຂົ້າບັດຂອງຂວັນ/ຄະແນນ ຢູ່ `storeCreditAmount`
+  /// (ບໍ່ນັບເປັນເງິນອອກໃນລິ້ນຊັກ/ກະທົບຍອດ). ຍອດຄືນລວມ = amount + storeCreditAmount.
+  storeCreditAmount Decimal      @default(0.0) @db.Decimal(16, 2)
+  /// VAT ທີ່ລວມຢູ່ໃນຍອດຄືນລວມ (ສຳລັບລາຍງານ VAT / ໃບຄືນເງິນ).
+  taxAmount         Decimal      @default(0.0) @db.Decimal(16, 2)
+  /// ການແຈກຍອດຄືນໄປຕາມ tender ເດີມ: [{ tenderId, method, amount }].
+  allocations       Json?
+  /// ເລກໃບຄືນເງິນ (credit note) CN-<ສາຂາ>-<ປີ>-<ລຳດັບ> — ອອກຕອນ PAID.
+  creditNoteNo      String?      @unique
+  rejectedReason    String?
+  decidedAt         DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  payment     Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  requestedBy User    @relation("RefundRequestedBy", fields: [requestedById], references: [id])
+  approvedBy  User?   @relation("RefundApprovedBy", fields: [approvedById], references: [id])
+
+  @@index([paymentId])
+  @@index([status])
+  @@index([bankAccountId, paidAt])
+  @@map("refunds")
+}
+
+enum SlipOcrStatus {
+  PENDING
+  PROCESSING
+  DONE
+  FAILED
+}
+
+enum SlipVerdict {
+  /// ຍັງບໍ່ທັນອ່ານ OCR ສຳເລັດ.
+  PENDING
+  /// ຜ່ານທັງ 3 ເກນ (ຈຳນວນເງິນ + ບັນຊີປາຍທາງ + ເວລາ) ແລະ ອ່ານເລກອ້າງອີງໄດ້ — ພ້ອມອະນຸມັດ.
+  AUTO_MATCHED
+  /// ບາງເກນບໍ່ຜ່ານ / OCR ອ່ານບໍ່ໄດ້ — ຕ້ອງໃຫ້ພະນັກງານກວດ.
+  NEEDS_REVIEW
+  APPROVED
+  REJECTED
+  /// ເລກອ້າງອີງ (ທະນາຄານ+txnRef) ຖືກໃຊ້ກັບສະລິບອື່ນແລ້ວ.
+  DUPLICATE
+  /// S7 — ເຄີຍອະນຸມັດ ແຕ່ຖືກຍົກເລີກ (tx ຖືກ REVERSED, ບິນຄິດຍອດຄືນ).
+  REVERSED
+}
+
+/// ສະລິບໂອນເງິນ — ຄຳຮ້ອງຂໍຈາກລູກຄ້າ/ພະນັກງານ. ຈະກາຍເປັນ `PaymentTransaction` ຕໍ່ເມື່ອອະນຸມັດເທົ່ານັ້ນ.
+model PaymentSlip {
+  id             String   @id @default(uuid())
+  paymentId      String
+  branchId       String
+  uploadedById   String
+  /// ບັນຊີປາຍທາງທີ່ຜູ້ອັບໂຫຼດເລືອກ (ຖ້າມີ) — ຖ້າບໍ່ມີ, ປຽບທຽບກັບທຸກບັນຊີ active ຂອງສາຂາ.
+  bankAccountId  String?
+  /// ຈຳນວນທີ່ຜູ້ອັບໂຫຼດແຈ້ງວ່າຈະຈ່າຍ (ຖ້າມີ) — ໃຊ້ເປັນຍອດທີ່ຄາດໝາຍແທນຍອດຄ້າງ/ມັດຈຳ.
+  declaredAmount Decimal? @db.Decimal(16, 2)
+
+  imageKey    String
+  imageUrl    String
+  /// sha256 ຂອງໄບຕ໌ຮູບ — ກວດຮູບເດີມທີ່ສົ່ງຊ້ຳ.
+  imageHash   String
+  contentType String
+  sizeBytes   Int
+
+  ocrStatus SlipOcrStatus @default(PENDING)
+  ocrEngine String?
+  ocrMs     Int?
+  ocrRaw    Json?
+  ocrError  String?
+  /// ຂໍ້ມູນດິບທີ່ຖອດຈາກ QR ໃນສະລິບ (ຖ້າມີ).
+  qrPayload String?
+
+  bankCode        String?
+  amount          Decimal?  @db.Decimal(16, 2)
+  currency        String?
+  txnRef          String?
+  transferredAt   DateTime?
+  senderName      String?
+  receiverAccount String?
+
+  matchScore     Int         @default(0)
+  mismatchFields String[]
+  verdict        SlipVerdict @default(PENDING)
+  /// `${bankCode}:${txnRef}` ຂອງສະລິບທີ່ "ຍັງມີຜົນ" — unique ເພື່ອຫ້າມໃຊ້ສະລິບດຽວກັບສອງບິນ.
+  /// ຖືກລ້າງເປັນ null ເມື່ອສະລິບຖືກປະຕິເສດ ເພື່ອໃຫ້ຍື່ນສະລິບທີ່ຖືກຕ້ອງອັນດຽວກັນໃໝ່ໄດ້.
+  dedupeKey      String?     @unique
+  rejectReason   String?
+  reviewedById   String?
+  reviewedAt     DateTime?
+  reviewNote     String?
+
+  paymentTransactionId String? @unique
+
+  /// S2 — difference hash 64-bit (hex) ຂອງຮູບ: ຈັບຮູບທີ່ crop/save ໃໝ່ ທີ່ sha256 ບໍ່ກົງ.
+  imagePhash        String?
+  /// S2 — ສະລິບທີ່ຮູບເກືອບຄືກັນ (hamming ≤ 6) ທີ່ພົບກ່ອນ.
+  nearDuplicateOfId String?
+  /// S3 — ສັນຍານຄວາມສ່ຽງ: EDITOR_SOFTWARE, NEAR_DUPLICATE, QR_TEXT_MISMATCH, LOW_CONFIDENCE.
+  riskSignals       String[] @default([])
+  /// S5 — ຜູ້ກຳລັງກວດ (soft lock ທີ່ໝົດອາຍຸເອງ).
+  claimedById       String?
+  claimedAt         DateTime?
+  /// S6 — ຂໍຂໍ້ມູນເພີ່ມຈາກລູກຄ້າ (ບໍ່ປະຕິເສດ).
+  infoRequestedAt   DateTime?
+  infoRequestNote   String?
+  /// S8 — ລະຫັດເຫດຜົນປະຕິເສດ (ກຸ່ມສຳເລັດຮູບ) ເພື່ອວິເຄາະ.
+  rejectCode        String?
+  /// S7 — ການຍົກເລີກການອະນຸມັດ.
+  reversedById      String?
+  reversedAt        DateTime?
+  reverseReason     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  payment            Payment             @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  branch             Branch              @relation(fields: [branchId], references: [id])
+  uploadedBy         User                @relation("SlipUploadedBy", fields: [uploadedById], references: [id])
+  reviewedBy         User?               @relation("SlipReviewedBy", fields: [reviewedById], references: [id])
+  claimedBy          User?               @relation("SlipClaimedBy", fields: [claimedById], references: [id])
+  reversedBy         User?               @relation("SlipReversedBy", fields: [reversedById], references: [id])
+  bankAccount        BankAccount?        @relation(fields: [bankAccountId], references: [id])
+  paymentTransaction PaymentTransaction? @relation(fields: [paymentTransactionId], references: [id])
+
+  @@index([paymentId])
+  @@index([imageHash])
+  @@index([verdict, createdAt])
+  @@index([branchId, verdict])
+  @@index([imagePhash])
+  @@map("payment_slips")
+}
+
+/// ຍອດຕາມ statement ທະນາຄານຂອງບັນຊີໜຶ່ງໃນມື້ໜຶ່ງ (ປ້ອນເອງ — ຍັງບໍ່ມີ API ດຶງ statement) — ໃຊ້ກະທົບຍອດກັບລະບົບ.
+model BankStatementEntry {
+  id              String              @id @default(uuid())
+  bankAccountId   String
+  /// ວັນທີວຽງຈັນ (key ເປັນ UTC-midnight ຂອງວັນທີປະຕິທິນ).
+  statementDate   DateTime            @db.Date
+  statementCredit Decimal             @db.Decimal(16, 2)
+  statementDebit  Decimal             @db.Decimal(16, 2)
+  note            String?
+  /// G4 — ຍອດຍົກມາ/ຍອດຍົກໄປ ຕາມ statement (ບໍ່ບັງຄັບ) — ກວດ opening + credit − debit = closing ແລະ ຕໍ່ເນື່ອງຈາກມື້ກ່ອນ.
+  openingBalance  Decimal?            @db.Decimal(16, 2)
+  closingBalance  Decimal?            @db.Decimal(16, 2)
+  /// G1 — MANUAL = ພິມເອງ, IMPORT = ລວມຈາກ BankStatementLine ທີ່ນຳເຂົ້າ.
+  source          StatementSource     @default(MANUAL)
+  /// G3 — ສ່ວນຕ່າງທີ່ອະທິບາຍ ແລະ ອະນຸມັດແລ້ວ (ຜູ້ອະນຸມັດ ≠ ຜູ້ປ້ອນ ຍົກເວັ້ນ SUPER_ADMIN).
+  resolution      VarianceResolution?
+  resolutionNote  String?
+  resolvedById    String?
+  resolvedAt      DateTime?
+  enteredById     String
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  bankAccount BankAccount @relation(fields: [bankAccountId], references: [id])
+
+  @@unique([bankAccountId, statementDate])
+  @@map("bank_statement_entries")
+}
+
+enum BankAccountChangeKind {
+  /// ເພີ່ມບັນຊີໃໝ່ — ບັນຊີຖືກສ້າງເມື່ອອະນຸມັດເທົ່ານັ້ນ.
+  CREATE
+  /// ແກ້ຂໍ້ມູນຜູ້ຮັບເງິນ (ຊື່ / ເລກບັນຊີ / ສະກຸນເງິນ).
+  UPDATE
+  /// ປ່ຽນຮູບ QR ຄົງທີ່ (ຮູບໃໝ່ເກັບໄວ້ລໍຖ້າໃນ storage).
+  QR
+}
+
+enum BankAccountChangeStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+/// ຄຳຂໍປ່ຽນຂໍ້ມູນຜູ້ຮັບເງິນຂອງບັນຊີ — BRANCH_ADMIN ຍື່ນ, SUPER_ADMIN ອະນຸມັດ. ກັນການສັບປ່ຽນເລກບັນຊີ/QR
+/// ເພື່ອໃຫ້ເງິນລູກຄ້າໄຫຼໄປບັນຊີອື່ນ. ການປ່ຽນໂດຍ SUPER_ADMIN ນຳໃຊ້ທັນທີ ແຕ່ຍັງບັນທຶກເປັນ APPROVED ໄວ້.
+model BankAccountChangeRequest {
+  id            String                  @id @default(uuid())
+  kind          BankAccountChangeKind
+  status        BankAccountChangeStatus @default(PENDING)
+  branchId      String
+  /// null ສຳລັບ CREATE ຈົນກວ່າຈະອະນຸມັດ.
+  bankAccountId String?
+  /// ຄ່າທີ່ຂໍ: CREATE = input ເຕັມ, UPDATE = ສະເພາະ field ທີ່ປ່ຽນ, QR = { qrImageKey }.
+  payload       Json
+  /// ຄ່າຜູ້ຮັບເງິນຕອນຍື່ນ — ໃຊ້ສະແດງ diff ແລະ ກັນອະນຸມັດຄຳຂໍທີ່ລ້າສະໄໝ.
+  before        Json?
+  requestedById String
+  reviewedById  String?
+  reviewedAt    DateTime?
+  reviewNote    String?
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+
+  branch      Branch       @relation(fields: [branchId], references: [id])
+  bankAccount BankAccount? @relation(fields: [bankAccountId], references: [id])
+  requestedBy User         @relation("BankChangeRequestedBy", fields: [requestedById], references: [id])
+  reviewedBy  User?        @relation("BankChangeReviewedBy", fields: [reviewedById], references: [id])
+
+  @@index([status, branchId])
+  @@index([bankAccountId, status])
+  @@map("bank_account_change_requests")
+}

@@ -14,6 +14,12 @@ import {
   useHomeServiceAvailability,
   useSetHomeServiceAvailability,
 } from '../../features/staff/home-service.api';
+import {
+  actionableCount,
+  useCanReviewSlips,
+  useSlipInbox,
+  useSlipReviewLive,
+} from '../../features/payments/transfer.api';
 import { useStaffSchedule, useUpdateApptStatus } from '../../features/staff/staff-portal.api';
 import { cn } from '../../lib/cn';
 import { formatTime, isoDateInDays, slotBucket, vientiane } from '../../lib/format';
@@ -139,6 +145,11 @@ export function StaffTodayScreen({
   const mutation = useUpdateApptStatus();
   const items = useMemo(() => query.data?.items ?? [], [query.data]);
 
+  // ສະລິບໂອນເງິນທີ່ລໍກວດ (ສະເພາະຜູ້ມີສິດ payments:review) — badge ເທິງຫົວໜ້າ + socket ສົດ
+  const canReviewSlips = useCanReviewSlips();
+  useSlipReviewLive(canReviewSlips);
+  const slipBadge = actionableCount(useSlipInbox('review', canReviewSlips).data);
+
   const availability = useHomeServiceAvailability();
   const setAvailability = useSetHomeServiceAvailability();
 
@@ -222,6 +233,14 @@ export function StaffTodayScreen({
           subtitle={`${dayLabel} · ${t('staffPortal.today.count', { count: stats.total })}`}
           right={
             <>
+              {canReviewSlips ? (
+                <HeaderIconButton
+                  icon="receipt-outline"
+                  label={t('staffPortal.slips.title')}
+                  badge={slipBadge > 0 ? String(slipBadge > 9 ? '9+' : slipBadge) : undefined}
+                  onPress={() => navigation.navigate('StaffSlipInbox')}
+                />
+              ) : null}
               {!isToday ? (
                 <HeaderIconButton
                   icon="today-outline"

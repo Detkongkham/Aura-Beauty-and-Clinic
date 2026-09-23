@@ -187,6 +187,14 @@ export function PayrollPage() {
   const avgTicket =
     totals && totals.completedJobs > 0 ? totals.grossRevenue / totals.completedJobs : 0;
 
+  // `good` stays null without a baseline, so "no comparison" renders muted rather
+  // than as a green win.
+  const revenueDelta = useMemo(() => {
+    if (!data) return null;
+    const pct = deltaPct(data.totals.grossRevenue, data.previous.grossRevenue);
+    return { pct, good: pct == null ? null : pct >= 0 };
+  }, [data]);
+
   // ── actions ──────────────────────────────────────────────────────
   const onError = useCallback(
     (err: unknown) =>
@@ -375,15 +383,7 @@ export function PayrollPage() {
           tone="success"
           label={t('payroll.stat.gross')}
           value={<CurrencyText amount={totals?.grossRevenue ?? 0} />}
-          delta={
-            data
-              ? {
-                  pct: deltaPct(data.totals.grossRevenue, data.previous.grossRevenue),
-                  good:
-                    data.totals.grossRevenue >= data.previous.grossRevenue ? true : false,
-                }
-              : null
-          }
+          delta={revenueDelta}
           hint={
             <>
               {t('payroll.stat.avgPerStaff')} <CurrencyText amount={avgPerStaff} />

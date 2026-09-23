@@ -263,7 +263,7 @@ export function AppointmentDetailScreen({
   const payTone = tones[payKey] ?? tones.NONE!;
   const paidAmount = pay?.paidAmount ?? 0;
   const balance = Math.max(0, a.totalAmount - paidAmount);
-  const canPay = !isClosed && a.status !== 'COMPLETED' && balance > 0 && payKey !== 'REFUNDED';
+  const canPay = !isClosed && a.status !== 'COMPLETED' && balance > 0 && payKey !== 'REFUNDED' && payKey !== 'VOIDED';
   const servicePrice = Math.max(0, a.totalAmount - a.travelFee);
 
   const countdown = isActive

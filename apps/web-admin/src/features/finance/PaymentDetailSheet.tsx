@@ -45,7 +45,9 @@ import { ROUTES } from '@/router/paths';
 import { cn } from '@/lib/utils';
 
 import { usePayment } from './finance.api';
+import { ReceiptDialog } from './ReceiptDialog';
 import { RecordPaymentPanel } from './RecordPaymentPanel';
+import { RefundPanel } from './RefundPanel';
 import { PAYMENT_STATUS_VARIANT, paymentMethodKey, paymentMethodsOf, paymentStatusKey } from './finance.lib';
 import { METHOD_COLOR, METHOD_ICON } from './finance.methods';
 
@@ -63,11 +65,12 @@ const STATUS_HERO: Record<PaymentStatus, string> = {
   PENDING: 'from-warning/15',
   REFUNDED: 'from-muted-foreground/15',
   FAILED: 'from-destructive/15',
+  VOIDED: 'from-muted-foreground/10',
 };
 
 /** Status the stored amounts imply — used to flag bills whose status drifted from their tenders. */
 function impliedStatus(p: PaymentView): PaymentStatus | null {
-  if (p.paymentStatus === 'REFUNDED' || p.paymentStatus === 'FAILED') return null;
+  if (p.paymentStatus === 'REFUNDED' || p.paymentStatus === 'FAILED' || p.paymentStatus === 'VOIDED') return null;
   if (p.totalAmount > 0 && p.balanceAmount <= 0) return 'FULLY_PAID';
   if (p.paidAmount > 0) return 'DEPOSIT_PAID';
   return 'PENDING';
@@ -97,6 +100,7 @@ export function PaymentDetailSheet({ paymentId, onClose }: Props) {
   const { data, isLoading } = usePayment(paymentId);
   const { copied, copy } = useCopy();
   const canRecord = useAuth().hasPermission('finance:manage');
+  const [receiptId, setReceiptId] = useState<string | null>(null);
 
   return (
     <Sheet open={Boolean(paymentId)} onOpenChange={(o) => !o && onClose()}>
@@ -137,24 +141,34 @@ export function PaymentDetailSheet({ paymentId, onClose }: Props) {
             </div>
           ) : (
             <div className="space-y-5">
-              {canRecord && data.balanceAmount > 0 && data.paymentStatus !== 'REFUNDED' && data.paymentStatus !== 'FAILED' ? (
+              {canRecord && data.balanceAmount > 0 && data.paymentStatus !== 'REFUNDED' && data.paymentStatus !== 'FAILED' && data.paymentStatus !== 'VOIDED' ? (
                 <RecordPaymentPanel key={data.id} payment={data} />
               ) : null}
               <DetailBody payment={data} copied={copied} copy={copy} />
+              <RefundPanel key={`r-${data.id}`} payment={data} />
             </div>
           )}
         </SheetBody>
 
-        {data?.appointmentId ? (
+        {data?.appointmentId || data?.invoiceNo ? (
           <SheetFooter>
+            {data.invoiceNo ? (
+              <Button variant="secondary" onClick={() => setReceiptId(data.id)}>
+                <ReceiptText className="mr-1 h-4 w-4" aria-hidden="true" />
+                {t('finance.receipt.open')}
+              </Button>
+            ) : null}
+            {data.appointmentId ? (
             <Button asChild variant="secondary">
               <Link to={ROUTES.appointmentDetail(data.appointmentId)} onClick={onClose}>
                 {t('finance.detail.openAppointment')}
                 <ArrowUpRight className="ml-1 h-4 w-4" aria-hidden="true" />
               </Link>
             </Button>
+            ) : null}
           </SheetFooter>
         ) : null}
+        <ReceiptDialog paymentId={receiptId} onClose={() => setReceiptId(null)} />
       </SheetContent>
     </Sheet>
   );

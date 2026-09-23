@@ -1,5 +1,6 @@
 import type {
   CampaignListQuery,
+  ConsentChannel,
   CampaignRunView,
   CampaignView,
   CreateCampaignInput,
@@ -10,6 +11,14 @@ import type { CampaignType, Prisma } from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import { ApiError } from '../../utils/ApiError.js';
 import { notifyUser } from '../../services/push.js';
+import { isChannelConfigured, sendEmail, sendLine, sendSms } from '../../services/channels.js';
+import {
+  filterCampaignAudience,
+  getPolicy,
+  inQuietHours,
+  makeUnsubscribeToken,
+  unsubscribeUrl,
+} from './consent.service.js';
 
 /**
  * `MarketingCampaign.triggerRule` (Json) ເກັບທັງ message ແລະ rule:
@@ -19,7 +28,13 @@ type StoredRule = {
   message?: { title: string; body: string };
   inactiveDays?: number;
   daysBefore?: number;
+  /** ຂໍ້ຈຳກັດ 10G — ຊ່ອງທາງສົ່ງ (ບໍ່ມີ = PUSH ຢ່າງດຽວ, ແຄມເປນເກົ່າ) */
+  channels?: ConsentChannel[];
 };
+
+function ruleChannels(rule: StoredRule): ConsentChannel[] {
+  return rule.channels && rule.channels.length > 0 ? rule.channels : ['PUSH'];
+}
 
 const CAMPAIGN_INCLUDE = {
   branch: { select: { name: true } },
@@ -45,6 +60,7 @@ async function toView(c: CampaignRow): Promise<CampaignView> {
       rule.inactiveDays != null || rule.daysBefore != null
         ? { inactiveDays: rule.inactiveDays, daysBefore: rule.daysBefore }
         : null,
+    channels: ruleChannels(rule),
     isActive: c.isActive,
     recipientCount: c._count.recipients,
     convertedCount: converted,
@@ -56,9 +72,11 @@ async function toView(c: CampaignRow): Promise<CampaignView> {
 function buildRule(input: {
   message?: { title: string; body: string };
   triggerRule?: { inactiveDays?: number; daysBefore?: number };
+  channels?: ConsentChannel[];
 }): Prisma.InputJsonValue {
   return {
     ...(input.message ? { message: input.message } : {}),
+    ...(input.channels ? { channels: [...new Set(input.channels)] } : {}),
     ...(input.triggerRule?.inactiveDays != null ? { inactiveDays: input.triggerRule.inactiveDays } : {}),
     ...(input.triggerRule?.daysBefore != null ? { daysBefore: input.triggerRule.daysBefore } : {}),
   };
@@ -98,6 +116,7 @@ export async function updateCampaign(id: string, input: UpdateCampaignInput): Pr
           inactiveDays: input.triggerRule?.inactiveDays ?? currentRule.inactiveDays,
           daysBefore: input.triggerRule?.daysBefore ?? currentRule.daysBefore,
         },
+        channels: input.channels ?? currentRule.channels,
       }),
     },
     include: CAMPAIGN_INCLUDE,
@@ -225,40 +244,187 @@ export async function runCampaign(id: string): Promise<CampaignRunView> {
     audience = rows.map((r) => r.id);
   }
 
+  const channels = ruleChannels(rule);
+  const empty = { skippedNoConsent: 0, skippedSuppressed: 0, skippedFrequencyCap: 0, byChannel: {} };
+
+  // Wave 10G — ຊ່ວງງຽບ: ບໍ່ສົ່ງ ແລະ ບໍ່ບັນທຶກ recipient ເພື່ອໃຫ້ sweep ຮອບຕໍ່ໄປສົ່ງໄດ້.
+  const policy = await getPolicy();
+  if (inQuietHours(policy)) {
+    return { campaignId: id, matched: audience.length, sent: 0, skippedAlreadySent: 0, ...empty, deferredQuietHours: true };
+  }
+
   const already = await prisma.campaignRecipient.findMany({
     where: { campaignId: id, userId: { in: audience } },
     select: { userId: true },
   });
   const alreadySet = new Set(already.map((a) => a.userId));
-  const toSend = audience.filter((uid) => !alreadySet.has(uid));
+  const pending = audience.filter((uid) => !alreadySet.has(uid));
+
+  // Wave 10G — consent + suppression + frequency cap ບັງຄັບຢູ່ນີ້ (ຊັ້ນ service), ບໍ່ແມ່ນ UI. ກັ່ນຕອງແຍກຕໍ່ຊ່ອງ:
+  // ລູກຄ້າໄດ້ຮັບສະເພາະຊ່ອງທີ່ຕົນ opt-in ແລະ ບໍ່ຕິດ suppression.
+  const eligibleBy = new Map<string, ConsentChannel[]>();
+  const suppressedIn = new Map<string, number>();
+  let capped = new Set<string>();
+  for (const channel of channels) {
+    const r = await filterCampaignAudience(pending, policy, channel);
+    for (const uid of r.eligible) eligibleBy.set(uid, [...(eligibleBy.get(uid) ?? []), channel]);
+    for (const uid of r.suppressedIds ?? []) suppressedIn.set(uid, (suppressedIn.get(uid) ?? 0) + 1);
+    if (r.cappedIds) capped = r.cappedIds;
+  }
+  let skippedNoConsent = 0;
+  let skippedSuppressed = 0;
+  for (const uid of pending) {
+    if (eligibleBy.has(uid) || capped.has(uid)) continue;
+    if ((suppressedIn.get(uid) ?? 0) === channels.length) skippedSuppressed += 1;
+    else skippedNoConsent += 1;
+  }
+
+  const contacts = new Map(
+    (
+      await prisma.user.findMany({
+        where: { id: { in: [...eligibleBy.keys()] } },
+        select: { id: true, phone: true, email: true, lineLink: { select: { lineUserId: true } } },
+      })
+    ).map((u) => [u.id, u]),
+  );
+
+  const byChannel: CampaignRunView['byChannel'] = {};
+  const stat = (c: ConsentChannel) => (byChannel[c] ??= { sent: 0, failed: 0, noProvider: 0, noContact: 0 });
+  for (const c of channels) stat(c);
 
   let sent = 0;
   const body = campaign.discountCode ? `${message.body} (ໂຄ້ດ: ${campaign.discountCode})` : message.body;
-  for (const userId of toSend) {
+  for (const [userId, userChannels] of eligibleBy) {
+    // ຈອງ recipient ກ່ອນສົ່ງ — sweep ພ້ອມກັນ (P2002) ຈະບໍ່ສົ່ງຊ້ຳ.
     try {
-      await prisma.campaignRecipient.create({
-        data: { campaignId: id, userId, status: 'SENT' },
-      });
-      await notifyUser({
+      await prisma.campaignRecipient.create({ data: { campaignId: id, userId, status: 'SENT' } });
+    } catch (err) {
+      if ((err as { code?: string }).code === 'P2002') continue;
+      throw err;
+    }
+    const contact = contacts.get(userId);
+    const delivered: ConsentChannel[] = [];
+    for (const channel of userChannels) {
+      if (!isChannelConfigured(channel)) {
+        stat(channel).noProvider += 1;
+        continue;
+      }
+      const ok = await deliver(channel, {
         userId,
-        type: 'CAMPAIGN',
+        campaignId: id,
+        discountCode: campaign.discountCode,
         title: message.title,
         body,
-        data: { campaignId: id, discountCode: campaign.discountCode ?? undefined },
-        dedupeKey: `campaign:${id}:${userId}`,
+        phone: contact?.phone ?? null,
+        email: contact?.email ?? null,
+        lineUserId: contact?.lineLink?.lineUserId ?? null,
       });
-      sent += 1;
-    } catch (err) {
-      if ((err as { code?: string }).code !== 'P2002') throw err;
+      if (ok === 'no-contact') stat(channel).noContact += 1;
+      else if (ok) {
+        stat(channel).sent += 1;
+        delivered.push(channel);
+      } else stat(channel).failed += 1;
     }
+
+    if (delivered.length === 0) {
+      // ບໍ່ມີຊ່ອງໃດສົ່ງສຳເລັດ → ຖອນການຈອງ ເພື່ອໃຫ້ sweep ຕໍ່ໄປລອງໃໝ່.
+      await prisma.campaignRecipient.deleteMany({ where: { campaignId: id, userId } });
+      continue;
+    }
+    await prisma.campaignRecipient.update({
+      where: { campaignId_userId: { campaignId: id, userId } },
+      data: { channels: delivered },
+    });
+    // ເພດານ/ອາທິດ ນັບຈາກ NotificationLog(CAMPAIGN) — ສົ່ງສະເພາະ SMS/ອີເມວ/LINE ກໍຕ້ອງນັບ (+ ຢູ່ໃນ inbox ຂອງແອັບ).
+    if (!delivered.includes('PUSH')) {
+      await prisma.notificationLog
+        .create({
+          data: {
+            userId,
+            type: 'CAMPAIGN',
+            title: message.title,
+            body,
+            data: { campaignId: id, channels: delivered } as Prisma.InputJsonValue,
+            dedupeKey: `campaign:${id}:${userId}`,
+          },
+        })
+        .catch((err: { code?: string }) => {
+          if (err.code !== 'P2002') throw err;
+        });
+    }
+    sent += 1;
   }
 
   return {
     campaignId: id,
     matched: audience.length,
     sent,
-    skippedAlreadySent: audience.length - toSend.length,
+    skippedAlreadySent: alreadySet.size,
+    skippedNoConsent,
+    skippedSuppressed,
+    skippedFrequencyCap: capped.size,
+    deferredQuietHours: false,
+    byChannel,
   };
+}
+
+type DeliverInput = {
+  userId: string;
+  campaignId: string;
+  discountCode: string | null;
+  title: string;
+  body: string;
+  phone: string | null;
+  email: string | null;
+  lineUserId: string | null;
+};
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+}
+
+/** ສົ່ງ 1 ຊ່ອງ. ຄືນ true = ສຳເລັດ, false = ຜູ້ໃຫ້ບໍລິການປະຕິເສດ, 'no-contact' = ບໍ່ມີເບີ/ອີເມວ/LINE. */
+async function deliver(channel: ConsentChannel, m: DeliverInput): Promise<boolean | 'no-contact'> {
+  switch (channel) {
+    case 'PUSH': {
+      await notifyUser({
+        userId: m.userId,
+        type: 'CAMPAIGN',
+        title: m.title,
+        body: m.body,
+        data: {
+          campaignId: m.campaignId,
+          discountCode: m.discountCode ?? undefined,
+          unsubscribeToken: makeUnsubscribeToken(m.userId, 'PUSH'),
+        },
+        dedupeKey: `campaign:${m.campaignId}:${m.userId}`,
+      });
+      return true;
+    }
+    case 'SMS': {
+      if (!m.phone) return 'no-contact';
+      const r = await sendSms(m.phone, `${m.title}: ${m.body}\nຕອບ STOP ເພື່ອຍົກເລີກ`);
+      return r.ok;
+    }
+    case 'EMAIL': {
+      if (!m.email) return 'no-contact';
+      const link = unsubscribeUrl(m.userId, 'EMAIL');
+      const r = await sendEmail(
+        m.email,
+        m.title,
+        `${m.body}\n\nຍົກເລີກຮັບອີເມວໂປຣໂມຊັນ: ${link}`,
+        `<p>${escapeHtml(m.body)}</p><hr><p style="font-size:12px;color:#666"><a href="${escapeHtml(link)}">ຍົກເລີກຮັບອີເມວໂປຣໂມຊັນ</a></p>`,
+      );
+      return r.ok;
+    }
+    case 'LINE': {
+      if (!m.lineUserId) return 'no-contact';
+      const r = await sendLine(m.lineUserId, `${m.title}\n${m.body}\n\n(ພິມ STOP ເພື່ອຍົກເລີກ)`);
+      return r.ok;
+    }
+    default:
+      return false;
+  }
 }
 
 /** ໃຊ້ໂດຍ marketing.job.ts — ຣັນທຸກແຄມເປນ active. */

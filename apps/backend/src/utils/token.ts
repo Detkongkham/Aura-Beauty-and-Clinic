@@ -8,15 +8,18 @@ import { ErrorCode } from '../constants/errorCodes.js';
 export type RefreshTokenPayload = {
   sub: string;
   jti: string;
+  /** UserSession id — token ທີ່ອອກກ່ອນ 2026-09-23 ບໍ່ມີ (ຈັດການແບບ LEGACY). */
+  sid?: string;
 };
 
 export function signAccessToken(payload: AccessTokenPayload): string {
   return jwt.sign(payload, env.JWT_ACCESS_SECRET, { expiresIn: env.JWT_ACCESS_TTL });
 }
 
-export function signRefreshToken(sub: string): { token: string; jti: string } {
+export function signRefreshToken(sub: string, sid?: string): { token: string; jti: string } {
   const jti = randomUUID();
-  const token = jwt.sign({ sub, jti } satisfies RefreshTokenPayload, env.JWT_REFRESH_SECRET, {
+  const payload: RefreshTokenPayload = sid ? { sub, jti, sid } : { sub, jti };
+  const token = jwt.sign(payload, env.JWT_REFRESH_SECRET, {
     expiresIn: env.JWT_REFRESH_TTL,
   });
   return { token, jti };

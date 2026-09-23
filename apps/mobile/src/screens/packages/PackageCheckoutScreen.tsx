@@ -1,4 +1,3 @@
-import type { DepositIntentView } from '@abcp/shared-types';
 import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -15,29 +14,27 @@ import {
   Card,
   IconTile,
   MoneyRow,
-  Notice,
   SMALL,
   SectionHeader,
   T,
   TOTAL,
 } from '../../features/booking/booking-kit';
 import { PackageThumb } from '../../features/packages/packages.parts';
-import { DepositIntro, QrCard } from '../../features/payments/payment.parts';
-import { useDepositIntent, useSettleMock } from '../../features/payments/payments.api';
+import { usePaymentById } from '../../features/payments/transfer.api';
+import { BankTransferPanel } from '../../features/payments/transfer.parts';
 import { formatLAK } from '../../lib/format';
 import { haptics } from '../../lib/haptics';
 import type { AppScreenProps } from '../../navigation/types';
-import { normalizeError } from '../../services/apiError';
 import { qk } from '../../services/queryKeys';
 import { colors, shadow } from '../../theme';
 
 /**
- * ຈ່າຍບິນຊື້ແພັກເກັດຜ່ານ BCEL One QR (deposit-intent → settle). ເງິນສົດ = ພະນັກງານບັນທຶກ
- * ທີ່ໜ້າຮ້ານເທົ່ານັ້ນ. ແພັກເກັດ activate ຝັ່ງ server ເມື່ອບິນ FULLY_PAID.
+ * ຈ່າຍບິນຊື້ແພັກເກັດດ້ວຍການໂອນເງິນ + ອັບສະລິບ (Module 39). ເງິນສົດ = ພະນັກງານບັນທຶກ
+ * ທີ່ໜ້າຮ້ານເທົ່ານັ້ນ. ແພັກເກັດ activate ຝັ່ງ server ເມື່ອບິນ FULLY_PAID (ພະນັກງານອະນຸມັດສະລິບແລ້ວ).
  *
- * 3 ສະຖານະຂອງໜ້າ: (1) ກ່ອນສ້າງ QR = ອະທິບາຍ 3 ຂັ້ນ + ທາງເລືອກຈ່າຍທີ່ຮ້ານ,
- * (2) ມີ QR = ບັດ QR ພ້ອມໂມງນັບຖອຍຫຼັງ/ສ້າງໃໝ່/ຄັດລອກເລກອ້າງອີງ, (3) ຈ່າຍສຳເລັດ = ບັດຢືນຢັນ
- * ພ້ອມທາງໄປຈອງຕໍ່. ປຸ່ມຫຼັກຢູ່ FooterBar ບ່ອນດຽວທຸກສະຖານະ.
+ * 3 ສະຖານະຂອງໜ້າ: (1) ກ່ອນໂອນ = ອະທິບາຍ + ທາງເລືອກຈ່າຍທີ່ຮ້ານ, (2) ກຳລັງໂອນ = <BankTransferPanel>
+ * (ບັນຊີ/QR + ອັບສະລິບ + ສະຖານະ), (3) ຈ່າຍສຳເລັດ (ບິນ FULLY_PAID) = ບັດຢືນຢັນພ້ອມທາງໄປຈອງຕໍ່.
+ * ປຸ່ມຫຼັກຢູ່ FooterBar ບ່ອນດຽວທຸກສະຖານະ.
  */
 export function PackageCheckoutScreen({
   navigation,
@@ -47,31 +44,15 @@ export function PackageCheckoutScreen({
   const qc = useQueryClient();
   const { paymentId, amount, packageName } = route.params;
 
-  const depositIntent = useDepositIntent();
-  const settle = useSettleMock(paymentId);
+  const payment = usePaymentById(paymentId);
+  const [paying, setPaying] = useState(false);
 
-  const [intent, setIntent] = useState<DepositIntentView | null>(null);
-  const [done, setDone] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const done = payment.data?.paymentStatus === 'FULLY_PAID';
+  const balance = payment.data?.balanceAmount ?? amount;
 
-  const onFail = (e: unknown): void => setErr(normalizeError(e).message);
-  const onPaid = (): void => {
-    setDone(true);
-    haptics.success();
+  const onApproved = (): void => {
+    void payment.refetch();
     void qc.invalidateQueries({ queryKey: qk.myPackages });
-  };
-
-  const startQr = (): void => {
-    setErr(null);
-    depositIntent.mutate(paymentId, { onSuccess: setIntent, onError: onFail });
-  };
-  const confirmQr = (): void => {
-    if (!intent) return;
-    setErr(null);
-    settle.mutate(
-      { paymentId, qrReference: intent.qrReference },
-      { onSuccess: onPaid, onError: onFail },
-    );
   };
 
   return (
@@ -133,20 +114,22 @@ export function PackageCheckoutScreen({
               </View>
             </View>
           </AnimatedEntrance>
-        ) : intent ? (
+        ) : paying ? (
           <AnimatedEntrance index={1}>
-            <QrCard
-              payload={intent.qrPayload}
-              amount={intent.amount}
-              reference={intent.qrReference}
-              expiresAt={intent.expiresAt}
-              onRegenerate={startQr}
-            />
+            <BankTransferPanel paymentId={paymentId} balance={balance} onApproved={onApproved} />
           </AnimatedEntrance>
         ) : (
           <AnimatedEntrance index={1}>
             <View className="gap-3">
-              <DepositIntro amount={amount} />
+              <Card flat className="flex-row items-center gap-3 p-3.5">
+                <IconTile icon="swap-horizontal-outline" size={40} />
+                <View className="min-w-0 flex-1">
+                  <T className="font-lao-semibold text-foreground">{t('payment.transfer.methodTitle')}</T>
+                  <T className="font-lao text-muted-foreground" style={SMALL}>
+                    {t('payment.transfer.methodDesc')}
+                  </T>
+                </View>
+              </Card>
 
               {/* ທາງເລືອກ: ຈ່າຍເງິນສົດທີ່ໜ້າຮ້ານ */}
               <Card flat className="flex-row items-center gap-3 p-3.5">
@@ -169,9 +152,6 @@ export function PackageCheckoutScreen({
           </AnimatedEntrance>
         )}
 
-        {err ? (
-          <Notice tone="destructive" icon="alert-circle-outline" body={err} />
-        ) : null}
       </ScrollView>
 
       <FooterBar>
@@ -196,15 +176,25 @@ export function PackageCheckoutScreen({
               </T>
             </Touchable>
           </>
+        ) : paying ? (
+          <Button
+            label={t('payment.later')}
+            size="sm"
+            variant="secondary"
+            labelClassName="text-[12px]"
+            onPress={() => navigation.replace('MyPackages')}
+          />
         ) : (
           <>
             <Button
-              label={intent ? t('payment.confirmPaid') : t('packages.createQrCta')}
+              label={t('packages.transferCta')}
               size="sm"
-              icon={intent ? 'checkmark' : 'qr-code-outline'}
-              loading={intent ? settle.isPending : depositIntent.isPending}
+              icon="swap-horizontal-outline"
               labelClassName="text-[12px]"
-              onPress={intent ? confirmQr : startQr}
+              onPress={() => {
+                haptics.select();
+                setPaying(true);
+              }}
             />
             <T className="text-center font-lao text-muted-foreground" style={SMALL}>
               {t('packages.payAtStoreHint')}

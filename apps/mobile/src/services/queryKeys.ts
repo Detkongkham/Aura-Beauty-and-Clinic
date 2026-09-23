@@ -28,6 +28,12 @@ export const qk = {
   waitlist: ['waitlist', 'me'] as const,
   payment: (appointmentId: string) => ['payment', 'appointment', appointmentId] as const,
 
+  // ---- Module 39: Payments & Treasury (bank transfer + slips) ----
+  paymentById: (paymentId: string) => ['payment', 'one', paymentId] as const,
+  paymentBankAccounts: (paymentId: string) => ['payment', 'bank-accounts', paymentId] as const,
+  paymentSlips: (paymentId: string) => ['payment', 'slips', paymentId] as const,
+  slipInbox: (group: string) => ['payment-slips', 'inbox', group] as const,
+
   // ---- Phase 7A: Revenue (Module 28 + 33) ----
   referral: ['referral', 'me'] as const,
   referralUsages: ['referral', 'me', 'usages'] as const,
@@ -59,4 +65,5 @@ export const qk = {
 
   // ---- Phase 7C: AI Skin & Hair Camera (Module 30) ----
   skinAnalyses: ['skin-analysis', 'me'] as const,
+  consent: ['consent', 'me'] as const,
 };

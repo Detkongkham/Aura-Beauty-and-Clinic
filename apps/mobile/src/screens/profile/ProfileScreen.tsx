@@ -385,8 +385,14 @@ export function ProfileScreen({ navigation }: TabScreenProps<'ProfileTab'>): Rea
                 label={t('profile.notificationsRow')}
                 value={t('profile.notificationsRowValue')}
                 badge={unread.data ?? 0}
-                last
                 onPress={() => navigation.navigate('Notifications')}
+              />
+              <ListRow
+                icon="shield-checkmark-outline"
+                label={t('profile.notificationPrefsRow')}
+                value={t('profile.notificationPrefsRowValue')}
+                last
+                onPress={() => navigation.navigate('NotificationPreferences')}
               />
             </Card>
           </View>

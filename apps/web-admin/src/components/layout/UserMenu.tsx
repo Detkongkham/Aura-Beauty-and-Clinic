@@ -48,7 +48,7 @@ export function UserMenu() {
           aria-label={user.name}
           className="h-9 shrink-0 gap-2 rounded-full px-1 pr-1 xl:pr-2.5 data-[state=open]:bg-muted"
         >
-          <PersonAvatar name={user.name} size={28} />
+          <PersonAvatar name={user.name} src={user.avatarUrl} mode="auto" size={28} />
           <span className="hidden min-w-0 flex-col items-start leading-tight xl:flex">
             <span className="max-w-[10rem] truncate text-xs font-semibold text-foreground">
               {user.name}
@@ -62,7 +62,7 @@ export function UserMenu() {
 
       <DropdownMenuContent align="end" className="min-w-[15rem] p-1.5">
         <div className="flex items-center gap-2.5 rounded-sm px-1.5 py-2">
-          <PersonAvatar name={user.name} size={38} />
+          <PersonAvatar name={user.name} src={user.avatarUrl} mode="auto" size={38} />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-foreground">{user.name}</p>
             <p className="truncate text-xs text-muted-foreground">{roleLabel}</p>
@@ -98,7 +98,9 @@ export function UserMenu() {
                 className={cn(
                   'inline-flex h-7 flex-1 items-center justify-center gap-1 rounded-full text-2xs font-semibold',
                   'transition-colors duration-150 ease-out',
-                  active ? 'bg-card text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground',
+                  active
+                    ? 'bg-card text-foreground shadow-xs'
+                    : 'text-muted-foreground hover:text-foreground',
                 )}
               >
                 <Icon className="h-3.5 w-3.5" aria-hidden="true" />

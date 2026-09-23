@@ -69,6 +69,9 @@ export function inferNotificationSeverity(type: string): NotificationSeverity {
     t.includes('LOW_STOCK') ||
     t.includes('STAFF_LATE') ||
     t.includes('TIMEOFF') ||
+    t.includes('SLIP_REJECTED') ||
+    t.includes('EXPENSE_REJECTED') ||
+    t.includes('EXPENSE_VOIDED') ||
     t.includes('CANCEL')
   ) {
     return 'warning';
@@ -85,7 +88,7 @@ function mapModule(type: string): NotificationModule {
   if (t.includes('INVENTORY') || t.includes('STOCK') || t.includes('PURCHASE_ORDER')) return 'inventory';
   if (t.includes('GIFT_CARD')) return 'giftCards';
   if (t.includes('LOYALTY')) return 'loyalty';
-  if (t.includes('PAYMENT')) return 'payments';
+  if (t.includes('PAYMENT') || t.includes('SLIP') || t.includes('EXPENSE')) return 'payments';
   if (t.includes('CAMPAIGN')) return 'marketing';
   return 'system';
 }

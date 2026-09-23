@@ -31,3 +31,8 @@ export * from './chat.schema.js';
 export * from './skin-analysis.schema.js';
 export * from './chatbot.schema.js';
 export * from './checkin.js';
+export * from './payments-treasury.schema.js';
+export * from './payment-slip.schema.js';
+export * from './expense.schema.js';
+export * from './consent.schema.js';
+export * from './refund.schema.js';

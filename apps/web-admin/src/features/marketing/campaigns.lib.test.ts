@@ -22,6 +22,7 @@ function campaign(p: Partial<CampaignView>): CampaignView {
     discountCode: p.discountCode ?? null,
     message: p.message ?? { title: 'Hi', body: 'Body' },
     triggerRule: p.triggerRule ?? null,
+    channels: p.channels ?? ['PUSH'],
     isActive: p.isActive ?? true,
     recipientCount: p.recipientCount ?? 0,
     convertedCount: p.convertedCount ?? 0,

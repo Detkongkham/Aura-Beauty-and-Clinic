@@ -34,30 +34,37 @@ model Branch {
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
-  users          User[]
-  staffBranches  StaffBranch[]
-  services       Service[]
-  rooms          Room[]
-  equipments     Equipment[]
-  appointments   Appointment[]
-  bookingGroups  BookingGroup[]
-  payments       Payment[]
-  inventories    Product[]
-  expenses       Expense[]
-  subscription   TenantSubscription?
-  pricingRules   DynamicPricingRule[]
-  purchaseOrders PurchaseOrder[]
-  stockMovements StockMovement[]
-  transfersOut   StockTransfer[]      @relation("StockTransferFrom")
-  transfersIn    StockTransfer[]      @relation("StockTransferTo")
-  waitlists      Waitlist[]
-  giftCards      GiftCard[]
-  packages       Package[]
-  conversations  ChatThread[]
-  queueTickets   QueueTicket[]
-  campaigns      MarketingCampaign[]
-  auditLogs      AuditLog[]
-  closures       BranchClosure[]
+  users              User[]
+  staffBranches      StaffBranch[]
+  services           Service[]
+  rooms              Room[]
+  equipments         Equipment[]
+  appointments       Appointment[]
+  bookingGroups      BookingGroup[]
+  payments           Payment[]
+  inventories        Product[]
+  expenses           Expense[]
+  recurringExpenses  RecurringExpense[]
+  expenseBudgets     ExpenseBudget[]
+  cashFunds          CashFund[]
+  expenseAllocations ExpenseAllocation[]
+  subscription       TenantSubscription?
+  pricingRules       DynamicPricingRule[]
+  purchaseOrders     PurchaseOrder[]
+  stockMovements     StockMovement[]
+  transfersOut       StockTransfer[]            @relation("StockTransferFrom")
+  transfersIn        StockTransfer[]            @relation("StockTransferTo")
+  waitlists          Waitlist[]
+  giftCards          GiftCard[]
+  packages           Package[]
+  conversations      ChatThread[]
+  queueTickets       QueueTicket[]
+  campaigns          MarketingCampaign[]
+  auditLogs          AuditLog[]
+  closures           BranchClosure[]
+  bankAccounts       BankAccount[]
+  bankAccountChanges BankAccountChangeRequest[]
+  paymentSlips       PaymentSlip[]
 
   @@map("branches")
 }

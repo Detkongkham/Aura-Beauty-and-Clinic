@@ -18,6 +18,7 @@ import { env } from '../../config/env.js';
 import { ErrorCode } from '../../constants/errorCodes.js';
 import { ApiError } from '../../utils/ApiError.js';
 import { tsParam } from '../../utils/dateHelpers.js';
+import { nextDocumentNo } from '../../utils/documentNumbers.js';
 import { dec, round2, toNum } from '../../utils/money.js';
 import {
   DEPOSIT_INTENT_TTL_MINUTES,
@@ -28,6 +29,9 @@ import { notifyUser } from '../../services/push.js';
 import { activatePurchasedGiftCard, redeemGiftCard } from '../gift-cards/gift-cards.service.js';
 import { earnPoints, redeemPoints } from '../loyalty/loyalty.service.js';
 import { activatePurchasedPackage } from '../packages/packages.service.js';
+import { assertCashDrawerOpen } from '../payments-treasury/cash-drawer/cash-policy.js';
+import { exclusiveBillVat, getVatSettings, splitVat } from './vat.js';
+import { runSerializable } from '../../utils/serializable.js';
 
 // ---- deposit rate ---------------------------------------------------
 
@@ -129,6 +133,14 @@ function toView(p: PaymentRow): PaymentView {
     paidAt: p.paidAt?.toISOString() ?? null,
     createdAt: p.createdAt.toISOString(),
     transactions: p.transactions.map(toTxView),
+    invoiceNo: p.invoiceNo,
+    vatRate: p.vatRate ? p.vatRate.toNumber() : null,
+    vatMode: p.vatMode,
+    taxAmount: p.taxAmount ? toNum(p.taxAmount) : null,
+    netAmount: p.netAmount ? toNum(p.netAmount) : null,
+    refundedAmount: toNum(p.refundedAmount),
+    voidedAt: p.voidedAt?.toISOString() ?? null,
+    voidReason: p.voidReason,
   };
 }
 
@@ -153,9 +165,6 @@ export async function createPayment(
   const bill = await resolveBill(input);
   assertCanAccess(auth, bill.customerId);
 
-  const rate = input.depositRate ?? (await getDepositRate());
-  const deposit = round2(bill.total * rate);
-
   if (bill.appointmentId) {
     const existing = await prisma.payment.findUnique({
       where: { appointmentId: bill.appointmentId },
@@ -164,14 +173,22 @@ export async function createPayment(
     if (existing) return toView(existing);
   }
 
+  // VAT ແບບ EXCLUSIVE: ລາຄາບໍລິການບໍ່ລວມພາສີ → ບວກພາສີເທິງຍອດ ແລະ ຢຸດໄວ້ໃນບິນ; ມັດຈຳຄິດຈາກຍອດລວມພາສີ.
+  const { total, vat } = await exclusiveBillVat(bill.total);
+  const rate = input.depositRate ?? (await getDepositRate());
+  const deposit = round2(total * rate);
+
   const created = await prisma.payment.create({
     data: {
       branchId: bill.branchId,
       appointmentId: bill.appointmentId,
       bookingGroupId: bill.bookingGroupId,
-      totalAmount: dec(bill.total),
+      totalAmount: dec(total),
       depositAmount: dec(deposit),
       paymentStatus: 'PENDING',
+      ...(vat
+        ? { vatRate: vat.vatRate, vatMode: vat.vatMode, taxAmount: dec(vat.taxAmount), netAmount: dec(vat.netAmount) }
+        : {}),
     },
     include: PAYMENT_INCLUDE,
   });
@@ -423,6 +440,7 @@ export async function addTenders(
     where: { id },
     select: {
       id: true,
+      branchId: true,
       currency: true,
       appointment: { select: { customerId: true } },
       bookingGroup: { select: { payerId: true } },
@@ -440,15 +458,20 @@ export async function addTenders(
   assertCanAccess(auth, customerId);
 
   assertTenderMethodsAllowed(auth, input);
+  // Wave 10C — ເງິນສົດຕ້ອງຜູກກັບກະລິ້ນຊັກທີ່ເປີດຢູ່ (ຕາມນະໂຍບາຍ)
+  if (input.tenders.some((t) => t.method === 'CASH')) await assertCashDrawerOpen(payment.branchId);
 
   // Wave 10A (ອຸດ C2) — ລັອກແຖວ payments ໄວ້ (FOR UPDATE) ແລ້ວອ່ານ+ກວດ+ຂຽນຢູ່ໃນ transaction ດຽວ
   // ເພື່ອກັນ 2 request ພ້ອມກັນ (double-tap/retry) ຕ່າງອ່ານ alreadyPaid ຄ່າເກົ່າແລ້ວຜ່ານດ່ານກວດທັງຄູ່.
-  await prisma.$transaction(
+  await runSerializable(
     async (tx) => {
       const locked = await tx.$queryRaw<
-        { totalAmount: Prisma.Decimal }[]
-      >`SELECT "totalAmount" FROM "payments" WHERE "id" = ${id} FOR UPDATE`;
+        { totalAmount: Prisma.Decimal; paymentStatus: string }[]
+      >`SELECT "totalAmount", "paymentStatus" FROM "payments" WHERE "id" = ${id} FOR UPDATE`;
       if (!locked[0]) throw ApiError.notFound('ບໍ່ພົບບິນ');
+      if (locked[0].paymentStatus === 'VOIDED' || locked[0].paymentStatus === 'REFUNDED') {
+        throw ApiError.badRequest('ບິນນີ້ຖືກຍົກເລີກ/ຄືນເງິນແລ້ວ — ຮັບຊຳລະບໍ່ໄດ້');
+      }
 
       const paidRows = await tx.paymentTransaction.findMany({
         where: { paymentId: id, status: 'SUCCESS' },
@@ -465,7 +488,6 @@ export async function addTenders(
         await applyTender(tx, { paymentId: id, currency: payment.currency, customerId }, tender);
       }
     },
-    { isolationLevel: 'Serializable' },
   );
 
   return recomputeAndSettle(id);
@@ -473,7 +495,7 @@ export async function addTenders(
 
 // ---- settlement -------------------------------------------------
 
-async function recomputeAndSettle(id: string): Promise<PaymentView> {
+export async function recomputeAndSettle(id: string): Promise<PaymentView> {
   const row = await prisma.payment.findUniqueOrThrow({
     where: { id },
     include: {
@@ -488,15 +510,35 @@ async function recomputeAndSettle(id: string): Promise<PaymentView> {
   const total = toNum(row.totalAmount);
   const deposit = toNum(row.depositAmount);
 
+  // Wave 10B — ບິນທີ່ຖືກ void / ຄືນເງິນເຕັມແລ້ວ ເປັນສະຖານະປາຍທາງ; ຫ້າມ recompute ຍ້ອນກັບ.
+  if (row.paymentStatus === 'VOIDED' || row.paymentStatus === 'REFUNDED') return loadView(id);
+
   const status =
     paid >= total - 0.01 ? 'FULLY_PAID' : paid >= deposit - 0.01 && paid > 0 ? 'DEPOSIT_PAID' : 'PENDING';
 
-  await prisma.payment.update({
-    where: { id },
-    data: {
-      paymentStatus: status,
-      paidAt: status === 'FULLY_PAID' ? row.paidAt ?? new Date() : null,
-    },
+  const vat = status === 'FULLY_PAID' ? await getVatSettings() : null;
+  await prisma.$transaction(async (tx) => {
+    const paidAt = status === 'FULLY_PAID' ? row.paidAt ?? new Date() : null;
+    const data: Prisma.PaymentUpdateInput = { paymentStatus: status, paidAt };
+    if (status === 'FULLY_PAID') {
+      // Wave 10B (M2/M3) — ລັອກແຖວກ່ອນ ແລ້ວອ່ານ invoiceNo ຄືນ: 2 recompute ພ້ອມກັນ ຕ້ອງອອກເລກໃບຮັບເງິນໃບດຽວ
+      // (ບໍ່ດັ່ງນັ້ນຄົນທີ 2 ຂຽນທັບ → ເລກຂອງຄົນທີ 1 ຫາຍ = ເລກຂາດຕອນ).
+      await tx.$queryRaw`SELECT "id" FROM "payments" WHERE "id" = ${id} FOR UPDATE`;
+      const fresh = await tx.payment.findUniqueOrThrow({ where: { id }, select: { invoiceNo: true } });
+      if (!fresh.invoiceNo) {
+        data.invoiceNo = await nextDocumentNo(tx, row.branchId, 'INV', paidAt ?? new Date());
+        // EXCLUSIVE ຢຸດ VAT ໄວ້ແລ້ວຕອນສ້າງບິນ (row.vatRate). ບິນຊື້ບັດຂອງຂວັນ = voucher → ບໍ່ຄິດ VAT (ຄິດຕອນນຳບັດໄປໃຊ້,
+        // ບໍ່ດັ່ງນັ້ນເສຍພາສີຊ້ຳ 2 ເທື່ອ). ບິນທີ່ສ້າງກ່ອນປ່ຽນເປັນ EXCLUSIVE ຍັງແຍກແບບລວມພາສີ (ລາຄາຕົກລົງກັນແລ້ວ).
+        if (vat?.enabled && row.vatRate == null && !row.giftCardPurchase) {
+          const { tax, net } = splitVat(total, vat.rate);
+          data.vatRate = vat.rate;
+          data.vatMode = 'INCLUSIVE';
+          data.taxAmount = dec(tax);
+          data.netAmount = dec(net);
+        }
+      }
+    }
+    await tx.payment.update({ where: { id }, data });
   });
 
   // ມັດຈຳ/ຈ່າຍຄົບ → ຢືນຢັນນັດ (ກັນ No-Show)
@@ -595,8 +637,9 @@ export async function financeSummary(query: PaymentListQuery): Promise<FinanceSu
   >`
     SELECT
       COALESCE(SUM(paid.amount), 0) AS grossrevenue,
-      COALESCE(SUM(GREATEST(p."totalAmount" - COALESCE(paid.amount, 0), 0)), 0) AS outstandingbalance,
-      COALESCE(SUM(CASE WHEN p."paymentStatus" = 'REFUNDED' THEN p."totalAmount" ELSE 0 END), 0) AS refunded,
+      COALESCE(SUM(CASE WHEN p."paymentStatus" IN ('VOIDED', 'REFUNDED') THEN 0
+                        ELSE GREATEST(p."totalAmount" - COALESCE(paid.amount, 0), 0) END), 0) AS outstandingbalance,
+      COALESCE(SUM(p."refundedAmount"), 0) AS refunded,
       COUNT(*) AS paymentcount
     FROM "payments" p
     LEFT JOIN LATERAL (

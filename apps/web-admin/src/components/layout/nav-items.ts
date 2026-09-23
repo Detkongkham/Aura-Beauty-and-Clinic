@@ -1,5 +1,9 @@
 import {
   ArrowLeftRight,
+  Landmark,
+  Receipt,
+  Scale,
+  ScanLine,
   Bell,
   Boxes,
   CalendarDays,
@@ -139,6 +143,20 @@ export const NAV_GROUPS: NavGroup[] = [
       { labelKey: 'loyalty', to: ROUTES.loyalty, icon: Gem, permission: 'finance:view' },
       { labelKey: 'giftCards', to: ROUTES.giftCards, icon: Gift, permission: 'finance:view' },
       { labelKey: 'marketing', to: ROUTES.marketing, icon: Megaphone, permission: 'marketing:view' },
+    ],
+  },
+  {
+    labelKey: 'payments',
+    items: [
+      { labelKey: 'paymentsBanks', to: ROUTES.paymentsBanks, icon: Landmark, permission: 'payments:manage' },
+      { labelKey: 'paymentsSlips', to: ROUTES.paymentsSlips, icon: ScanLine, permission: 'payments:review' },
+      { labelKey: 'paymentsExpenses', to: ROUTES.paymentsExpenses, icon: Receipt, permission: 'expenses:view' },
+      {
+        labelKey: 'paymentsReconciliation',
+        to: ROUTES.paymentsReconciliation,
+        icon: Scale,
+        permission: 'payments:manage',
+      },
     ],
   },
   {

@@ -29,13 +29,33 @@ async function ensureAccount(db: Db, userId: string): Promise<{ id: string }> {
   });
 }
 
-/** ຄະແນນສະສົມທັງໝົດ (lifetime earned) = ຜົນລວມຂອງ tx ທີ່ບວກ. */
+/**
+ * ຄະແນນສະສົມທັງໝົດ (lifetime earned) ທີ່ໃຊ້ຄິດ tier =
+ *   tx ທີ່ບວກ (EARN / ADJUST+) — ຍົກເວັ້ນການຄືນຄະແນນທີ່ເຄີຍແລກ (`refund:*`, ບໍ່ແມ່ນຄະແນນໃໝ່)
+ *   − ຄະແນນທີ່ຖືກດຶງຄືນຍ້ອນຄືນເງິນ (`clawback:*`).
+ * ຈຶ່ງເຮັດໃຫ້ຄືນເງິນ → tier ຫຼຸດລົງໄດ້ (ຂໍ້ຈຳກັດ 10B).
+ */
+const RESTORE_REF = 'refund:';
+const CLAWBACK_REF = 'clawback:';
+
+function lifetimeEarnWhere(ids: string | string[]): Prisma.LoyaltyTransactionWhereInput {
+  return {
+    loyaltyAccountId: typeof ids === 'string' ? ids : { in: ids },
+    points: { gt: 0 },
+    OR: [{ refId: null }, { NOT: { refId: { startsWith: RESTORE_REF } } }],
+  };
+}
+
+function clawbackWhere(ids: string | string[]): Prisma.LoyaltyTransactionWhereInput {
+  return { loyaltyAccountId: typeof ids === 'string' ? ids : { in: ids }, refId: { startsWith: CLAWBACK_REF } };
+}
+
 async function lifetimePoints(db: Db, loyaltyAccountId: string): Promise<number> {
-  const agg = await db.loyaltyTransaction.aggregate({
-    where: { loyaltyAccountId, points: { gt: 0 } },
-    _sum: { points: true },
-  });
-  return agg._sum.points ?? 0;
+  const [earned, clawed] = await Promise.all([
+    db.loyaltyTransaction.aggregate({ where: lifetimeEarnWhere(loyaltyAccountId), _sum: { points: true } }),
+    db.loyaltyTransaction.aggregate({ where: clawbackWhere(loyaltyAccountId), _sum: { points: true } }),
+  ]);
+  return Math.max(0, (earned._sum.points ?? 0) + (clawed._sum.points ?? 0));
 }
 
 async function recomputeTier(db: Db, loyaltyAccountId: string): Promise<LoyaltyTier> {
@@ -118,6 +138,61 @@ export async function redeemPoints(
   return params.points * LOYALTY_POINT_VALUE_LAK;
 }
 
+/** Wave 10B — ຄືນຄະແນນທີ່ເຄີຍແລກ (ຄືນເງິນ tender LOYALTY_POINTS). ບັນທຶກເປັນ ADJUST (+). */
+export async function restoreRedeemedPoints(
+  db: Db,
+  params: { userId: string; points: number; refId: string; notes?: string },
+): Promise<void> {
+  if (params.points <= 0) return;
+  const account = await ensureAccount(db, params.userId);
+  await db.loyaltyTransaction.create({
+    data: {
+      loyaltyAccountId: account.id,
+      type: 'ADJUST',
+      points: params.points,
+      refId: params.refId,
+      notes: params.notes ?? 'ຄືນຄະແນນທີ່ແລກ (ຄືນເງິນ)',
+    },
+  });
+  await db.loyaltyAccount.update({ where: { id: account.id }, data: { points: { increment: params.points } } });
+}
+
+/**
+ * Wave 10B — ດຶງຄະແນນ EARN ຄືນ (clawback) ຕາມສັດສ່ວນຍອດຄືນສະສົມ. idempotent ຕໍ່ (payment): ຄິດຈາກຍອດຄວນຖືກດຶງທັງໝົດ
+ * ລົບກັບທີ່ດຶງໄປແລ້ວ (ADJUST refId `clawback:<paymentId>`), ຈຶ່ງໃຊ້ໄດ້ກັບຄືນເງິນບາງສ່ວນຫຼາຍຄັ້ງ.
+ * ບໍ່ດຶງເກີນຍອດຄະແນນຄົງເຫຼືອ (ຄະແນນທີ່ລູກຄ້າໃຊ້ໄປແລ້ວ ບໍ່ຕິດລົບ). ຄືນຈຳນວນຄະແນນທີ່ດຶງໃນຮອບນີ້.
+ */
+export async function clawbackEarnedPoints(
+  db: Db,
+  params: { userId: string; earnRefId: string; paymentId: string; refundedRatio: number },
+): Promise<number> {
+  const account = await db.loyaltyAccount.findUnique({ where: { userId: params.userId }, select: { id: true, points: true } });
+  if (!account) return 0;
+  const earned = await db.loyaltyTransaction.aggregate({
+    where: { loyaltyAccountId: account.id, type: 'EARN', refId: params.earnRefId },
+    _sum: { points: true },
+  });
+  const earnedPts = earned._sum.points ?? 0;
+  if (earnedPts <= 0) return 0;
+  const clawRef = `${CLAWBACK_REF}${params.paymentId}`;
+  const done = await db.loyaltyTransaction.aggregate({
+    where: { loyaltyAccountId: account.id, type: 'ADJUST', refId: clawRef },
+    _sum: { points: true },
+  });
+  const alreadyClawed = -(done._sum.points ?? 0);
+  const target = Math.round(earnedPts * Math.min(1, Math.max(0, params.refundedRatio)));
+  // ບໍ່ດຶງເກີນຍອດຄົງເຫຼືອ (ຍອດບໍ່ຕິດລົບ) — ແຕ່ tier ຍັງຫຼຸດຕາມຍອດທີ່ດຶງຈິງ.
+  const delta = Math.min(Math.max(0, target - alreadyClawed), account.points);
+  if (delta <= 0) return 0;
+  await db.loyaltyTransaction.create({
+    data: { loyaltyAccountId: account.id, type: 'ADJUST', points: -delta, refId: clawRef, notes: 'ດຶງຄະແນນຄືນ (ຄືນເງິນ)' },
+  });
+  await db.loyaltyAccount.update({ where: { id: account.id }, data: { points: { decrement: delta } } });
+  // ຄະແນນສະສົມຫຼຸດ → ຄິດ tier ໃໝ່ (ຫຼຸດລະດັບໄດ້).
+  await recomputeTier(db, account.id);
+  return delta;
+}
+
 // ---- views ----------------------------------------------------------
 
 function nextTierInfo(tier: LoyaltyTier, lifetime: number): {
@@ -154,10 +229,15 @@ async function ledgerStats(
   if (accountIds.length === 0) return stats;
 
   const where = { loyaltyAccountId: { in: accountIds } };
-  const [earned, redeemed, last] = await Promise.all([
+  const [earned, clawed, redeemed, last] = await Promise.all([
     prisma.loyaltyTransaction.groupBy({
       by: ['loyaltyAccountId'],
-      where: { ...where, points: { gt: 0 } },
+      where: lifetimeEarnWhere(accountIds),
+      _sum: { points: true },
+    }),
+    prisma.loyaltyTransaction.groupBy({
+      by: ['loyaltyAccountId'],
+      where: clawbackWhere(accountIds),
       _sum: { points: true },
     }),
     prisma.loyaltyTransaction.groupBy({
@@ -172,6 +252,10 @@ async function ledgerStats(
     }),
   ]);
   for (const r of earned) stats.get(r.loyaltyAccountId)!.lifetime = r._sum.points ?? 0;
+  for (const r of clawed) {
+    const st = stats.get(r.loyaltyAccountId)!;
+    st.lifetime = Math.max(0, st.lifetime + (r._sum.points ?? 0));
+  }
   for (const r of redeemed) stats.get(r.loyaltyAccountId)!.redeemed = Math.abs(r._sum.points ?? 0);
   for (const r of last) stats.get(r.loyaltyAccountId)!.lastActivityAt = r._max.createdAt ?? null;
   return stats;

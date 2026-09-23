@@ -7,10 +7,12 @@ import {
   createCampaignSchema,
   type CampaignType,
   type CampaignView,
+  type ConsentChannel,
   type CreateCampaignInput,
 } from '@abcp/shared-types';
 
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -29,10 +31,11 @@ import { cn } from '@/lib/utils';
 import { NormalizedApiError } from '@/services/apiError';
 
 import { CAMPAIGN_TYPES, DEFAULT_DAYS_BEFORE, DEFAULT_INACTIVE_DAYS, TYPE_META } from './campaigns.lib';
-import { useCreateCampaign, useUpdateCampaign } from './marketing.api';
+import { useChannelStatus, useCreateCampaign, useUpdateCampaign } from './marketing.api';
 import { NotificationPreview } from './NotificationPreview';
 
 const TYPES: CampaignType[] = CAMPAIGN_TYPES;
+const CHANNELS: ConsentChannel[] = ['PUSH', 'SMS', 'EMAIL', 'LINE'];
 
 interface Props {
   open: boolean;
@@ -46,6 +49,7 @@ export function CampaignFormDialog({ open, editing, defaultBranchId, onClose }: 
   const { data: branches = [] } = useBranches();
   const create = useCreateCampaign();
   const update = useUpdateCampaign();
+  const channelStatus = useChannelStatus(open);
 
   const form = useForm<CreateCampaignInput>({
     resolver: zodResolver(createCampaignSchema),
@@ -56,6 +60,7 @@ export function CampaignFormDialog({ open, editing, defaultBranchId, onClose }: 
       discountCode: '',
       message: { title: '', body: '' },
       triggerRule: {},
+      channels: ['PUSH'],
       isActive: true,
     },
   });
@@ -71,6 +76,7 @@ export function CampaignFormDialog({ open, editing, defaultBranchId, onClose }: 
         discountCode: editing.discountCode ?? '',
         message: editing.message ?? { title: '', body: '' },
         triggerRule: editing.triggerRule ?? {},
+        channels: editing.channels,
         isActive: editing.isActive,
       });
     } else {
@@ -81,6 +87,7 @@ export function CampaignFormDialog({ open, editing, defaultBranchId, onClose }: 
         discountCode: '',
         message: { title: '', body: '' },
         triggerRule: {},
+        channels: ['PUSH'],
         isActive: true,
       });
     }
@@ -108,6 +115,12 @@ export function CampaignFormDialog({ open, editing, defaultBranchId, onClose }: 
   const body = form.watch('message.body') ?? '';
   const discountCode = form.watch('discountCode') ?? '';
   const branchName = branches.find((b) => b.id === form.watch('branchId'))?.name;
+  const channels = form.watch('channels') ?? ['PUSH'];
+  const configured = new Map(channelStatus.data?.channels.map((c) => [c.channel, c.configured]) ?? []);
+  function toggleChannel(c: ConsentChannel, on: boolean) {
+    const next = on ? [...new Set([...channels, c])] : channels.filter((x) => x !== c);
+    form.setValue('channels', next, { shouldValidate: true });
+  }
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -221,6 +234,24 @@ export function CampaignFormDialog({ open, editing, defaultBranchId, onClose }: 
                   counter={`${body.length}/500`}
                 >
                   <Textarea rows={4} {...form.register('message.body')} maxLength={500} />
+                </Field>
+                <Field
+                  label={t('campaigns.channels.label')}
+                  hint={t('campaigns.channels.hint')}
+                  error={form.formState.errors.channels?.message}
+                >
+                  <div className="grid grid-cols-2 gap-2">
+                    {CHANNELS.map((c) => {
+                      const ready = c === 'PUSH' || configured.get(c) === true;
+                      return (
+                        <label key={c} className="flex items-center gap-2 rounded-md border border-border px-2.5 py-2 text-xs">
+                          <Checkbox checked={channels.includes(c)} onChange={(e) => toggleChannel(c, e.target.checked)} />
+                          <span className="font-medium">{t(`campaigns.channels.${c}`)}</span>
+                          {!ready ? <span className="ml-auto text-2xs text-warning">{t('campaigns.channels.notConfigured')}</span> : null}
+                        </label>
+                      );
+                    })}
+                  </div>
                 </Field>
                 <Field label={t('campaigns.discountCode')} hint={t('campaigns.form.codeHint')}>
                   <Input

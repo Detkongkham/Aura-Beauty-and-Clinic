@@ -42,6 +42,7 @@ const registerFormSchema = z
     password: z.string().min(8).max(128),
     confirmPassword: z.string().min(1),
     acceptTerms: z.boolean().refine((v) => v),
+    marketingOptIn: z.boolean(),
   })
   .refine((v) => v.password === v.confirmPassword, { path: ['confirmPassword'] });
 type FormValues = z.infer<typeof registerFormSchema>;
@@ -61,7 +62,7 @@ export function RegisterScreen({ navigation }: AuthScreenProps<'Register'>): Rea
 
   const { control, handleSubmit, watch } = useForm<FormValues>({
     resolver: zodResolver(registerFormSchema),
-    defaultValues: { name: '', phone: '', email: '', password: '', confirmPassword: '', acceptTerms: false },
+    defaultValues: { name: '', phone: '', email: '', password: '', confirmPassword: '', acceptTerms: false, marketingOptIn: false },
     mode: 'onTouched',
   });
   const password = watch('password');
@@ -71,7 +72,13 @@ export function RegisterScreen({ navigation }: AuthScreenProps<'Register'>): Rea
     const phone = normalizePhone(values.phone);
     const email = values.email.trim();
     submit.mutate(
-      { name: values.name.trim(), phone, password: values.password, ...(email ? { email } : {}) },
+      {
+        name: values.name.trim(),
+        phone,
+        password: values.password,
+        ...(email ? { email } : {}),
+        ...(values.marketingOptIn ? { marketingOptIn: true } : {}),
+      },
       { onSuccess: () => rememberPhone(phone) },
     );
   });
@@ -261,6 +268,18 @@ export function RegisterScreen({ navigation }: AuthScreenProps<'Register'>): Rea
               />
             </AnimatedEntrance>
 
+            <AnimatedEntrance index={5} style={{ marginTop: 12 }}>
+              <Controller
+                control={control}
+                name="marketingOptIn"
+                render={({ field }) => (
+                  <Checkbox checked={field.value} onToggle={() => field.onChange(!field.value)}>
+                    <T className="text-muted-foreground">{t('auth.marketingOptIn')}</T>
+                  </Checkbox>
+                )}
+              />
+            </AnimatedEntrance>
+
             {apiError ? (
               <View className="mt-3">
                 <Banner
@@ -275,7 +294,7 @@ export function RegisterScreen({ navigation }: AuthScreenProps<'Register'>): Rea
               </View>
             ) : null}
 
-            <AnimatedEntrance index={5} style={{ marginTop: 20 }}>
+            <AnimatedEntrance index={6} style={{ marginTop: 20 }}>
               <PrimaryButton
                 label={t('auth.register')}
                 icon="arrow-forward"

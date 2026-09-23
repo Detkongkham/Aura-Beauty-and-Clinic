@@ -96,6 +96,7 @@
     "passwordRequired": "ກະລຸນາໃສ່ລະຫັດຜ່ານ",
     "passwordTooShort": "ລະຫັດຜ່ານຕ້ອງມີຢ່າງໜ້ອຍ 8 ຕົວອັກສອນ",
     "passwordsMatch": "ລະຫັດຜ່ານກົງກັນ",
+    "marketingOptIn": "ຮັບໂປຣໂມຊັນ ແລະ ຂໍ້ສະເໜີພິເສດ (ບໍ່ບັງຄັບ)",
     "termsRequired": "ກະລຸນາຍອມຮັບເງື່ອນໄຂກ່ອນສະໝັກ",
     "signInInstead": "ເຂົ້າສູ່ລະບົບແທນ",
     "ruleLength": "8 ຕົວອັກສອນຂຶ້ນໄປ",
@@ -643,7 +644,9 @@
     "notificationsRow": "ການແຈ້ງເຕືອນ",
     "notificationsRowValue": "ເບິ່ງຂ່າວສານ ແລະ ການແຈ້ງເຕືອນນັດ",
     "faceIdDesc": "ຂໍການຢືນຢັນຕົວຕົນກ່ອນເປີດແອັບ",
-    "faceIdPending": "ການລັອກດ້ວຍ Face ID ຈະເລີ່ມໃຊ້ໄດ້ຫຼັງຈາກອັບເດດແອັບເທື່ອໜ້າ."
+    "faceIdPending": "ການລັອກດ້ວຍ Face ID ຈະເລີ່ມໃຊ້ໄດ້ຫຼັງຈາກອັບເດດແອັບເທື່ອໜ້າ.",
+    "notificationPrefsRow": "ການແຈ້ງເຕືອນ ແລະ ຄວາມເປັນສ່ວນຕົວ",
+    "notificationPrefsRowValue": "ໂປຣໂມຊັນ, ຄວາມຍິນຍອມ"
   },
   "appearance": {
     "title": "ຮູບລັກສະນະ",
@@ -955,6 +958,52 @@
     "messages": {
       "emptyThreadHint": "ເລີ່ມສົນທະນາກັບເພື່ອນຮ່ວມທີມ",
       "internalNotice": "ຫ້ອງນີ້ແມ່ນການສື່ສານພາຍໃນທີມເທົ່ານັ້ນ"
+    },
+    "slips": {
+      "title": "ກວດສະລິບໂອນເງິນ",
+      "tabReview": "ລໍກວດ",
+      "tabDone": "ກວດແລ້ວ",
+      "emptyReview": "ບໍ່ມີສະລິບຄ້າງກວດ",
+      "emptyReviewHint": "ສະລິບໃໝ່ຈາກລູກຄ້າຈະປາກົດຢູ່ບ່ອນນີ້ທັນທີ",
+      "emptyDone": "ຍັງບໍ່ມີສະລິບທີ່ກວດແລ້ວ",
+      "verdict_AUTO_MATCHED": "ກົງທຸກຢ່າງ",
+      "verdict_NEEDS_REVIEW": "ຕ້ອງກວດ",
+      "verdict_DUPLICATE": "ສະລິບຊ້ຳ",
+      "verdict_APPROVED": "ອະນຸມັດແລ້ວ",
+      "verdict_REJECTED": "ປະຕິເສດແລ້ວ",
+      "verdict_PENDING": "ກຳລັງອ່ານ",
+      "reviewTitle": "ກວດສະລິບ",
+      "notRead": "ອ່ານບໍ່ໄດ້",
+      "expected": "ຄາດໝາຍ: {{value}}",
+      "needFields": "ກະລຸນາລະບຸຈຳນວນເງິນ ແລະ ເລກອ້າງອີງກ່ອນອະນຸມັດ",
+      "approveConfirmTitle": "ຢືນຢັນການອະນຸມັດ?",
+      "approveConfirmBody": "ຈະບັນທຶກຮັບເງິນ {{amount}} ເຂົ້າບິນນີ້",
+      "approve": "ອະນຸມັດ",
+      "reject": "ປະຕິເສດ",
+      "zoom": "ຂະຫຍາຍ",
+      "ocrRunning": "ລະບົບກຳລັງອ່ານສະລິບ — ກະລຸນາລໍຖ້າ",
+      "duplicateNote": "ສະລິບນີ້ຊ້ຳກັບທີ່ເຄີຍໃຊ້ແລ້ວ — ປະຕິເສດໄດ້ເທົ່ານັ້ນ",
+      "ocrFailed": "ລະບົບອ່ານສະລິບບໍ່ໄດ້ — ກວດຈາກຮູບ ແລ້ວປ້ອນຄ່າດ້ວຍຕົນເອງ",
+      "compareTitle": "ຄ່າທີ່ອ່ານໄດ້ ທຽບກັບບິນ",
+      "score": "ຄະແນນກົງກັນ {{score}}/100",
+      "fAmount": "ຈຳນວນເງິນ",
+      "fAccount": "ບັນຊີປາຍທາງ",
+      "fTime": "ເວລາໂອນ",
+      "fRef": "ເລກອ້າງອີງ",
+      "fBank": "ທະນາຄານ",
+      "editTitle": "ແກ້ຄ່າ (ຖ້າອ່ານຜິດ)",
+      "editHint": "ປ່ຽນໄດ້ສະເພາະເມື່ອຮູບສະລິບສະແດງຄ່າອື່ນ",
+      "rejectTitle": "ປະຕິເສດສະລິບ",
+      "rejectHint": "ລູກຄ້າຈະເຫັນເຫດຜົນນີ້",
+      "reason_amount": "ຈຳນວນເງິນບໍ່ກົງ",
+      "reason_account": "ໂອນເຂົ້າບັນຊີບໍ່ຖືກ",
+      "reason_unclear": "ຮູບບໍ່ຊັດເຈນ",
+      "reason_old": "ສະລິບເກົ່າ ບໍ່ແມ່ນການໂອນຄັ້ງນີ້",
+      "rejectPlaceholder": "ລະບຸເຫດຜົນ…",
+      "rejectConfirm": "ຢືນຢັນປະຕິເສດ",
+      "mismatchCount_one": "{{count}} ຈຸດບໍ່ກົງ",
+      "mismatchCount_other": "{{count}} ຈຸດບໍ່ກົງ",
+      "verdict_REVERSED": "ຍົກເລີກແລ້ວ"
     }
   },
   "loyalty": {
@@ -1147,7 +1196,46 @@
     "method_CREDIT_CARD": "ບັດເຄຣດິດ",
     "method_GIFT_CARD": "ບັດຂອງຂວັນ",
     "method_PACKAGE_CREDIT": "ແພັກເກັດ",
-    "method_LOYALTY_POINTS": "ຄະແນນສະສົມ"
+    "method_LOYALTY_POINTS": "ຄະແນນສະສົມ",
+    "modeTransfer": "ໂອນເງິນ",
+    "method_BANK_TRANSFER": "ໂອນທະນາຄານ",
+    "method_BANK_QR": "QR ທະນາຄານ",
+    "transfer": {
+      "methodTitle": "ໂອນຜ່ານທະນາຄານ",
+      "methodDesc": "ໂອນເງິນແລ້ວອັບສະລິບ — ພະນັກງານຈະກວດ ແລະ ຢືນຢັນໃຫ້",
+      "unavailableTitle": "ສາຂານີ້ຍັງບໍ່ເປີດຮັບໂອນ",
+      "unavailableBody": "ກະລຸນາຈ່າຍທີ່ຮ້ານ ຫຼື ໃຊ້ຄະແນນ/ບັດຂອງຂວັນ",
+      "copy": "ສຳເນົາ",
+      "copied": "ສຳເນົາແລ້ວ",
+      "optDeposit": "ມັດຈຳ {{amount}}",
+      "optFull": "ເຕັມ {{amount}}",
+      "step1": "1. ໂອນເງິນຕາມຂໍ້ມູນນີ້",
+      "qrLabel": "QR ຮັບເງິນ",
+      "qrHint": "ສະແກນດ້ວຍແອັບທະນາຄານຂອງທ່ານ",
+      "accountName": "ຊື່ບັນຊີ",
+      "accountNumber": "ເລກບັນຊີ",
+      "amount": "ຈຳນວນທີ່ຕ້ອງໂອນ",
+      "step2": "2. ອັບສະລິບການໂອນ",
+      "step2Hint": "ຖ່າຍຮູບ ຫຼື ເລືອກຮູບສະລິບທີ່ເຫັນຈຳນວນເງິນ ແລະ ເລກອ້າງອີງຊັດເຈນ"
+    },
+    "slip": {
+      "amountUnknown": "ກຳລັງອ່ານຈຳນວນ…",
+      "status_approved": "ຢືນຢັນແລ້ວ",
+      "status_rejected": "ບໍ່ຜ່ານ",
+      "status_duplicate": "ສະລິບຊ້ຳ",
+      "status_checking": "ກຳລັງກວດ",
+      "status_review": "ລໍພະນັກງານຢືນຢັນ",
+      "permissionDenied": "ກະລຸນາອະນຸຍາດການເຂົ້າເຖິງກ້ອງ/ຮູບພາບໃນການຕັ້ງຄ່າ",
+      "preview": "ຕົວຢ່າງສະລິບ",
+      "send": "ສົ່ງສະລິບ · {{amount}}",
+      "change": "ເລືອກຮູບອື່ນ",
+      "camera": "ຖ່າຍຮູບສະລິບ",
+      "library": "ເລືອກຈາກຄັງຮູບ",
+      "waitingBody": "ຮັບສະລິບແລ້ວ — ພະນັກງານກຳລັງກວດ. ທ່ານຈະໄດ້ຮັບແຈ້ງເຕືອນເມື່ອຢືນຢັນ",
+      "historyTitle": "ສະລິບທີ່ສົ່ງແລ້ວ",
+      "status_reversed": "ຍົກເລີກການຢືນຢັນແລ້ວ",
+      "infoRequested": "ຮ້ານຂໍເພີ່ມ: {{note}}"
+    }
   },
   "tracking": {
     "title": "ຕິດຕາມຊ່າງ",
@@ -1539,6 +1627,35 @@
     "cashOption": "ຈ່າຍເງິນສົດທີ່ໜ້າຮ້ານ",
     "createQrCta": "ສ້າງ QR ເພື່ອຈ່າຍ",
     "validityStartsNow": "ອາຍຸໃຊ້ງານເລີ່ມນັບແຕ່ມື້ນີ້",
-    "doneBookNow": "ຈອງບໍລິການດຽວນີ້"
+    "doneBookNow": "ຈອງບໍລິການດຽວນີ້",
+    "transferCta": "ໂອນເງິນເພື່ອຈ່າຍ"
+  },
+  "consent": {
+    "title": "ການແຈ້ງເຕືອນ ແລະ ຄວາມເປັນສ່ວນຕົວ",
+    "noticeTitle": "ທ່ານເປັນຜູ້ຄວບຄຸມ",
+    "noticeBody": "ຂໍ້ຄວາມໂປຣໂມຊັນຈະສົ່ງເມື່ອທ່ານເປີດເອງເທົ່ານັ້ນ ແລະ ປິດໄດ້ທຸກເວລາ. ຂໍ້ຄວາມນັດໝາຍ ແລະ ໃບຮັບເງິນ ປິດບໍ່ໄດ້.",
+    "promotions": "ໂປຣໂມຊັນ",
+    "unsubscribed": "ທ່ານຖອນຕົວແລ້ວ — ເປີດເພື່ອຍິນຍອມໃໝ່",
+    "transactional": "ເປີດຕະຫຼອດ",
+    "appointments": "ອັບເດດນັດໝາຍ",
+    "receipts": "ໃບຮັບເງິນ ແລະ ການຊຳລະ",
+    "alwaysOn": "ຈຳເປັນ — ປິດບໍ່ໄດ້",
+    "label": {
+      "PUSH": "ໂປຣໂມຊັນ (ແຈ້ງເຕືອນແອັບ)",
+      "SMS": "ໂປຣໂມຊັນທາງ SMS",
+      "EMAIL": "ໂປຣໂມຊັນທາງອີເມວ",
+      "LINE": "ໂປຣໂມຊັນທາງ LINE"
+    },
+    "hint": {
+      "PUSH": "ຂອງຂວັນວັນເກີດ, ໂປຣລູກຄ້າເກົ່າ, ໂປຣເທດສະການ",
+      "SMS": "ສົ່ງຫາເບີໂທຂອງທ່ານ · ຕອບ STOP ເພື່ອຍົກເລີກ",
+      "EMAIL": "ທຸກອີເມວມີລິ້ງຍົກເລີກ",
+      "LINE": "ຈາກ LINE Official Account ຂອງຮ້ານ · ສົ່ງ STOP ເພື່ອຍົກເລີກ"
+    },
+    "emailMissing": "ເພີ່ມອີເມວໃນໂປຣໄຟລ໌ກ່ອນ",
+    "lineNotLinked": "ແຕະເພື່ອຜູກບັນຊີ LINE",
+    "lineLinkTitle": "ຜູກ LINE",
+    "lineLinkBody": "ເພີ່ມ LINE Official Account ຂອງຮ້ານເປັນໝູ່ ແລ້ວສົ່ງລະຫັດນີ້ພາຍໃນ 15 ນາທີ:\n\n{{code}}",
+    "lineOpen": "ເປີດ LINE"
   }
 }

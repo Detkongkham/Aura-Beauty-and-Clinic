@@ -126,6 +126,12 @@ export function relatedLink(n: AppNotification): { to: string; exact: boolean } 
       if (type.includes('RECONCILIATION')) return { to: ROUTES.inventoryLedger, exact: false };
       return { to: ROUTES.inventory, exact: false };
     case 'payments': {
+      if (type.includes('EXPENSE')) {
+        const expenseId = str(d.expenseId);
+        return expenseId
+          ? { to: `${ROUTES.paymentsExpenses}?id=${expenseId}`, exact: true }
+          : { to: ROUTES.paymentsExpenses, exact: false };
+      }
       const id = str(d.paymentId);
       return id
         ? { to: ROUTES.financePaymentDetail(id), exact: true }

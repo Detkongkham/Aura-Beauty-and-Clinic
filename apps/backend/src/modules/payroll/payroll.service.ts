@@ -154,7 +154,7 @@ async function buildRows(query: PayrollQuery): Promise<BuiltReport> {
     ...(branchId ? { branchId } : {}),
   });
 
-  const [appts, prevAppts, commissions, prevCommissions, goals, prevGoals, attendance] =
+  const [appts, prevAppts, commissions, prevCommissions, goals, prevGoals, attendance, clawbacks] =
     await Promise.all([
       prisma.appointment.findMany({
         where: apptWhere(from, to),
@@ -200,7 +200,21 @@ async function buildRows(query: PayrollQuery): Promise<BuiltReport> {
         where: { staffProfileId: { in: ids }, date: { gte: dateFrom, lt: dateTo } },
         select: { staffProfileId: true, status: true },
       }),
+      // ຂໍ້ຈຳກັດ 10B — ຄອມທີ່ຈ່າຍແລ້ວແຕ່ບິນຖືກຄືນເງິນ → ຫັກໃນເດືອນທີ່ຄືນເງິນ.
+      prisma.commissionClawback.findMany({
+        where: { staffProfileId: { in: ids }, monthYear: label, ...(branchId ? { branchId } : {}) },
+        select: { staffProfileId: true, amount: true, isSettled: true },
+      }),
     ]);
+
+  const clawBy = new Map<string, { total: number; unsettled: number }>();
+  for (const c of clawbacks) {
+    const e = clawBy.get(c.staffProfileId) ?? { total: 0, unsettled: 0 };
+    const amt = c.amount.toNumber();
+    e.total += amt;
+    if (!c.isSettled) e.unsettled += amt;
+    clawBy.set(c.staffProfileId, e);
+  }
 
   const grossBy = new Map<string, { jobs: number; revenue: number }>();
   const dailyBy = new Map<string, { revenue: number; jobs: number }>();
@@ -264,8 +278,11 @@ async function buildRows(query: PayrollQuery): Promise<BuiltReport> {
     const commissionTotal = round2(comm.total);
     const commissionPaid = round2(comm.paid);
     const commissionUnpaid = round2(commissionTotal - commissionPaid);
-    const payable = round2(commissionTotal + bonusAmount);
-    const outstanding = round2(commissionUnpaid + (bonusPaid ? 0 : bonusAmount));
+    const claw = clawBy.get(s.id) ?? { total: 0, unsettled: 0 };
+    const clawbackTotal = round2(claw.total);
+    const clawbackUnsettled = round2(claw.unsettled);
+    const payable = round2(commissionTotal + bonusAmount - clawbackTotal);
+    const outstanding = round2(Math.max(0, commissionUnpaid + (bonusPaid ? 0 : bonusAmount) - clawbackUnsettled));
     const prevRevenue = round2(prev.revenue);
 
     return {
@@ -286,6 +303,8 @@ async function buildRows(query: PayrollQuery): Promise<BuiltReport> {
       attainmentPct: target > 0 ? Math.round((actual / target) * 100) : 0,
       bonusAmount,
       bonusPaid,
+      clawbackTotal,
+      clawbackUnsettled,
       payable,
       outstanding,
       isActive: s.isActive,
@@ -351,7 +370,8 @@ export async function getPayrollReport(query: PayrollQuery): Promise<PayrollRepo
   const grossRevenue = sum((r) => r.grossRevenue);
   const commissionTotal = sum((r) => r.commissionTotal);
   const bonusTotal = sum((r) => r.bonusAmount);
-  const payable = round2(commissionTotal + bonusTotal);
+  const clawbackTotal = sum((r) => r.clawbackTotal);
+  const payable = round2(commissionTotal + bonusTotal - clawbackTotal);
 
   return {
     monthYear: range.label,
@@ -372,6 +392,7 @@ export async function getPayrollReport(query: PayrollQuery): Promise<PayrollRepo
       commissionUnpaid: sum((r) => r.commissionUnpaid),
       bonusTotal,
       bonusUnpaid: sum((r) => (r.bonusPaid ? 0 : r.bonusAmount)),
+      clawbackTotal,
       payable,
       outstanding: sum((r) => r.outstanding),
       staffOwed: rows.filter((r) => r.outstanding > 0).length,
@@ -742,6 +763,11 @@ export async function payCommissions(
     },
     data: { isPaid: input.isPaid },
   });
+  // ຂໍ້ຈຳກັດ 10B — ຈ່າຍຄອມເດືອນນີ້ = ຫັກ clawback ຂອງເດືອນນີ້ແລ້ວ (ຍົກເລີກການຈ່າຍ → ຍັງບໍ່ຫັກ).
+  await prisma.commissionClawback.updateMany({
+    where: { staffProfileId: input.staffProfileId, monthYear: input.monthYear, ...(input.branchId ? { branchId: input.branchId } : {}) },
+    data: { isSettled: input.isPaid },
+  });
   return {
     staffProfileId: input.staffProfileId,
     monthYear: input.monthYear,
@@ -766,6 +792,14 @@ export async function payCommissionsBulk(
       },
     },
     data: { isPaid: input.isPaid },
+  });
+  await prisma.commissionClawback.updateMany({
+    where: {
+      staffProfileId: { in: input.staffProfileIds },
+      monthYear: input.monthYear,
+      ...(input.branchId ? { branchId: input.branchId } : {}),
+    },
+    data: { isSettled: input.isPaid },
   });
   return {
     monthYear: input.monthYear,

@@ -1,5 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  ChannelStatusView,
+  ConsentSummaryView,
+  CreateSuppressionInput,
+  MarketingPolicy,
+  SuppressionListQuery,
+  SuppressionView,
   CampaignRecipientView,
   CampaignRunView,
   CampaignType,
@@ -92,4 +98,68 @@ export function useDeleteCampaign() {
 export function useRunCampaign() {
   const invalidate = useInvalidate();
   return useMutation({ mutationFn: marketingApi.run, onSuccess: invalidate });
+}
+
+// ---- Wave 10G: consent / suppression / policy ----------------------
+
+/** ຊ່ອງທາງໃດຕັ້ງຄ່າຜູ້ໃຫ້ບໍລິການແລ້ວ (SMS/ອີເມວ/LINE ສົ່ງຈິງໄດ້ບໍ່). */
+export function useChannelStatus(enabled = true) {
+  return useQuery({
+    queryKey: ['marketing', 'channels'],
+    queryFn: async () => (await http.get<Envelope<ChannelStatusView>>('/marketing/channels')).data.data,
+    enabled,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useConsentSummary(enabled = true) {
+  return useQuery({
+    queryKey: ['marketing', 'consent-summary'],
+    queryFn: async () => (await http.get<Envelope<ConsentSummaryView>>('/marketing/consent-summary')).data.data,
+    enabled,
+  });
+}
+
+export function useMarketingPolicy(enabled = true) {
+  return useQuery({
+    queryKey: ['marketing', 'policy'],
+    queryFn: async () => (await http.get<Envelope<MarketingPolicy>>('/marketing/policy')).data.data,
+    enabled,
+  });
+}
+
+export function useSaveMarketingPolicy() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: MarketingPolicy) =>
+      (await http.put<Envelope<MarketingPolicy>>('/marketing/policy', input)).data.data,
+    onSuccess: (data) => qc.setQueryData(['marketing', 'policy'], data),
+  });
+}
+
+export function useSuppressions(q: Partial<SuppressionListQuery>, enabled = true) {
+  return useQuery({
+    queryKey: ['marketing', 'suppressions', q],
+    queryFn: async () =>
+      (await http.get<Envelope<Paginated<SuppressionView>>>('/marketing/suppressions', { params: q })).data.data,
+    enabled,
+    placeholderData: (prev) => prev,
+  });
+}
+
+export function useAddSuppression() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: Partial<CreateSuppressionInput> & Pick<CreateSuppressionInput, 'identifier' | 'channel'>) =>
+      (await http.post<Envelope<SuppressionView>>('/marketing/suppressions', input)).data.data,
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['marketing'] }),
+  });
+}
+
+export function useRemoveSuppression() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => void (await http.delete(`/marketing/suppressions/${id}`)),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['marketing'] }),
+  });
 }

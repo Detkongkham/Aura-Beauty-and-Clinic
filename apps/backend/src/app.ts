@@ -14,9 +14,20 @@ export function createApp(): Express {
 
   app.use(helmet());
   app.use(cors({ origin: env.corsOrigins, credentials: true }));
+  // ສະລິບໂອນເງິນ (base64 ຈາກກ້ອງມືຖື, ສູງສຸດ SLIP_MAX_BYTES=8MB → ~11MB) ໃຫຍ່ກວ່າ 2mb — ຂະຫຍາຍ limit ສະເພາະ
+  // route ນີ້ ແລະ ຕ້ອງມາກ່ອນ parser ກາງ (ອັນທຳອິດທີ່ parse ສຳເລັດຈະຕັ້ງ req.body, ອັນຖັດໄປຂ້າມ).
+  app.use('/api/v1/payments-treasury/payments/:id/slips', express.json({ limit: '12mb' }));
   // 2mb headroom: the business logo is stored inline as a resized PNG data-URL
   // in PUT /settings (no object storage yet).
-  app.use(express.json({ limit: '2mb' }));
+  // rawBody ເກັບໄວ້ເພື່ອກວດ HMAC ຂອງ payment webhook (ຕ້ອງເປັນ byte ຕົ້ນສະບັບ, ບໍ່ແມ່ນ JSON ທີ່ re-serialize).
+  app.use(
+    express.json({
+      limit: '2mb',
+      verify: (req, _res, buf) => {
+        (req as { rawBody?: Buffer }).rawBody = buf;
+      },
+    }),
+  );
   app.use(express.urlencoded({ extended: true }));
   app.use(pinoHttp({ logger }));
 

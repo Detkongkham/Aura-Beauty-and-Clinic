@@ -5,7 +5,7 @@ import { api, ok, paginated } from '../helpers';
 /**
  * Phase 6 — Inventory (Module 14 + 32) & Payroll (Module 34) mocks.
  * Offline-mode stubs only: the real `@abcp/backend` modules
- * (`/suppliers`, `/products`, `/stock-movements`, `/purchase-orders`, `/payroll`)
+ * (`/suppliers`, `/products`, `/stock-movements`, `/purchase-orders`)
  * are the source of truth. These return empty/zero data so the pages render
  * without network errors when `VITE_ENABLE_MOCKS=true`.
  */
@@ -204,45 +204,5 @@ export const inventoryHandlers = [
   http.post(api('/stock-transfers/:id/receive'), ({ params }) =>
     ok({ id: params.id, status: 'COMPLETED', receivedAt: new Date().toISOString() }),
   ),
-  http.delete(api('/stock-transfers/:id'), () => new Response(null, { status: 204 })),
-
-  // ---- payroll ----
-  http.get(api('/payroll/kpi'), ({ request }) => {
-    const url = new URL(request.url);
-    return ok({
-      monthYear: url.searchParams.get('monthYear') ?? new Date().toISOString().slice(0, 7),
-      generatedAt: new Date().toISOString(),
-      bonusRate: 0.05,
-      rows: [],
-      totals: {
-        staff: 0,
-        completedJobs: 0,
-        grossRevenue: 0,
-        commissionTotal: 0,
-        commissionUnpaid: 0,
-        bonusTotal: 0,
-        outstanding: 0,
-      },
-    });
-  }),
-  http.get(api('/payroll/export'), () =>
-    new Response('﻿rank,staff,branch\n', {
-      headers: { 'Content-Type': 'text/csv; charset=utf-8' },
-    }),
-  ),
-  http.put(api('/payroll/kpi/:staffProfileId'), async ({ params }) =>
-    ok({ staffProfileId: params.staffProfileId, rank: 1, targetMet: false, bonusAmount: 0 }),
-  ),
-  http.post(api('/payroll/kpi/recompute'), async ({ request }) => {
-    const body = (await request.json()) as { monthYear: string };
-    return ok({ monthYear: body.monthYear, updated: 0 });
-  }),
-  http.patch(api('/payroll/kpi/:staffProfileId/bonus-paid'), async ({ params, request }) => {
-    const body = (await request.json()) as { monthYear: string; isBonusPaid: boolean };
-    return ok({ staffProfileId: params.staffProfileId, ...body });
-  }),
-  http.post(api('/payroll/commissions/pay'), async ({ request }) => {
-    const body = (await request.json()) as Record<string, unknown>;
-    return ok({ ...body, affected: 0 });
-  }),
+  http.delete(api('/stock-transfers/:id'), () => new Response(null, { status: 204 }))
 ];

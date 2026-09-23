@@ -33,6 +33,8 @@ apps/backend/prisma/migrations/dev.db*
 # uploads (local dev storage)
 apps/backend/uploads/*
 !apps/backend/uploads/.gitkeep
+# uploads written by vitest (STORAGE_LOCAL_DIR in apps/backend/.env.test)
+apps/backend/uploads-test/*
 
 # editor / OS
 .DS_Store

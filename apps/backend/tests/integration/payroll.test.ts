@@ -153,6 +153,72 @@ describe('Phase 6 — Staff KPI & Payroll (Module 34)', () => {
     expect(row.outstanding).toBe(0);
   });
 
+  it('breakdown returns the commission lines behind that month\'s figure', async () => {
+    const res = await request(app)
+      .get(`/api/v1/payroll/kpi/${staffProfileId}/breakdown?monthYear=${month}`)
+      .set(...bearer(adminToken));
+    expect(res.status).toBe(200);
+    const body = res.body.data as {
+      monthYear: string;
+      row: { staffProfileId: string; commissionTotal: number };
+      lines: Array<{ payoutAmount: number; serviceName: string }>;
+      daily: Array<{ date: string; revenue: number }>;
+      history: Array<{ monthYear: string }>;
+    };
+    expect(body.monthYear).toBe(month);
+    expect(body.row.staffProfileId).toBe(staffProfileId);
+    expect(body.lines.length).toBeGreaterThanOrEqual(1);
+    // The lines must add up to the figure the report shows for the same month.
+    const lineSum = body.lines.reduce((s, l) => s + l.payoutAmount, 0);
+    expect(Math.round(lineSum)).toBe(Math.round(body.row.commissionTotal));
+    // A full month of days, and six months of context, are always present.
+    expect(body.daily.length).toBeGreaterThanOrEqual(28);
+    expect(body.history).toHaveLength(6);
+    expect(body.history.at(-1)!.monthYear).toBe(month);
+  });
+
+  it('bulk pay settles several staff in one request', async () => {
+    const unpay = await request(app)
+      .post('/api/v1/payroll/commissions/pay')
+      .set(...bearer(adminToken))
+      .send({ staffProfileId, monthYear: month, isPaid: false });
+    expect(unpay.status).toBe(200);
+
+    const res = await request(app)
+      .post('/api/v1/payroll/commissions/pay-bulk')
+      .set(...bearer(adminToken))
+      .send({ staffProfileIds: [staffProfileId], monthYear: month, isPaid: true });
+    expect(res.status).toBe(200);
+    expect(res.body.data.affected).toBeGreaterThanOrEqual(1);
+
+    const after = await request(app)
+      .get(`/api/v1/payroll/kpi?monthYear=${month}&branchId=${BRANCH_ID}`)
+      .set(...bearer(adminToken));
+    const row = (after.body.data.rows as Array<{ staffProfileId: string; commissionUnpaid: number; payoutState: string }>).find(
+      (r) => r.staffProfileId === staffProfileId,
+    )!;
+    expect(row.commissionUnpaid).toBe(0);
+    expect(row.payoutState).toBe('CLEAR');
+  });
+
+  it('report carries the month context the console reads (totals, previous month, daily series)', async () => {
+    const res = await request(app)
+      .get(`/api/v1/payroll/kpi?monthYear=${month}&branchId=${BRANCH_ID}`)
+      .set(...bearer(adminToken));
+    const body = res.body.data as {
+      daysInMonth: number;
+      daysElapsed: number;
+      daily: unknown[];
+      previous: { monthYear: string };
+      totals: { payable: number; commissionTotal: number; bonusTotal: number; labourCostRatio: number };
+    };
+    expect(body.daily).toHaveLength(body.daysInMonth);
+    expect(body.daysElapsed).toBeLessThanOrEqual(body.daysInMonth);
+    expect(body.previous.monthYear).not.toBe(month);
+    expect(body.totals.payable).toBeCloseTo(body.totals.commissionTotal + body.totals.bonusTotal, 2);
+    expect(body.totals.labourCostRatio).toBeGreaterThanOrEqual(0);
+  });
+
   it('CSV export returns a text/csv attachment with a BOM and the staff name', async () => {
     const res = await request(app)
       .get(`/api/v1/payroll/export?monthYear=${month}&branchId=${BRANCH_ID}`)

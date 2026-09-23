@@ -40,6 +40,7 @@ export type AppStackParamList = {
   SkinAnalysis: undefined;
   DirectMessages: undefined;
   Notifications: undefined;
+  NotificationPreferences: undefined;
   DirectThread: { threadId: string; title: string; locked?: boolean };
 };
 
@@ -59,6 +60,8 @@ export type StaffStackParamList = {
   TreatmentRecord: { appointmentId: string; customerName: string };
   StaffActiveTrip: { appointmentId: string; customerPhone?: string };
   StaffThread: { threadId: string; title: string; locked?: boolean };
+  StaffSlipInbox: undefined;
+  StaffSlipReview: { slipId: string };
 };
 
 export type StaffAppScreenProps<T extends keyof StaffStackParamList> = NativeStackScreenProps<

@@ -7,6 +7,7 @@ import {
   Pencil,
   Play,
   Plus,
+  ShieldCheck,
   Send,
   SendHorizontal,
   Trash2,
@@ -44,6 +45,7 @@ import {
   rateTone,
   typeBreakdown,
 } from './campaigns.lib';
+import { ConsentSheet } from './ConsentSheet';
 import { ConversionFunnelCard } from './ConversionFunnelCard';
 import { useCampaigns, useDeleteCampaign, useRunCampaign, useUpdateCampaign } from './marketing.api';
 import { TopCampaignsCard } from './TopCampaignsCard';
@@ -87,6 +89,7 @@ export function CampaignsPage() {
   const [detailId, setDetailId] = useState<string | null>(null);
   const [running, setRunning] = useState<CampaignView | null>(null);
   const [deleting, setDeleting] = useState<CampaignView | null>(null);
+  const [consentOpen, setConsentOpen] = useState(false);
 
   const { data, isLoading } = useCampaigns({ branchId, page: 1, pageSize: CAMPAIGN_LIMIT });
   const all = useMemo(() => data?.items ?? [], [data]);
@@ -167,10 +170,24 @@ export function CampaignsPage() {
     if (!running) return;
     runM.mutate(running.id, {
       onSuccess: (r) => {
-        toast.success(t('campaigns.ran', { sent: r.sent, matched: r.matched }), {
-          description:
-            r.skippedAlreadySent > 0 ? t('campaigns.skipped', { count: r.skippedAlreadySent }) : undefined,
-        });
+        if (r.deferredQuietHours) {
+          toast.warning(t('campaigns.consent.deferredQuiet'));
+        } else {
+          const notes = [
+            r.skippedAlreadySent > 0 ? t('campaigns.skipped', { count: r.skippedAlreadySent }) : null,
+            r.skippedNoConsent > 0 ? t('campaigns.consent.skipNoConsent', { count: r.skippedNoConsent }) : null,
+            r.skippedSuppressed > 0 ? t('campaigns.consent.skipSuppressed', { count: r.skippedSuppressed }) : null,
+            r.skippedFrequencyCap > 0 ? t('campaigns.consent.skipCap', { count: r.skippedFrequencyCap }) : null,
+            ...Object.entries(r.byChannel ?? {}).map(([c, s]) =>
+              s && (s.sent || s.failed || s.noProvider || s.noContact)
+                ? t('campaigns.channels.result', { channel: t(`campaigns.channels.${c}`), ...s })
+                : null,
+            ),
+          ].filter(Boolean);
+          toast.success(t('campaigns.ran', { sent: r.sent, matched: r.matched }), {
+            description: notes.length ? notes.join(' ') : undefined,
+          });
+        }
         setRunning(null);
       },
       onError: (err) =>
@@ -439,6 +456,10 @@ export function CampaignsPage() {
               ]}
               aria-label={t('campaigns.branch')}
             />
+            <Button variant="secondary" onClick={() => setConsentOpen(true)}>
+              <ShieldCheck className="mr-1 h-4 w-4" aria-hidden="true" />
+              {t('campaigns.consent.open')}
+            </Button>
             <Button variant="secondary" onClick={exportCsv} disabled={filtered.length === 0}>
               <Download className="mr-1 h-4 w-4" aria-hidden="true" />
               {t('common.export')}
@@ -669,6 +690,8 @@ export function CampaignsPage() {
         defaultBranchId={branchId}
         onClose={() => setFormOpen(false)}
       />
+
+      <ConsentSheet open={consentOpen} canManage={canManage} onClose={() => setConsentOpen(false)} />
 
       <CampaignDetailSheet
         campaign={detail}

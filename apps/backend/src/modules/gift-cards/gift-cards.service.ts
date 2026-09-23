@@ -340,3 +340,62 @@ export async function redeemGiftCard(
   });
   return params.amount;
 }
+
+/**
+ * Wave 10B — ຄືນເງິນເຂົ້າບັດຂອງຂວັນ (ຄືນເງິນ tender GIFT_CARD). ບັດທີ່ DEPLETED ກັບມາ ACTIVE; ບັດ VOID/EXPIRED
+ * ກໍຄືນຍອດໄດ້ (ຍອດເປັນຂອງລູກຄ້າ) ແຕ່ບໍ່ປ່ຽນສະຖານະ. ລັອກແຖວກ່ອນ ກັນແຂ່ງກັບການໃຊ້ບັດພ້ອມກັນ.
+ */
+export async function restoreGiftCardBalance(
+  tx: Prisma.TransactionClient,
+  params: { giftCardId: string; amount: number; paymentTransactionId?: string },
+): Promise<void> {
+  if (params.amount <= 0) return;
+  const rows = await tx.$queryRaw<{ id: string; currentBalance: Prisma.Decimal; status: string }[]>`
+    SELECT "id", "currentBalance", "status" FROM "gift_cards" WHERE "id" = ${params.giftCardId} FOR UPDATE`;
+  const card = rows[0];
+  if (!card) throw ApiError.notFound('ບໍ່ພົບບັດຂອງຂວັນ');
+  const balanceAfter = toNum(card.currentBalance) + params.amount;
+  await tx.giftCard.update({
+    where: { id: card.id },
+    data: {
+      currentBalance: dec(balanceAfter),
+      isRedeemed: false,
+      ...(card.status === 'DEPLETED' ? { status: 'ACTIVE' as const } : {}),
+    },
+  });
+  await tx.giftCardTransaction.create({
+    data: {
+      giftCardId: card.id,
+      paymentTransactionId: params.paymentTransactionId ?? null,
+      amount: dec(params.amount),
+      balanceAfter: dec(balanceAfter),
+    },
+  });
+}
+
+/**
+ * ຂໍ້ຈຳກັດ 10B — ຄືນເງິນ "ບິນຊື້ບັດຂອງຂວັນ": ຫັກມູນຄ່າທີ່ຄືນອອກຈາກບັດ (ລູກຄ້າໄດ້ເງິນຄືນ → ບັດຕ້ອງເສຍມູນຄ່ານັ້ນ).
+ * ລັອກແຖວ; ຍອດຄົງເຫຼືອບໍ່ພໍ (ບັດຖືກໃຊ້ໄປຫຼັງຂໍຄືນ) → 409. ຍອດເຫຼືອ 0 → ບັດ VOID (ໃຊ້ຕໍ່ບໍ່ໄດ້).
+ */
+export async function deductGiftCardForRefund(
+  tx: Prisma.TransactionClient,
+  params: { giftCardId: string; amount: number },
+): Promise<void> {
+  if (params.amount <= 0) return;
+  const rows = await tx.$queryRaw<{ id: string; currentBalance: Prisma.Decimal; status: string }[]>`
+    SELECT "id", "currentBalance", "status" FROM "gift_cards" WHERE "id" = ${params.giftCardId} FOR UPDATE`;
+  const card = rows[0];
+  if (!card) throw ApiError.notFound('ບໍ່ພົບບັດຂອງຂວັນ');
+  const balance = toNum(card.currentBalance);
+  if (balance + 0.01 < params.amount) {
+    throw ApiError.conflict(`ຍອດໃນບັດເຫຼືອ ${balance.toLocaleString()} — ໜ້ອຍກວ່າຍອດຄືນ (ບັດຖືກໃຊ້ໄປແລ້ວ)`);
+  }
+  const balanceAfter = Math.max(0, Math.round((balance - params.amount) * 100) / 100);
+  await tx.giftCard.update({
+    where: { id: card.id },
+    data: { currentBalance: dec(balanceAfter), ...(balanceAfter <= 0 ? { status: 'VOID' as const } : {}) },
+  });
+  await tx.giftCardTransaction.create({
+    data: { giftCardId: card.id, amount: dec(-params.amount), balanceAfter: dec(balanceAfter) },
+  });
+}

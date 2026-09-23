@@ -126,12 +126,14 @@ model MarketingCampaign {
 }
 
 model CampaignRecipient {
-  id          String    @id @default(uuid())
+  id          String           @id @default(uuid())
   campaignId  String
   userId      String
   status      String
-  sentAt      DateTime  @default(now())
+  sentAt      DateTime         @default(now())
   convertedAt DateTime?
+  /// ຂໍ້ຈຳກັດ 10G — ຊ່ອງທາງທີ່ສົ່ງສຳເລັດຈິງ (PUSH/SMS/EMAIL/LINE).
+  channels    ConsentChannel[] @default([])
 
   campaign MarketingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   user     User              @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -220,4 +222,73 @@ model AuditLog {
   @@index([entityName, entityId])
   @@index([action, createdAt])
   @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Wave 10G — ຄວາມຍິນຍອມການຕະຫຼາດ (consent) + ລາຍຊື່ຫ້າມສົ່ງ (suppression)
+// ---------------------------------------------------------------------------
+
+enum ConsentChannel {
+  PUSH
+  SMS
+  EMAIL
+  LINE
+}
+
+enum SuppressionReason {
+  UNSUBSCRIBE
+  BOUNCE
+  COMPLAINT
+  MANUAL
+}
+
+/// ຄວາມຍິນຍອມປັດຈຸບັນຕໍ່ (ຜູ້ໃຊ້, ຊ່ອງທາງ). ບໍ່ມີແຖວ = ບໍ່ເຄີຍໃຫ້ຄວາມຍິນຍອມ = ຫ້າມສົ່ງໂປຣໂມຊັນ (opt-in ເທົ່ານັ້ນ).
+model MarketingConsent {
+  id        String         @id @default(uuid())
+  userId    String
+  channel   ConsentChannel
+  granted   Boolean
+  grantedAt DateTime?
+  revokedAt DateTime?
+  /// register | profile | admin | unsubscribe-link | stop-reply
+  source    String
+  ipAddress String?
+  evidence  Json?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, channel])
+  @@map("marketing_consents")
+}
+
+/// ປະຫວັດຄວາມຍິນຍອມແບບ append-only — ຫຼັກຖານ GDPR Art.7(1) (ໃຜ/ເມື່ອໃດ/ຜ່ານຊ່ອງທາງໃດ/ຈາກ IP ໃດ).
+model MarketingConsentEvent {
+  id        String         @id @default(uuid())
+  userId    String
+  channel   ConsentChannel
+  granted   Boolean
+  source    String
+  actorId   String?
+  ipAddress String?
+  evidence  Json?
+  createdAt DateTime       @default(now())
+
+  @@index([userId, createdAt])
+  @@map("marketing_consent_events")
+}
+
+/// ຫ້າມສົ່ງໂປຣໂມຊັນ ບໍ່ວ່າຈະມີ consent ຫຼືບໍ່. identifier = userId (PUSH) ຫຼື ເບີໂທ/ອີເມວ (SMS/EMAIL).
+model SuppressionEntry {
+  id          String            @id @default(uuid())
+  identifier  String
+  channel     ConsentChannel
+  reason      SuppressionReason
+  note        String?
+  createdById String?
+  createdAt   DateTime          @default(now())
+
+  @@unique([identifier, channel])
+  @@map("marketing_suppressions")
 }

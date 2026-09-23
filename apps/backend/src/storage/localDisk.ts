@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import type { StorageAdapter } from './index.js';
 
@@ -21,6 +21,10 @@ export class LocalDiskStorage implements StorageAdapter {
     await mkdir(dirname(filePath), { recursive: true });
     await writeFile(filePath, data);
     return { url: this.url(key), key };
+  }
+
+  async read(key: string): Promise<Buffer> {
+    return readFile(this.pathFor(key));
   }
 
   async delete(key: string): Promise<void> {

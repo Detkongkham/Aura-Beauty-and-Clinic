@@ -19,6 +19,7 @@ import { PackageDetailScreen } from '../screens/packages/PackageDetailScreen';
 import { PackagesScreen } from '../screens/packages/PackagesScreen';
 import { LoyaltyScreen } from '../screens/profile/LoyaltyScreen';
 import { ReferralScreen } from '../screens/profile/ReferralScreen';
+import { NotificationPreferencesScreen } from '../screens/profile/NotificationPreferencesScreen';
 import { SkinAnalysisScreen } from '../screens/profile/SkinAnalysisScreen';
 import { DirectMessagesScreen } from '../screens/messaging/DirectMessagesScreen';
 import { DirectThreadScreen } from '../screens/messaging/DirectThreadScreen';
@@ -72,6 +73,7 @@ export function AppNavigator(): React.JSX.Element {
       <Stack.Screen name="MyPackages" component={MyPackagesScreen} />
       <Stack.Screen name="Referral" component={ReferralScreen} />
       <Stack.Screen name="SkinAnalysis" component={SkinAnalysisScreen} />
+      <Stack.Screen name="NotificationPreferences" component={NotificationPreferencesScreen} />
       <Stack.Screen name="DirectMessages" component={DirectMessagesScreen} />
       <Stack.Screen name="DirectThread" component={DirectThreadScreen} />
       <Stack.Screen name="Notifications" component={NotificationsScreen} />

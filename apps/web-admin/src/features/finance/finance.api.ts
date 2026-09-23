@@ -1,5 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  CreateRefundInput,
+  PayRefundInput,
+  ReceiptView,
+  RefundListQuery,
+  RefundView,
+  VatReportQuery,
+  VatReportView,
+  VatSettings,
   FinanceSummaryView,
   Paginated,
   PaymentStatus,
@@ -93,5 +101,85 @@ export function usePayment(id: string | null) {
     queryKey: ['payments', 'detail', id],
     queryFn: () => financeApi.get(id!),
     enabled: Boolean(id),
+  });
+}
+
+// ---- Wave 10B: refund / void / receipt / VAT ------------------------------
+
+function useInvalidatePayments() {
+  const qc = useQueryClient();
+  return () => {
+    void qc.invalidateQueries({ queryKey: ['payments'] });
+    void qc.invalidateQueries({ queryKey: ['refunds'] });
+    void qc.invalidateQueries({ queryKey: ['appointments'] });
+  };
+}
+
+export function useRefunds(q: Partial<RefundListQuery>, enabled = true) {
+  return useQuery({
+    queryKey: ['refunds', q],
+    queryFn: async () =>
+      (await http.get<Envelope<Paginated<RefundView>>>('/payments/refunds', { params: q })).data.data,
+    enabled,
+  });
+}
+
+export function useCreateRefund(paymentId: string) {
+  const invalidate = useInvalidatePayments();
+  return useMutation({
+    mutationFn: async (input: Partial<CreateRefundInput> & Pick<CreateRefundInput, 'amount' | 'reason'>) =>
+      (await http.post<Envelope<RefundView>>(`/payments/${paymentId}/refunds`, input)).data.data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useRefundAction() {
+  const invalidate = useInvalidatePayments();
+  return useMutation({
+    mutationFn: async (a: { id: string; action: 'approve' | 'reject' | 'pay'; reason?: string; pay?: PayRefundInput }) => {
+      const body = a.action === 'reject' ? { reason: a.reason } : a.action === 'pay' ? (a.pay ?? {}) : undefined;
+      return (await http.post<Envelope<RefundView>>(`/payments/refunds/${a.id}/${a.action}`, body)).data.data;
+    },
+    onSuccess: invalidate,
+  });
+}
+
+export function useVoidPayment(paymentId: string) {
+  const invalidate = useInvalidatePayments();
+  return useMutation({
+    mutationFn: async (reason: string) => (await http.post(`/payments/${paymentId}/void`, { reason })).data.data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useReceipt(paymentId: string | null) {
+  return useQuery({
+    queryKey: ['payments', 'receipt', paymentId],
+    queryFn: async () => (await http.get<Envelope<ReceiptView>>(`/payments/${paymentId}/receipt`)).data.data,
+    enabled: Boolean(paymentId),
+  });
+}
+
+export function useVatReport(q: VatReportQuery, enabled = true) {
+  return useQuery({
+    queryKey: ['payments', 'vat-report', q],
+    queryFn: async () => (await http.get<Envelope<VatReportView>>('/payments/vat-report', { params: q })).data.data,
+    enabled,
+  });
+}
+
+export function useVatSettings(enabled = true) {
+  return useQuery({
+    queryKey: ['payments', 'vat-settings'],
+    queryFn: async () => (await http.get<Envelope<VatSettings>>('/payments/vat-settings')).data.data,
+    enabled,
+  });
+}
+
+export function useSaveVatSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: VatSettings) => (await http.put<Envelope<VatSettings>>('/payments/vat-settings', input)).data.data,
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['payments'] }),
   });
 }

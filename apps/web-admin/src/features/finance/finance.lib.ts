@@ -12,6 +12,7 @@ export const PAYMENT_STATUS_VARIANT: Record<PaymentStatus, NonNullable<BadgeProp
   FULLY_PAID: 'success',
   REFUNDED: 'neutral',
   FAILED: 'danger',
+  VOIDED: 'neutral',
 };
 
 /** i18n key suffix under `finance.method.*` and `finance.status.*`. */
@@ -33,6 +34,7 @@ export const PAYMENT_STATUSES: PaymentStatus[] = [
   'FULLY_PAID',
   'REFUNDED',
   'FAILED',
+  'VOIDED',
 ];
 
 // ---- ledger insights (client-side, derived from one capped fetch) ----------
@@ -97,7 +99,7 @@ export function buildLedgerInsights(payments: PaymentView[], from: string, to: s
 
   for (const p of payments) {
     statusCounts[p.paymentStatus] += 1;
-    if (p.paymentStatus === 'REFUNDED' || p.paymentStatus === 'FAILED') continue;
+    if (p.paymentStatus === 'REFUNDED' || p.paymentStatus === 'FAILED' || p.paymentStatus === 'VOIDED') continue;
     billed += p.totalAmount;
     collected += p.paidAmount;
     const point = buckets.get(bucketKey(vte(p.createdAt)));

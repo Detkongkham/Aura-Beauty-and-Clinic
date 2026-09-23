@@ -1,0 +1,63 @@
+/// ໂມດູນ 39 G10 — ກະທົບຍອດເງິນສົດໃນລິ້ນຊັກ (till) ຕໍ່ກະ: ເປີດດ້ວຍເງິນທອນ → ຂາຍເງິນສົດ → ນັບປິດ.
+/// ຕ່າງຈາກ CashFund (ກອງທຶນເງິນສົດຍ່ອຍ ສຳລັບລາຍຈ່າຍ) — ອັນນີ້ຕິດຕາມເງິນສົດທີ່ **ຮັບ** ຈາກລູກຄ້າ.
+
+enum CashDrawerStatus {
+  OPEN
+  CLOSED
+}
+
+enum CashDrawerMovementType {
+  /// ເອົາເງິນອອກໄປຝາກທະນາຄານ/ຕູ້ເຊບ
+  DROP
+  /// ເພີ່ມເງິນທອນເຂົ້າລິ້ນຊັກ
+  PAYIN
+  /// ຈ່າຍອອກຈາກລິ້ນຊັກ (ບໍ່ແມ່ນການຄືນເງິນລູກຄ້າ)
+  PAYOUT
+}
+
+model CashDrawerSession {
+  id             String           @id @default(uuid())
+  branchId       String
+  currency       String           @default("LAK")
+  status         CashDrawerStatus @default(OPEN)
+  openedById     String
+  openedAt       DateTime         @default(now())
+  openingFloat   Decimal          @db.Decimal(16, 2)
+  openingNote    String?
+  closedById     String?
+  closedAt       DateTime?
+  /// ຍອດທີ່ຄວນມີ ຕອນປິດ (float + ຂາຍເງິນສົດ − ຄືນເງິນສົດ + PAYIN − DROP − PAYOUT) — snapshot.
+  expectedAmount Decimal?         @db.Decimal(16, 2)
+  countedAmount  Decimal?         @db.Decimal(16, 2)
+  /// counted − expected (+ ເກີນ, − ຂາດ)
+  variance       Decimal?         @db.Decimal(16, 2)
+  /// { "100000": 3, "50000": 1, ... } ຈຳນວນໃບຕໍ່ລາຄາ
+  denominations  Json?
+  closingNote    String?
+  /// Wave 10C — ເລກ Z-report ຕໍ່ເນື່ອງ (Z-<ສາຂາ>-<ປີ>-<ລຳດັບ>) ອອກຕອນປິດກະ + snapshot ບໍ່ປ່ຽນແປງ (ບິນ/ຍອດຂອງກະທີ່ປິດແລ້ວ ຢືນຢັນຄືນໄດ້).
+  zNo            String?          @unique
+  zReport        Json?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  movements CashDrawerMovement[]
+
+  @@index([branchId, openedAt])
+  @@index([branchId, status])
+  @@map("cash_drawer_sessions")
+}
+
+model CashDrawerMovement {
+  id          String                 @id @default(uuid())
+  sessionId   String
+  type        CashDrawerMovementType
+  amount      Decimal                @db.Decimal(16, 2)
+  note        String?
+  createdById String
+  createdAt   DateTime               @default(now())
+
+  session CashDrawerSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@map("cash_drawer_movements")
+}

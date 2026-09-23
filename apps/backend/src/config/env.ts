@@ -33,7 +33,12 @@ const envSchema = z.object({
   STRIPE_SECRET_KEY: z.string().optional(),
   /** BCEL One merchant id — ໃສ່ໃນ QR payload (mock). */
   BCEL_MERCHANT_ID: z.string().default('ABCP-DEMO-0001'),
+  /** Module 39 W2 — HMAC secret ຂອງ webhook ຈາກ provider ແບບ MOCK (dev/staging). Provider LIVE ໃຊ້ env ຕາມ
+   * `PaymentProvider.webhookSecretRef`. ຫ້າມໃຊ້ຄ່ານີ້ໃນ production. */
+  PAYMENT_WEBHOOK_SECRET: z.string().min(8).default('dev-payment-webhook-secret'),
   /** ອັດຕາມັດຈຳ default (0.2–0.5) — override ຕໍ່ສາຂາຜ່ານ AppSetting. */
+  /** Wave 10C — ຄ່າເລີ່ມຕົ້ນ: ຮັບເງິນສົດ/ຈ່າຍຄືນເງິນສົດ ຕ້ອງມີກະລິ້ນຊັກເປີດຢູ່ (ແກ້ໄດ້ໃນ AppSetting 'finance-cash'). */
+  CASH_REQUIRE_OPEN_DRAWER: z.enum(['true', 'false']).default('true'),
   DEPOSIT_RATE_DEFAULT: z.coerce.number().min(0.2).max(0.5).default(0.2),
 
   /** ຈຳນວນວັນຫຼັງ appointment COMPLETED/CANCELLED/NO_SHOW ກ່ອນ auto-lock ຫ້ອງແຊັດ CONSULTATION
@@ -48,6 +53,25 @@ const envSchema = z.object({
    * ໃຊ້ຢືນຢັນ webhook (ບໍ່ໃຊ້ authGuard ເພາະ Telegram ຮຽກເອງ). */
   TELEGRAM_WEBHOOK_SECRET: z.string().optional(),
   TELEGRAM_BOT_USERNAME: z.string().optional(),
+
+  // ---- ຂໍ້ຈຳກັດ 10G: ຊ່ອງທາງແຄມເປນນອກຈາກ push (ຫວ່າງ = ຊ່ອງນັ້ນປິດ, ແຄມເປນຂ້າມ ແລະ ນັບ skippedNoProvider) ----
+  /** HTTP SMS gateway (POST JSON { to, from, message } + Bearer token) — ເຊັ່ນ gateway ຂອງ Unitel/LTC/aggregator. */
+  SMS_GATEWAY_URL: z.string().url().optional(),
+  SMS_GATEWAY_TOKEN: z.string().optional(),
+  SMS_SENDER_ID: z.string().default('AURA'),
+  /** shared secret ທີ່ gateway ສົ່ງມາໃນ header `X-Sms-Inbound-Secret` ຕອນ forward ຂໍ້ຄວາມຕອບກັບ (STOP). */
+  SMS_INBOUND_SECRET: z.string().optional(),
+  /** ອີເມວຜ່ານ HTTP API: resend | sendgrid */
+  EMAIL_PROVIDER: z.enum(['resend', 'sendgrid']).optional(),
+  EMAIL_API_KEY: z.string().optional(),
+  EMAIL_FROM: z.string().optional(),
+  /** LINE Messaging API (Official Account) */
+  LINE_CHANNEL_ACCESS_TOKEN: z.string().optional(),
+  LINE_CHANNEL_SECRET: z.string().optional(),
+  /** Basic ID ຂອງ OA ເຊັ່ນ '@aura' — ໃຊ້ສ້າງລິ້ງເພີ່ມໝູ່ */
+  LINE_OA_ID: z.string().optional(),
+  /** URL ສາທາລະນະຂອງ API (ສຳລັບລິ້ງຖອນຕົວໃນ SMS/ອີເມວ) */
+  PUBLIC_API_URL: z.string().url().default('http://localhost:4000/api/v1'),
 
   CORS_ORIGINS: z
     .string()

@@ -97,6 +97,16 @@ export type PaymentView = {
   paidAt: string | null;
   createdAt: string;
   transactions: PaymentTransactionView[];
+  /** Wave 10B — ເລກໃບຮັບເງິນ (ອອກຕອນ FULLY_PAID), VAT ທີ່ລວມຢູ່ໃນຍອດ, ຍອດຄືນເງິນສະສົມ, ຂໍ້ມູນ void. */
+  invoiceNo: string | null;
+  vatRate: number | null;
+  /** null = ບໍ່ມີ VAT; EXCLUSIVE = ພາສີບວກເທິງລາຄາ (totalAmount = net + tax) */
+  vatMode: 'INCLUSIVE' | 'EXCLUSIVE' | null;
+  taxAmount: number | null;
+  netAmount: number | null;
+  refundedAmount: number;
+  voidedAt: string | null;
+  voidReason: string | null;
 };
 
 /** ຜົນ deposit-intent — QR payload (mock, client render ເປັນ QR). */

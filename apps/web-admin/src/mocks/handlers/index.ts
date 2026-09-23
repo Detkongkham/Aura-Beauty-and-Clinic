@@ -12,6 +12,8 @@ import { homeServiceHandlers } from './home-service';
 import { inventoryHandlers } from './inventory';
 import { messagingHandlers } from './messaging';
 import { miscHandlers } from './misc';
+import { payrollHandlers } from './payroll';
+import { paymentsTreasuryHandlers } from './payments-treasury';
 import { resourcesHandlers } from './resources';
 import { revenueHandlers } from './revenue';
 import { serviceHandlers } from './services';
@@ -29,6 +31,8 @@ export const handlers = [
   ...dashboardHandlers,
   ...serviceHandlers,
   ...staffHandlers,
+  ...payrollHandlers,
+  ...paymentsTreasuryHandlers,
   ...customerHandlers,
   ...appointmentHandlers,
   ...miscHandlers,

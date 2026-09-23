@@ -1,0 +1,187 @@
+// ໝວດ: Expenses (ໂມດູນ 39 W4) — ໝວດລາຍຈ່າຍ, ໃບຮັບເງິນແນບ, ລາຍຈ່າຍຊ້ຳປະຈຳເດືອນ.
+// ວັນທີ: 2026-09-20 · ອ້າງອີງ: docs/payments-treasury-plan.md §5 (W4). ຕົວ model `Expense` ຢູ່ inventory.prisma.
+
+enum ExpenseStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  PAID
+  /// E5 — ຍົກເລີກຫຼັງອະນຸມັດ/ຈ່າຍ; ບໍ່ນັບໃນຍອດໃດໆ.
+  VOIDED
+}
+
+/// ຊະນິດຂອງໝວດ — ກຳນົດວ່າ P&L ນັບແນວໃດ:
+/// OPERATING = ຄ່າໃຊ້ຈ່າຍດຳເນີນງານ; PAYROLL = ເງິນເດືອນ/ຄ່າແຮງນອກລະບົບຄອມມິດຊັນ (ບວກເຂົ້າ labour);
+/// INVENTORY = ຊື້ວັດຖຸດິບ/ສິນຄ້າ — **ບໍ່ນັບ** ໃນ P&L ເພາະ COGS ຄິດຈາກການຕັດສະຕັອກແລ້ວ (ກັນນັບຊ້ຳ).
+enum ExpenseCategoryKind {
+  OPERATING
+  PAYROLL
+  INVENTORY
+}
+
+model ExpenseCategory {
+  id        String              @id @default(uuid())
+  code      String              @unique
+  nameLo    String
+  nameEn    String
+  kind      ExpenseCategoryKind @default(OPERATING)
+  parentId  String?
+  sortOrder Int                 @default(0)
+  isActive  Boolean             @default(true)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  parent            ExpenseCategory?   @relation("ExpenseCategoryTree", fields: [parentId], references: [id])
+  children          ExpenseCategory[]  @relation("ExpenseCategoryTree")
+  expenses          Expense[]
+  recurringExpenses RecurringExpense[]
+  budgets           ExpenseBudget[]
+
+  @@map("expense_categories")
+}
+
+/// ບິນ/ໃບຮັບເງິນທີ່ແນບກັບລາຍຈ່າຍ. ຜົນ OCR (ocr*) ຖືກຕື່ມໂດຍ pipeline ຂອງ W3 — ຕອນນີ້ເປັນ null.
+model ExpenseAttachment {
+  id           String   @id @default(uuid())
+  expenseId    String
+  imageKey     String
+  url          String
+  contentType  String
+  sizeBytes    Int
+  /// sha256 ຂອງໄຟລ໌ — ກວດໃບຮັບເງິນຊ້ຳ.
+  imageHash    String
+  uploadedById String
+  ocrStatus    String?
+  ocrRaw       Json?
+  createdAt    DateTime @default(now())
+
+  expense Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+
+  @@index([expenseId])
+  @@index([imageHash])
+  @@map("expense_attachments")
+}
+
+/// ກົດລາຍຈ່າຍຊ້ຳ (ຄ່າເຊົ່າ, ອິນເຕີເນັດ...) — job ສ້າງ Expense DRAFT ໃຫ້ທຸກເດືອນ.
+model RecurringExpense {
+  id                  String   @id @default(uuid())
+  branchId            String
+  categoryId          String
+  title               String
+  amount              Decimal  @db.Decimal(16, 2)
+  currency            String   @default("LAK")
+  /// ວັນທີ່ຂອງເດືອນ (1–28) ທີ່ລາຍຈ່າຍເຖິງກຳນົດ (ຕາມເວລາວຽງຈັນ).
+  dayOfMonth          Int
+  notes               String?
+  isActive            Boolean  @default(true)
+  /// ເດືອນຫຼ້າສຸດທີ່ສ້າງແລ້ວ `YYYY-MM` — job ຄັດເອົາສະເພາະເດືອນທີ່ຍັງບໍ່ສ້າງ.
+  lastGeneratedPeriod String?
+  createdById         String
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  branch    Branch          @relation(fields: [branchId], references: [id])
+  category  ExpenseCategory @relation(fields: [categoryId], references: [id])
+  createdBy User            @relation(fields: [createdById], references: [id])
+  expenses  Expense[]
+
+  @@index([branchId, isActive])
+  @@map("recurring_expenses")
+}
+
+/// E2 — ງົບປະມານລາຍເດືອນຕໍ່ ສາຂາ × ໝວດ (ເປັນ LAK). ບໍ່ມີແຖວ = ບໍ່ໄດ້ຕັ້ງງົບ.
+model ExpenseBudget {
+  id          String   @id @default(uuid())
+  branchId    String
+  categoryId  String
+  /// `YYYY-MM`
+  month       String
+  amount      Decimal  @db.Decimal(16, 2)
+  updatedById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  branch    Branch          @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  category  ExpenseCategory @relation(fields: [categoryId], references: [id])
+  updatedBy User            @relation("ExpenseBudgetUpdatedBy", fields: [updatedById], references: [id])
+
+  @@unique([branchId, categoryId, month])
+  @@index([month])
+  @@map("expense_budgets")
+}
+
+// ── E9 ເງິນສົດຍ່ອຍ (petty cash) ─────────────────────────────────────
+enum CashFundEntryType {
+  /// ເຕີມເງິນເຂົ້າກ່ອງ (+)
+  TOPUP
+  /// ຖອນຄືນເຂົ້າທະນາຄານ/ເຈົ້າຂອງ (−)
+  WITHDRAW
+  /// ຈ່າຍລາຍຈ່າຍດ້ວຍເງິນສົດຈາກກ່ອງ (−), ຜູກກັບ expenseId
+  EXPENSE
+  /// ຄືນເງິນເມື່ອລາຍຈ່າຍທີ່ຈ່າຍຈາກກ່ອງຖືກຍົກເລີກ (+)
+  REVERSAL
+  /// ນັບເງິນຕົວຈິງ — amount = ສ່ວນຕ່າງ (ນັບ − ຍອດໃນລະບົບ), ອາດເປັນ 0
+  COUNT
+}
+
+/// ກ່ອງເງິນສົດຍ່ອຍຕໍ່ສາຂາ × ສະກຸນ. ຍອດຄົງເຫຼືອ = Σ entries.amount (ບໍ່ເກັບ column ຍອດ ເພື່ອບໍ່ໃຫ້ຂັດກັນ).
+model CashFund {
+  id          String   @id @default(uuid())
+  branchId    String
+  name        String
+  currency    String   @default("LAK")
+  /// ຍອດເປົ້າໝາຍ (imprest) — ໃຊ້ແນະນຳຈຳນວນເຕີມ. null = ບໍ່ກຳນົດ.
+  floatAmount Decimal? @db.Decimal(16, 2)
+  isActive    Boolean  @default(true)
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  branch    Branch          @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  createdBy User            @relation("CashFundCreatedBy", fields: [createdById], references: [id])
+  entries   CashFundEntry[]
+  expenses  Expense[]
+
+  @@unique([branchId, name])
+  @@map("cash_funds")
+}
+
+model CashFundEntry {
+  id            String            @id @default(uuid())
+  fundId        String
+  type          CashFundEntryType
+  /// + ເຂົ້າ, − ອອກ (ສະກຸນຂອງກ່ອງ)
+  amount        Decimal           @db.Decimal(16, 2)
+  /// COUNT: ຈຳນວນທີ່ນັບໄດ້ຈິງ
+  countedAmount Decimal?          @db.Decimal(16, 2)
+  expenseId     String?
+  note          String?
+  createdById   String
+  createdAt     DateTime          @default(now())
+
+  fund      CashFund @relation(fields: [fundId], references: [id], onDelete: Cascade)
+  expense   Expense? @relation(fields: [expenseId], references: [id])
+  createdBy User     @relation("CashFundEntryCreatedBy", fields: [createdById], references: [id])
+
+  @@index([fundId, createdAt])
+  @@index([expenseId])
+  @@map("cash_fund_entries")
+}
+
+// ── E10 ແບ່ງຄ່າໃຊ້ຈ່າຍລະຫວ່າງສາຂາ ─────────────────────────────────
+/// ບໍ່ມີແຖວ = ຕົ້ນທຶນທັງໝົດເປັນຂອງ Expense.branchId. ມີແຖວ = ແບ່ງຕາມ percent (ລວມ = 100), amountBase ຄິດໄວ້ແລ້ວ.
+model ExpenseAllocation {
+  id         String  @id @default(uuid())
+  expenseId  String
+  branchId   String
+  percent    Decimal @db.Decimal(5, 2)
+  amountBase Decimal @db.Decimal(16, 2)
+
+  expense Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  branch  Branch  @relation(fields: [branchId], references: [id])
+
+  @@unique([expenseId, branchId])
+  @@index([branchId])
+  @@map("expense_allocations")
+}

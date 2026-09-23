@@ -96,6 +96,7 @@
     "passwordRequired": "Please enter your password",
     "passwordTooShort": "Password must be at least 8 characters",
     "passwordsMatch": "Passwords match",
+    "marketingOptIn": "Send me offers and promotions (optional)",
     "termsRequired": "Please accept the terms to continue",
     "signInInstead": "Sign in instead",
     "ruleLength": "8+ characters",
@@ -643,7 +644,9 @@
     "notificationsRow": "Notifications",
     "notificationsRowValue": "Visit alerts and news",
     "faceIdDesc": "Ask for identity confirmation when opening the app",
-    "faceIdPending": "Face ID locking switches on in a future app update."
+    "faceIdPending": "Face ID locking switches on in a future app update.",
+    "notificationPrefsRow": "Notifications & privacy",
+    "notificationPrefsRowValue": "Promotions, consent"
   },
   "appearance": {
     "title": "Appearance",
@@ -955,6 +958,52 @@
     "messages": {
       "emptyThreadHint": "Start the conversation with your teammate",
       "internalNotice": "This room is for internal team communication only"
+    },
+    "slips": {
+      "title": "Review transfer slips",
+      "tabReview": "To review",
+      "tabDone": "Reviewed",
+      "emptyReview": "No slips waiting",
+      "emptyReviewHint": "New customer slips show up here instantly",
+      "emptyDone": "No reviewed slips yet",
+      "verdict_AUTO_MATCHED": "All matched",
+      "verdict_NEEDS_REVIEW": "Needs check",
+      "verdict_DUPLICATE": "Duplicate",
+      "verdict_APPROVED": "Approved",
+      "verdict_REJECTED": "Rejected",
+      "verdict_PENDING": "Reading",
+      "mismatchCount_one": "{{count}} mismatch",
+      "mismatchCount_other": "{{count}} mismatches",
+      "reviewTitle": "Review slip",
+      "notRead": "Could not read",
+      "expected": "Expected: {{value}}",
+      "needFields": "Enter the amount and reference number before approving",
+      "approveConfirmTitle": "Approve this slip?",
+      "approveConfirmBody": "This records {{amount}} as received on the bill",
+      "approve": "Approve",
+      "reject": "Reject",
+      "zoom": "Zoom",
+      "ocrRunning": "Reading the slip — please wait a moment",
+      "duplicateNote": "This slip was already used — it can only be rejected",
+      "ocrFailed": "The slip could not be read automatically — check the image and enter the values yourself",
+      "compareTitle": "Read values vs. the bill",
+      "score": "Match score {{score}}/100",
+      "fAmount": "Amount",
+      "fAccount": "Destination account",
+      "fTime": "Transfer time",
+      "fRef": "Reference no.",
+      "fBank": "Bank",
+      "editTitle": "Correct values (if misread)",
+      "editHint": "Change only when the slip image shows something different",
+      "rejectTitle": "Reject slip",
+      "rejectHint": "The customer will see this reason",
+      "reason_amount": "Amount does not match",
+      "reason_account": "Sent to the wrong account",
+      "reason_unclear": "Image is unclear",
+      "reason_old": "Old slip, not for this payment",
+      "rejectPlaceholder": "Enter a reason…",
+      "rejectConfirm": "Confirm rejection",
+      "verdict_REVERSED": "Reversed"
     }
   },
   "loyalty": {
@@ -1147,7 +1196,46 @@
     "method_CREDIT_CARD": "Credit card",
     "method_GIFT_CARD": "Gift card",
     "method_PACKAGE_CREDIT": "Package",
-    "method_LOYALTY_POINTS": "Loyalty points"
+    "method_LOYALTY_POINTS": "Loyalty points",
+    "modeTransfer": "Bank transfer",
+    "method_BANK_TRANSFER": "Bank transfer",
+    "method_BANK_QR": "Bank QR",
+    "transfer": {
+      "methodTitle": "Bank transfer",
+      "methodDesc": "Transfer, then upload your slip — our team checks and confirms it",
+      "unavailableTitle": "Transfers not available at this branch yet",
+      "unavailableBody": "Please pay at the store, or use points / a gift card",
+      "copy": "Copy",
+      "copied": "Copied",
+      "optDeposit": "Deposit {{amount}}",
+      "optFull": "Full {{amount}}",
+      "step1": "1. Transfer using these details",
+      "qrLabel": "Payment QR",
+      "qrHint": "Scan with your bank app",
+      "accountName": "Account name",
+      "accountNumber": "Account number",
+      "amount": "Amount to transfer",
+      "step2": "2. Upload your transfer slip",
+      "step2Hint": "Take a photo or pick a slip where the amount and reference number are clearly visible"
+    },
+    "slip": {
+      "amountUnknown": "Reading amount…",
+      "status_approved": "Confirmed",
+      "status_rejected": "Not accepted",
+      "status_duplicate": "Duplicate slip",
+      "status_checking": "Checking",
+      "status_review": "Awaiting confirmation",
+      "permissionDenied": "Please allow camera / photo access in Settings",
+      "preview": "Slip preview",
+      "send": "Send slip · {{amount}}",
+      "change": "Choose another photo",
+      "camera": "Take a photo",
+      "library": "Choose from library",
+      "waitingBody": "Slip received — our team is checking it. You will be notified once it is confirmed",
+      "historyTitle": "Submitted slips",
+      "status_reversed": "Confirmation reversed",
+      "infoRequested": "The clinic asked: {{note}}"
+    }
   },
   "tracking": {
     "title": "Track your stylist",
@@ -1540,6 +1628,35 @@
     "cashOption": "Pay cash at the front desk",
     "createQrCta": "Create QR to pay",
     "validityStartsNow": "Validity starts today",
-    "doneBookNow": "Book a service now"
+    "doneBookNow": "Book a service now",
+    "transferCta": "Pay by bank transfer"
+  },
+  "consent": {
+    "title": "Notifications & privacy",
+    "noticeTitle": "You're in control",
+    "noticeBody": "Promotional messages are sent only if you turn them on, and you can turn them off at any time. Appointment and receipt messages can't be turned off.",
+    "promotions": "Promotions",
+    "unsubscribed": "You unsubscribed — turn on to opt in again",
+    "transactional": "Always on",
+    "appointments": "Appointment updates",
+    "receipts": "Receipts & payments",
+    "alwaysOn": "Required — can't be turned off",
+    "label": {
+      "PUSH": "Offers & promotions (push)",
+      "SMS": "Offers by SMS",
+      "EMAIL": "Offers by email",
+      "LINE": "Offers on LINE"
+    },
+    "hint": {
+      "PUSH": "Birthday treats, win-back offers, festival promos",
+      "SMS": "Sent to your phone number · reply STOP to opt out",
+      "EMAIL": "Each email has an unsubscribe link",
+      "LINE": "From our LINE Official Account · send STOP to opt out"
+    },
+    "emailMissing": "Add an email to your profile first",
+    "lineNotLinked": "Tap to link your LINE account",
+    "lineLinkTitle": "Link LINE",
+    "lineLinkBody": "Add our LINE Official Account as a friend, then send it this code within 15 minutes:\n\n{{code}}",
+    "lineOpen": "Open LINE"
   }
 }

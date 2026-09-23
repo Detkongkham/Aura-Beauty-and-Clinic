@@ -170,6 +170,15 @@ export function StaffPayslipSheet({
                 value={<CurrencyText amount={r.bonusAmount} />}
                 tone={r.bonusAmount > 0 && !r.bonusPaid ? 'info' : undefined}
               />
+              {r.clawbackTotal > 0 ? (
+                <DetailRow
+                  label={t('payroll.payslip.clawback', {
+                    state: r.clawbackUnsettled > 0 ? t('payroll.due') : t('payroll.paid'),
+                  })}
+                  value={<CurrencyText amount={-r.clawbackTotal} />}
+                  tone="warning"
+                />
+              ) : null}
               <DetailRow
                 label={t('payroll.col.payable')}
                 value={<CurrencyText amount={r.payable} />}

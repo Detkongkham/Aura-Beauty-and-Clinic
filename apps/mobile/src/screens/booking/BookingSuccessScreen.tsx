@@ -79,7 +79,7 @@ export function BookingSuccessScreen({
   const pay = appt?.payment ?? null;
   const depositRequired = (pay?.depositAmount ?? snap.depositAmount ?? 0) > 0;
   const paid = pay?.status === 'DEPOSIT_PAID' || pay?.status === 'FULLY_PAID';
-  const canPay = !isReschedule && !!appointmentId && !paid && pay?.status !== 'REFUNDED';
+  const canPay = !isReschedule && !!appointmentId && !paid && pay?.status !== 'REFUNDED' && pay?.status !== 'VOIDED';
 
   let passPayment: PassPayment = null;
   if (pay?.status === 'FULLY_PAID') {

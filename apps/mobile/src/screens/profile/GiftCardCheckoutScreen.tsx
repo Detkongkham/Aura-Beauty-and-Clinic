@@ -1,5 +1,5 @@
-import type { DepositIntentView } from '@abcp/shared-types';
 import { Ionicons } from '@expo/vector-icons';
+import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ScrollView, View } from 'react-native';
@@ -10,8 +10,8 @@ import { AnimatedEntrance } from '../../components/ui/AnimatedEntrance';
 import { Button } from '../../components/ui/Button';
 import { Gradient } from '../../components/ui/Gradient';
 import { Touchable } from '../../components/ui/Touchable';
-import { useDepositIntent, useSettleMock } from '../../features/payments/payments.api';
-import { QrCard } from '../../features/payments/payment.parts';
+import { usePaymentById } from '../../features/payments/transfer.api';
+import { BankTransferPanel } from '../../features/payments/transfer.parts';
 import { Radio } from '../../features/booking/booking-kit';
 import {
   Card,
@@ -28,7 +28,7 @@ import {
 import { cn } from '../../lib/cn';
 import { formatLAK } from '../../lib/format';
 import { haptics } from '../../lib/haptics';
-import { normalizeError } from '../../services/apiError';
+import { qk } from '../../services/queryKeys';
 import { colors, shadow } from '../../theme';
 import type { AppScreenProps } from '../../navigation/types';
 import * as Clipboard from 'expo-clipboard';
@@ -38,15 +38,15 @@ import * as Clipboard from 'expo-clipboard';
  * booking (deposit-intent/tenders) ແຕ່ບໍ່ຜູກ appointment — ບັດຈະ activate ອັດຕະໂນມັດຝັ່ງ server
  * ເມື່ອ Payment ນີ້ຮອດ FULLY_PAID (ເບິ່ງ payments.service.recomputeAndSettle).
  *
- * UI = 3 ຂັ້ນຕອນຊັດເຈນ (ເລືອກວິທີ → ຊຳລະ → ສຳເລັດ) ໂດຍໃຊ້ <QrCard> ອັນດຽວກັນກັບ
- * ໜ້າຈ່າຍເງິນຂອງການຈອງ ເພື່ອໃຫ້ປະສົບການຊຳລະທົ່ວແອັບເປັນອັນດຽວກັນ.
+ * UI = 3 ຂັ້ນຕອນຊັດເຈນ (ເລືອກວິທີ → ໂອນ+ອັບສະລິບ → ສຳເລັດ) ໂດຍໃຊ້ <BankTransferPanel> ອັນດຽວກັນກັບ
+ * ໜ້າຈ່າຍເງິນຂອງການຈອງ. "ສຳເລັດ" = ບິນ FULLY_PAID (ພະນັກງານອະນຸມັດສະລິບແລ້ວ), ບໍ່ແມ່ນແຕ່ລູກຄ້າກົດເອງ.
  */
 
-type Method = 'QR' | 'CASH';
+type Method = 'TRANSFER' | 'CASH';
 type Step = 0 | 1 | 2;
 
 const METHODS: readonly { id: Method; icon: IconName; titleKey: string; descKey: string }[] = [
-  { id: 'QR', icon: 'qr-code-outline', titleKey: 'payment.bcelTitle', descKey: 'giftCards.methodQrDesc' },
+  { id: 'TRANSFER', icon: 'swap-horizontal-outline', titleKey: 'payment.transfer.methodTitle', descKey: 'payment.transfer.methodDesc' },
   { id: 'CASH', icon: 'storefront-outline', titleKey: 'giftCards.checkoutCash', descKey: 'giftCards.methodCashDesc' },
 ];
 
@@ -57,48 +57,21 @@ export function GiftCardCheckoutScreen({
   const { t } = useTranslation();
   const { paymentId, amount, code } = route.params;
 
-  const depositIntent = useDepositIntent();
-  const settle = useSettleMock(paymentId);
+  const qc = useQueryClient();
+  const payment = usePaymentById(paymentId);
 
-  const [method, setMethod] = useState<Method>('QR');
-  const [intent, setIntent] = useState<DepositIntentView | null>(null);
-  const [done, setDone] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [method, setMethod] = useState<Method>('TRANSFER');
+  const [paying, setPaying] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const step: Step = done ? 2 : intent ? 1 : 0;
+  const done = payment.data?.paymentStatus === 'FULLY_PAID';
+  const step: Step = done ? 2 : paying ? 1 : 0;
+  const balance = payment.data?.balanceAmount ?? amount;
 
-  function startQr(): void {
-    setErr(null);
-    depositIntent.mutate(paymentId, {
-      onSuccess: (data) => {
-        setIntent(data);
-        haptics.select();
-      },
-      onError: (e) => {
-        haptics.error();
-        setErr(normalizeError(e).message);
-      },
-    });
-  }
-
-  function confirmQr(): void {
-    if (!intent) return;
-    setErr(null);
-    settle.mutate(
-      { paymentId, qrReference: intent.qrReference },
-      {
-        onSuccess: () => {
-          setDone(true);
-          haptics.success();
-        },
-        onError: (e) => {
-          haptics.error();
-          setErr(normalizeError(e).message);
-        },
-      },
-    );
-  }
+  const onApproved = (): void => {
+    void payment.refetch();
+    void qc.invalidateQueries({ queryKey: qk.giftCards });
+  };
 
   const copyCode = async (): Promise<void> => {
     await Clipboard.setStringAsync(code);
@@ -155,15 +128,9 @@ export function GiftCardCheckoutScreen({
               </View>
             </Card>
           </AnimatedEntrance>
-        ) : intent ? (
+        ) : paying ? (
           <AnimatedEntrance index={1}>
-            <QrCard
-              payload={intent.qrPayload}
-              amount={intent.amount}
-              reference={intent.qrReference}
-              expiresAt={intent.expiresAt}
-              onRegenerate={startQr}
-            />
+            <BankTransferPanel paymentId={paymentId} balance={balance} onApproved={onApproved} />
           </AnimatedEntrance>
         ) : (
           <AnimatedEntrance index={1}>
@@ -183,7 +150,7 @@ export function GiftCardCheckoutScreen({
                       i < METHODS.length - 1 && 'border-b border-border/70',
                     )}
                   >
-                    <IconTile icon={m.icon} tone={m.id === 'QR' ? 'primary' : 'accent'} />
+                    <IconTile icon={m.icon} tone={m.id === 'TRANSFER' ? 'primary' : 'accent'} />
                     <View className="min-w-0 flex-1">
                       <T className="font-lao-semibold text-foreground">{t(m.titleKey)}</T>
                       <T className="font-lao text-muted-foreground" style={SMALL}>
@@ -198,7 +165,7 @@ export function GiftCardCheckoutScreen({
           </AnimatedEntrance>
         )}
 
-        {!done && method === 'CASH' && !intent ? (
+        {!done && method === 'CASH' && !paying ? (
           <Notice
             tone="accent"
             icon="storefront-outline"
@@ -207,11 +174,10 @@ export function GiftCardCheckoutScreen({
           />
         ) : null}
 
-        {!done && !intent && method === 'QR' ? (
+        {!done && !paying && method === 'TRANSFER' ? (
           <Notice tone="muted" icon="shield-checkmark-outline" body={t('payment.secureNote')} />
         ) : null}
 
-        {err ? <Notice tone="destructive" icon="alert-circle-outline" body={err} /> : null}
       </ScrollView>
 
       <FooterBar>
@@ -223,23 +189,24 @@ export function GiftCardCheckoutScreen({
             labelClassName="text-[13px] text-center"
             onPress={() => navigation.navigate('GiftCards')}
           />
-        ) : intent ? (
+        ) : paying ? (
           <Button
-            label={t('payment.confirmPaid')}
+            label={t('payment.later')}
             size="md"
-            icon="checkmark"
-            loading={settle.isPending}
+            variant="secondary"
             labelClassName="text-[13px] text-center"
-            onPress={confirmQr}
+            onPress={() => navigation.navigate('GiftCards')}
           />
-        ) : method === 'QR' ? (
+        ) : method === 'TRANSFER' ? (
           <Button
             label={t('giftCards.payAmount', { amount: formatLAK(amount) })}
             size="md"
-            icon="qr-code-outline"
-            loading={depositIntent.isPending}
+            icon="swap-horizontal-outline"
             labelClassName="text-[13px] text-center"
-            onPress={startQr}
+            onPress={() => {
+              haptics.select();
+              setPaying(true);
+            }}
           />
         ) : (
           <Button

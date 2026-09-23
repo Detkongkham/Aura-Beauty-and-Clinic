@@ -1,0 +1,99 @@
+/// ໂມດູນ 39 — ກະທົບຍອດທະນາຄານ (ຊ່ອງວ່າງ G1/G3/G5 ຫຼັງ redesign ໜ້າ /payments/reconciliation 2026-09-21).
+
+enum StatementSource {
+  MANUAL
+  IMPORT
+}
+
+/// ເຫດຜົນທີ່ຍອມຮັບສ່ວນຕ່າງ.
+enum VarianceResolution {
+  BANK_FEE
+  TIMING
+  WRONG_ACCOUNT
+  UNBOOKED_SLIP
+  DATA_ENTRY
+  OTHER
+}
+
+enum StatementLineDirection {
+  CREDIT
+  DEBIT
+}
+
+enum StatementLineMatch {
+  UNMATCHED
+  MATCHED
+  IGNORED
+}
+
+/// ໄຟລ໌ statement ທີ່ນຳເຂົ້າໜຶ່ງຄັ້ງ (CSV ຈາກ internet banking).
+model BankStatementImport {
+  id            String   @id @default(uuid())
+  bankAccountId String
+  fileName      String
+  /// ຮູບແບບ/ການຈັບຄູ່ຄໍລຳທີ່ໃຊ້ (JSON ຂອງ mapping) — ເກັບໄວ້ໃຫ້ນຳໃຊ້ຄືນກັບບັນຊີດຽວກັນ.
+  mapping       Json
+  rowCount      Int
+  creditTotal   Decimal  @db.Decimal(16, 2)
+  debitTotal    Decimal  @db.Decimal(16, 2)
+  fromDate      DateTime @db.Date
+  toDate        DateTime @db.Date
+  importedById  String
+  createdAt     DateTime @default(now())
+
+  bankAccount BankAccount         @relation(fields: [bankAccountId], references: [id])
+  lines       BankStatementLine[]
+
+  @@index([bankAccountId, createdAt])
+  @@map("bank_statement_imports")
+}
+
+/// ແຖວດຽວຂອງ statement ທະນາຄານ — ຈັບຄູ່ກັບ tender / ລາຍຈ່າຍ / refund ໃນລະບົບ.
+model BankStatementLine {
+  id               String                 @id @default(uuid())
+  importId         String
+  bankAccountId    String
+  /// ວັນທີວຽງຈັນ (UTC-midnight key).
+  statementDate    DateTime               @db.Date
+  postedAt         DateTime?
+  direction        StatementLineDirection
+  amount           Decimal                @db.Decimal(16, 2)
+  balance          Decimal?               @db.Decimal(16, 2)
+  description      String?
+  reference        String?
+  /// ລຳດັບໃນໄຟລ໌ — ໃຊ້ຫາ opening/closing ຂອງມື້.
+  seq              Int
+  /// sha256(date|direction|amount|reference|description|balance|nth) — ກັນນຳເຂົ້າແຖວດຽວກັນຊ້ຳ.
+  dedupeHash       String
+  matchStatus      StatementLineMatch     @default(UNMATCHED)
+  matchedTxId      String?                @unique
+  matchedExpenseId String?                @unique
+  matchedRefundId  String?                @unique
+  /// null = ຈັບຄູ່ອັດຕະໂນມັດ.
+  matchedById      String?
+  matchedAt        DateTime?
+  createdAt        DateTime               @default(now())
+
+  import      BankStatementImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  bankAccount BankAccount         @relation(fields: [bankAccountId], references: [id])
+
+  @@unique([bankAccountId, dedupeHash])
+  @@index([bankAccountId, statementDate])
+  @@map("bank_statement_lines")
+}
+
+/// G5 — ປິດງວດກະທົບຍອດປະຈຳເດືອນ ຕໍ່ສາຂາ. ມີແຖວ = ປິດແລ້ວ (ລັອກການແກ້ statement/ການຈັບຄູ່ ຂອງເດືອນນັ້ນ).
+model ReconciliationPeriod {
+  id         String   @id @default(uuid())
+  branchId   String
+  /// YYYY-MM (ວຽງຈັນ)
+  month      String
+  closedById String
+  closedAt   DateTime @default(now())
+  note       String?
+  /// ພາບລວມຕອນປິດ (ຍອດ, ຈຳນວນມື້, ສ່ວນຕ່າງທີ່ອະທິບາຍແລ້ວ).
+  summary    Json
+
+  @@unique([branchId, month])
+  @@map("reconciliation_periods")
+}

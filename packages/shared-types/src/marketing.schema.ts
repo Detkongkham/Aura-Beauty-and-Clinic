@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { CampaignType } from './enums.js';
 import { paginationQuerySchema } from './common.schema.js';
+import { ConsentChannel } from './consent.schema.js';
 
 /**
  * Automated CRM Marketing & Campaigns — ໂມດູນ 24 (Phase 5).
@@ -28,6 +29,8 @@ export const createCampaignSchema = z.object({
   discountCode: z.string().trim().max(32).optional(),
   message: campaignMessageSchema,
   triggerRule: campaignTriggerRuleSchema.optional(),
+  /** ຂໍ້ຈຳກັດ 10G — ຊ່ອງທາງທີ່ສົ່ງ (ຕໍ່ລູກຄ້າ: ສະເພາະຊ່ອງທີ່ opt-in + ບໍ່ຕິດ suppression + ມີຂໍ້ມູນຕິດຕໍ່). */
+  channels: z.array(ConsentChannel).min(1).max(4).default(['PUSH']),
   isActive: z.boolean().default(true),
 });
 export type CreateCampaignInput = z.infer<typeof createCampaignSchema>;
@@ -59,6 +62,7 @@ export type CampaignView = {
   discountCode: string | null;
   message: { title: string; body: string } | null;
   triggerRule: CampaignTriggerRule | null;
+  channels: ConsentChannel[];
   isActive: boolean;
   recipientCount: number;
   convertedCount: number;
@@ -72,4 +76,12 @@ export type CampaignRunView = {
   matched: number;
   sent: number;
   skippedAlreadySent: number;
+  /** Wave 10G — ຖືກກັ່ນຕອງກ່ອນສົ່ງ (ບັງຄັບຢູ່ຊັ້ນ service). */
+  skippedNoConsent: number;
+  skippedSuppressed: number;
+  skippedFrequencyCap: number;
+  /** ຢູ່ໃນຊ່ວງງຽບ (quiet hours) — ບໍ່ສົ່ງເລີຍ, ບໍ່ບັນທຶກ recipient ເພື່ອໃຫ້ sweep ຮອບຕໍ່ໄປສົ່ງໄດ້. */
+  deferredQuietHours: boolean;
+  /** ຂໍ້ຈຳກັດ 10G — ຜົນຕໍ່ຊ່ອງທາງ. `noProvider` = ຊ່ອງນັ້ນຍັງບໍ່ໄດ້ຕັ້ງຄ່າ (env); `noContact` = ບໍ່ມີເບີ/ອີເມວ/LINE ທີ່ຜູກ. */
+  byChannel: Partial<Record<ConsentChannel, { sent: number; failed: number; noProvider: number; noContact: number }>>;
 };

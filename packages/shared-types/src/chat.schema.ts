@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { UserRole } from './enums.js';
+import type { UserRole } from './enums.js';
 
 /** ໂມດູນ 21 — In-App Chat & Consultation Threads. Thread ຖືກສ້າງແບບ lazy ຕໍ່ນັດໝາຍໜຶ່ງ (ຄືກັນກັບ
  * ReferralCode.ensureCode) — ບໍ່ມີ endpoint ສ້າງ thread ຕົງໆ, ມີແຕ່ "ensure" ຕອນສົ່ງ/ອ່ານຂໍ້ຄວາມຄັ້ງທຳອິດ. */

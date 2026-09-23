@@ -31,6 +31,14 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
     }
   }
 
+  // ຂໍ້ຈຳກັດ 10C — trigger `*_ledger_lock` (migration 20260923100000) ປະຕິເສດການແກ້ເອກະສານທີ່ອອກແລ້ວ.
+  if (err instanceof Error && err.message.includes('LEDGER_LOCKED:')) {
+    res.status(409).json({
+      error: { code: ErrorCode.LEDGER_LOCKED, message: 'ເອກະສານການເງິນນີ້ອອກແລ້ວ/ກະປິດແລ້ວ — ແກ້ບໍ່ໄດ້, ໃຫ້ອອກໃບຄືນເງິນແທນ' },
+    });
+    return;
+  }
+
   logger.error({ err }, 'Unhandled error');
   res.status(500).json({ error: { code: ErrorCode.INTERNAL, message: 'ເກີດຂໍ້ຜິດພາດພາຍໃນ' } });
 }

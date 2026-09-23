@@ -1,5 +1,6 @@
 import { connectDatabase, disconnectDatabase } from '../config/database.js';
 import { logger } from '../config/logger.js';
+import { shutdownOcr } from '../modules/payments-treasury/slips/ocr/tesseractProvider.js';
 import { startWorkers } from './worker.js';
 
 /** Entry point ຂອງ worker process: `node dist/jobs/main.js` ຫຼື `tsx src/jobs/main.ts`. */
@@ -10,6 +11,7 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, 'worker shutting down');
     await Promise.all(workers.map((w) => w.close()));
+    await shutdownOcr();
     await disconnectDatabase();
     process.exit(0);
   };

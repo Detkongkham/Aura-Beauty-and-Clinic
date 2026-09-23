@@ -70,6 +70,13 @@ export const PERMISSIONS = [
   'marketing:manage',
   'inventory:view',
   'inventory:manage',
+  'payments:manage',
+  'payments:review',
+  'payments:reconcile',
+  'payments:refund',
+  'expenses:view',
+  'expenses:manage',
+  'expenses:approve',
 ] as const;
 
 export const PermissionKey = z.enum(PERMISSIONS);
@@ -114,6 +121,13 @@ const BRANCH_ADMIN_PERMISSIONS: readonly Permission[] = [
   'marketing:manage',
   'inventory:view',
   'inventory:manage',
+  'payments:manage',
+  'payments:review',
+  'payments:reconcile',
+  'payments:refund',
+  'expenses:view',
+  'expenses:manage',
+  'expenses:approve',
 ];
 
 export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {

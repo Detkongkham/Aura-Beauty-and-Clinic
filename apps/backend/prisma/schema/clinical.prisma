@@ -113,3 +113,20 @@ model TelegramLink {
 
   @@map("telegram_links")
 }
+
+/// ຂໍ້ຈຳກັດ 10G — ຜູກບັນຊີ LINE Official Account ກັບ User (ສຳລັບສົ່ງແຄມເປນທາງ LINE). ລູກຄ້າຂໍ `linkCode`
+/// ໃນແອັບ → ສົ່ງລະຫັດໃຫ້ OA → webhook ຈັບຄູ່ `lineUserId`. unfollow → ຖອນ consent LINE ອັດຕະໂນມັດ.
+model LineLink {
+  id                String    @id @default(uuid())
+  userId            String    @unique
+  lineUserId        String?   @unique
+  linkCode          String?   @unique
+  linkCodeExpiresAt DateTime?
+  linkedAt          DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("line_links")
+}

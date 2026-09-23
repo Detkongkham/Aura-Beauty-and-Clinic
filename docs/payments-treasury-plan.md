@@ -1,6 +1,6 @@
 # ໂມດູນ 39 — ການຊຳລະເງິນ & ການເງິນອອກ (Payments & Treasury)
 
-> ວັນທີຂຽນແຜນ: 2026-09-20 · ສະຖານະ: **ແຜນ (ຍັງບໍ່ທັນລົງມື)**
+> ວັນທີຂຽນແຜນ: 2026-09-20 · ສະຖານະ: **✅ ສຳເລັດຄົບ W1–W7 (2026-09-20)** — ເບິ່ງ «ຜົນ W7» ລຸ່ມສຸດຂອງ §5 ສຳລັບລາຍການທີ່ຍັງຄ້າງກ່ອນ production
 > ຂອບເຂດທີ່ກວດກ່ອນຂຽນແຜນ: `apps/backend/prisma/schema/finance.prisma`,
 > `apps/backend/prisma/schema/inventory.prisma` (`Expense`), `apps/backend/src/modules/payments/*`,
 > `apps/backend/src/services/paymentGateway.ts`, `apps/backend/src/storage/*`,
@@ -118,37 +118,83 @@ ExpenseAttachment    ບິນ/ໃບຮັບເງິນແນບ (ໃຊ້ p
 
 ## 5. ແຜນເປັນ Wave
 
-### W1 — Bank registry + Provider adapter (backend)
-- Schema ໃໝ່ + migration + seed ທະນາຄານລາວ (BCEL, LDB, JDB, APB, ST Bank, Lao-Viet, BIC)
+### W1 — Bank registry + Provider adapter (backend) — ✅ ສຳເລັດ 2026-09-20
+- Schema `payments-treasury.prisma` (Bank/BankAccount/PaymentProvider/ProviderIntent/ProviderEvent/Refund)
+  + migration `20260920000000_payments_treasury_w1_bank_provider` + seed 7 ທະນາຄານລາວ + 3 provider config
+  + 1 default BankAccount ຕໍ່ສາຂາຫຼັກ (ນຳໃຊ້ໃນ dev/test DB ທັງສອງ)
 - `interface BankProvider { createQrIntent, verifyWebhook, queryStatus, refund, payout }`
-- Implementation: `MockBcelProvider`, `MockLaoQrProvider` (ມາດຕະຖານກາງ), `ManualTransferProvider`
-  (ບໍ່ມີ API — ໃຊ້ເລກບັນຊີ + ສະລິບ; ນີ້ຄືເສັ້ນທາງທີ່ **ໃຊ້ໄດ້ຈິງ** ມື້ນີ້)
-- CRUD `BankAccount` ຕໍ່ສາຂາ + RBAC `payments:manage`
-- Test: adapter registry, ການເລືອກບັນຊີ default ຕໍ່ສາຂາ
+  (`apps/backend/src/modules/payments-treasury/providers/types.ts`)
+- Implementation: `MockBcelProvider`, `MockLaoQrProvider`, `ManualTransferProvider` + registry
+  (`providers/registry.ts`) — ລົງທະບຽນຕໍ່ `PaymentProvider.code`, ປ່ຽນເປັນ API ຈິງພາຍຫຼັງໂດຍບໍ່ແຕະ
+  route/service ຊັ້ນເທິງ
+- CRUD `BankAccount` ຕໍ່ສາຂາ (`GET/POST/PATCH/DELETE /api/v1/payments-treasury/bank-accounts`)
+  + `GET /banks` + `POST /providers/:code/qr-intent` — RBAC `payments:manage` (ໃໝ່: `payments:manage`,
+  `payments:review`, `expenses:view`, `expenses:approve` ໃນ `permission.schema.ts` + icon ໃນ
+  `permissionGroups.ts`); BRANCH_ADMIN ຖືກຈຳກັດເຫັນ/ແກ້ສະເພາະສາຂາຕົນເອງ
+- ບັນຊີທຳອິດຂອງສາຂາ = default ອັດຕະໂນມັດ; ຕັ້ງ default ໃໝ່ → ອັນເກົ່າຫຼຸດ default ໃນ transaction ດຽວ;
+  ຫ້າມລຶບບັນຊີ default (400); ລຶບ = soft-disable (`isActive=false`)
+- `PaymentMethod` +`BANK_TRANSFER`/+`BANK_QR` (backend enum + `packages/shared-types`)
+- Test: `tests/unit/payments-treasury.registry.test.ts` (6, adapter registry/QR payload/webhook signature)
+  + `tests/integration/payments-treasury.test.ts` (7, CRUD/RBAC/default-selection/qr-intent E2E) — ຜ່ານທັງໝົດ
+  ພ້ອມ suite ເກົ່າ 199/199 ຢູ່ dev; typecheck+lint backend/web-admin/shared-types ຂຽວ
 
-### W2 — Webhook + ຈຳລອງການຈ່າຍ
-- `POST /payments/webhooks/:providerCode` — ກວດ HMAC ກ່ອນ parse, ບັນທຶກ `ProviderEvent`,
-  ຫຼັງຈາກນັ້ນຈຶ່ງ process (ຖ້າ process ລົ້ມ = replay ໄດ້)
-- State machine intent: `PENDING → SUCCESS | EXPIRED | FAILED` → ສ້າງ `PaymentTransaction`
-  → `recomputeAndSettle()` ເດີມ
-- `POST /payments/intents/:id/simulate-paid` — **dev/staging ເທົ່ານັ້ນ** (ກວດຄືກັບ `settle-mock`),
-  ຍິງ webhook ເຂົ້າຕົວເອງພ້ອມ signature ຖືກຕ້ອງ → ທົດສອບເສັ້ນທາງຈິງທັງເສັ້ນ
-- Job: ປິດ intent ໝົດອາຍຸ, ແຈ້ງເຕືອນ event ທີ່ process ບໍ່ສຳເລັດ
-- Test: signature ຜິດ → 401, event ຊ້ຳ → ຕັດຍອດເທື່ອດຽວ, intent ໝົດອາຍຸ → ຕັດບໍ່ໄດ້
+### W2 — Webhook + ຈຳລອງການຈ່າຍ — ✅ ສຳເລັດ 2026-09-20
+- `POST /api/v1/payments/webhooks/:code` (ບໍ່ມີ authGuard; mount ກ່ອນ `/payments`) — ກວດ HMAC-SHA256
+  (`X-Signature`, timing-safe) ຈາກ **raw body** (`app.ts` ເກັບ `req.rawBody`) ກ່ອນ parse; signature ຜິດ → 401
+  ແລະ **ບໍ່ບັນທຶກ** event; ຖືກ → ບັນທຶກ `ProviderEvent` (unique `providerCode+eventId`) ແລ້ວຈຶ່ງ process
+- State machine intent: `PENDING → SUCCESS | EXPIRED | FAILED` ດ້ວຍ claim ແບບ atomic
+  (`updateMany where status=PENDING`) + Serializable tx → ສ້າງ `PaymentTransaction`
+  (`BANK_QR`, ຜູກ `providerIntentId`/`bankAccountId`) → `recomputeAndSettle()` ເດີມ (export ແລ້ວ)
+- ຜົນ process ເກັບໃນ `ProviderEvent.result`: SETTLED / SETTLED_REPLAY / FAILED / EXPIRED /
+  IGNORED_NOT_PENDING / UNKNOWN_INTENT / PROVIDER_MISMATCH / AMOUNT_MISMATCH / OVERPAY (ສອງອັນສຸດທ້າຍ
+  = ບໍ່ຕັດຍອດ, log ໃຫ້ຄົນກວດ). ທຸກກໍລະນີຕອບ 200 ເພື່ອບໍ່ໃຫ້ provider retry ຊ້ຳ; ລົ້ມກາງທາງ = 500 →
+  event ຄ້າງ `processedAt=null` → replay ໄດ້
+- `POST /api/v1/payments-treasury/intents/:id/simulate-paid` (`{status: SUCCESS|FAILED}`) — ຫ້າມໃນ prod
+  (`env.isProd`), ສະເພາະ provider MOCK, ຕ້ອງ `payments:manage` + Idempotency-Key; ເຊັນ signature ດ້ວຍ secret
+  ແລ້ວເອີ້ນ `handleWebhook` ຕົວດຽວກັນ. (ຍ້າຍ path ຈາກ `/payments/intents/...` ມາຢູ່ຮ່ວມ router treasury)
+- Provider MOCK ຖືກປິດໃນ production ທັງ webhook ແລະ simulate (403); secret: env `PAYMENT_WEBHOOK_SECRET`
+  (dev default) ຫຼື `process.env[PaymentProvider.webhookSecretRef]` ສຳລັບ LIVE
+- Job `payment-expiry` (ທຸກ 10 ນາທີ) ເພີ່ມ: ປິດ `ProviderIntent` ທີ່ໝົດອາຍຸ + `replayStaleEvents()`
+  (event ຄ້າງ >5 ນາທີ; ລົ້ມຊ້ຳ → `logger.error`). ຍັງບໍ່ມີ push/notification ຫາ admin — ເກັບໄວ້ເຮັດ W5
+  (ໜ້າ inbox)
+- Test: `tests/integration/payments-treasury-webhook.test.ts` (9): signature ຜິດ/ບໍ່ມີ → 401, event ຊ້ຳ →
+  ຕັດເທື່ອດຽວ, intent ໝົດອາຍຸ, amount ບໍ່ກົງ/ເກີນຍອດບິນ, reference ບໍ່ຮູ້ຈັກ, simulate SUCCESS/FAILED,
+  MANUAL_TRANSFER → 400, production ປິດ (403), replay event ຄ້າງ. Suite ລວມ 208/208, typecheck+lint ຂຽວ
 
-### W3 — ສະລິບ + OCR (ຫົວໃຈ)
-- `POST /payments/:id/slips` (base64 — pattern ດຽວກັບ `chat.service.ts` media),
-  ເກັບຜ່ານ `storage` adapter, ຈຳກັດຂະໜາດ/ຊະນິດ, ຄິດ `imageHash`
-- Pipeline: QR decode → sharp preprocess → `tesseract.js` ຕໍ່ region → parser ຕໍ່ template
-  ທະນາຄານ → ໃຫ້ຄະແນນ match → verdict
-- ແລ່ນເປັນ background job (BullMQ ມີໃນ repo ແລ້ວ) ແລ້ວ push ຜົນຜ່ານ socket
-- `GET /payments/slips?verdict=&branchId=` — ກ່ອງກວດ
-- `POST /payments/slips/:id/review` — `{ action: APPROVE|REJECT, correctedFields?, note }`
-  → APPROVE ສ້າງ `PaymentTransaction` (ມີ `Idempotency-Key`) + audit + ແຈ້ງລູກຄ້າ
-- `interface OcrProvider` ເພື່ອສະຫຼັບໄປ PaddleOCR/Vision ພາຍຫຼັງໄດ້
-- Test: ສະລິບຊ້ຳ → ປະຕິເສດ, ຈຳນວນເງິນບໍ່ກົງ → `NEEDS_REVIEW`, approve ສອງເທື່ອ → tx ດຽວ
+### W3 — ສະລິບ + OCR (ຫົວໃຈ) — ✅ backend ສຳເລັດ 2026-09-20
+- Schema `PaymentSlip` + enum `SlipOcrStatus`/`SlipVerdict` (`payments-treasury.prisma`) + migration
+  `20260920100000_payments_treasury_w3_payment_slip`. ຄວາມແຕກຕ່າງຈາກແຜນ: ຫ້າມສະລິບຊ້ຳໃຊ້ `dedupeKey`
+  (`${bank}:${txnRef}`) ທີ່ unique ແລະ **ລ້າງເປັນ null ເມື່ອຖືກປະຕິເສດ** (ແທນ `@@unique([bankCode, txnRef])`)
+  ເພື່ອໃຫ້ຍື່ນສະລິບຖືກຕ້ອງອັນດຽວກັນໃໝ່ໄດ້ຫຼັງຖືກປະຕິເສດ; ໃຊ້ back-relation `PaymentTransaction.slip` ແທນ column `slipId`.
+- Endpoint ຢູ່ໃຕ້ `/api/v1/payments-treasury` (ບໍ່ແມ່ນ `/payments` ຕາມແຜນເດີມ ເພື່ອຢູ່ໃນໂມດູນດຽວກັບ W1/W2):
+  `POST /payments/:id/slips` (base64, `Idempotency-Key`), `GET /payments/:id/slips`, `GET /slips`
+  (`?verdict=&branchId=&paymentId=`, ຕ້ອງ `payments:review`), `GET /slips/:id`, `POST /slips/:id/review`
+  (`{action: APPROVE|REJECT, correctedFields?, note}`; REJECT ຕ້ອງມີ note).
+- Pipeline (`modules/payments-treasury/slips/`): ກວດ magic-bytes + resize ≤2000px + ເກັບ JPEG →
+  ຊັ້ນ 1 QR (`jsqr`, `ocr/qr.ts`; ຮອງຮັບ EMV TLV + URL ກວດສອບ) → ຊັ້ນ 2 `sharp` preprocess + `tesseract.js`
+  (`ocr/tesseractProvider.ts`, language data ຈາກ `@tesseract.js-data/eng` ໃນ node_modules — ແລ່ນ offline)
+  → `parser.ts` (ຈຳນວນເງິນ/ສະກຸນ/ເລກອ້າງອີງ/ວັນເວລາວຽງຈັນ/token ເລກບັນຊີ/ຊື່ທະນາຄານ) → `matcher.ts`
+  (ຈຳນວນເງິນ 50 + ບັນຊີປາຍທາງ 30 + ເວລາ 20; AUTO_MATCHED ຕ້ອງຜ່ານທັງ 3 ເກນ ແລະ ອ່ານ txnRef ໄດ້).
+  `interface OcrProvider` (`ocr/types.ts`) ສະຫຼັບເປັນ PaddleOCR/Vision ໄດ້ໂດຍປ່ຽນ `getOcrProvider()`.
+- ແລ່ນເປັນ BullMQ job `slip-ocr` (`jobs/slip-ocr.job.ts`, concurrency 2); ຖ້າ enqueue ລົ້ມ (Redis) → ແລ່ນ inline.
+  ຜົນ push ຜ່ານ socket event `payment-slip:updated` (ຫ້ອງ `user:<id>` ຂອງຜູ້ອັບ + `slip-review:<branch|all>`
+  ທີ່ join ດ້ວຍ `join-slip-review`; event ບໍ່ມີຂໍ້ມູນສ່ວນຕົວ) + push notification `SLIP_APPROVED`/`SLIP_REJECTED`.
+- APPROVE ສ້າງ `PaymentTransaction` (`BANK_TRANSFER`, ລັອກແຖວ payments FOR UPDATE + conditional-claim ຂອງສະລິບ →
+  ອະນຸມັດ 2 ເທື່ອ/ພ້ອມກັນ = tx ດຽວ, ອີກອັນ 409) ແລ້ວ `recomputeAndSettle`; ທຸກ approve/reject ຂຽນ `AuditLog`.
+- **Auto-approve ປິດເປັນຄ່າເລີ່ມຕົ້ນ** (`AppSetting` `payments.slip.autoApprove`): OCR ຢືນຢັນບໍ່ໄດ້ວ່າສະລິບແທ້
+  ຫຼືປອມ (ຍັງບໍ່ມີ API ທະນາຄານ) ສະນັ້ນ AUTO_MATCHED = "ພ້ອມໃຫ້ພະນັກງານກົດຢືນຢັນ". ເປີດ = ລະບົບສ້າງ tx ເອງ.
+  ຄ່າອື່ນ: `payments.slip.amountTolerance` (ກີບ, ເລີ່ມຕົ້ນ 0). ປັບໄດ້ໃນໜ້າ «ທະນາຄານ & ຊ່ອງທາງຈ່າຍ» (W5).
+- ຂໍ້ຈຳກັດທີ່ຮູ້: parser ເປັນແບບທົ່ວໄປ (ບໍ່ crop region ຕໍ່ template ທະນາຄານ; `Bank.ocrTemplate` ຍັງບໍ່ໄດ້ໃຊ້) ແລະ
+  ຮູບແບບ QR/ປ້າຍຂອງແຕ່ລະທະນາຄານຍັງບໍ່ໄດ້ທົດສອບກັບສະລິບຈິງ — ຕ້ອງເກັບສະລິບຕົວຢ່າງຈິງຂອງ BCEL/LDB/JDB ມາປັບ.
+  OCR ອ່ານພາສາອັງກິດ/ຕົວເລກເທົ່ານັ້ນ (ຊື່ລາວອ່ານບໍ່ໄດ້, ບໍ່ໃຊ້ຕັດສິນ). ຮູບສະລິບຢູ່ໃຕ້ `/uploads` (ຊື່ໄຟລ໌ UUID,
+  ຄືກັບ chat media) — ຄວນຍ້າຍໄປ signed URL ກ່ອນ production. ຍັງບໍ່ມີ job ລຶບສະລິບທີ່ຖືກປະຕິເສດເກີນ N ມື້.
+- Test: `tests/unit/payments-treasury.slips.test.ts` (15: parser/matcher/QR) +
+  `tests/integration/payments-treasury-slips.test.ts` (18: OCR ຈິງຜ່ານ tesseract, ຄົບ 3 ກໍລະນີຂອງແຜນ —
+  ສະລິບຊ້ຳ, ຈຳນວນບໍ່ກົງ → NEEDS_REVIEW, approve ສອງເທື່ອ → tx ດຽວ — ບວກ RBAC/ຈ່າຍບາງສ່ວນ/auto-approve).
+- Dependency ໃໝ່: `tesseract.js`, `jsqr`, `@tesseract.js-data/eng` (+ dev: `qrcode`); `pnpm-workspace.yaml`
+  `allowBuilds.tesseract.js: false` (ບໍ່ມີ build script ທີ່ຈຳເປັນ).
 
-### W4 — ໂມດູນລາຍຈ່າຍ (ເປັນເອກະລາດ, ເຮັດແຍກກ່ອນກໍໄດ້)
+### W4 — ໂມດູນລາຍຈ່າຍ (ເປັນເອກະລາດ, ເຮັດແຍກກ່ອນກໍໄດ້) — ✅ backend ສຳເລັດ 2026-09-20
 - `ExpenseCategory` + seed ໝວດມາດຕະຖານ (ຄ່າເຊົ່າ, ເງິນເດືອນ, ວັດຖຸດິບ, ໄຟ/ນ້ຳ, ການຕະຫຼາດ,
   ຂົນສົ່ງ, ບຳລຸງຮັກສາ, ພາສີ, ອື່ນໆ)
 - Workflow `DRAFT → SUBMITTED → APPROVED → PAID` + ຈ່າຍອອກຈາກ `BankAccount` ໃດ
@@ -157,7 +203,30 @@ ExpenseAttachment    ບິນ/ໃບຮັບເງິນແນບ (ໃຊ້ p
 - API: CRUD, summary ຕາມໝວດ/ສາຂາ/ຊ່ວງເວລາ, ແລະ **P&L ແທ້**:
   ລາຍຮັບ − ລາຍຈ່າຍ − ເງິນເດືອນ − ຕົ້ນທຶນສິນຄ້າ (ຕໍ່ກັບ payroll + inventory ທີ່ມີແລ້ວ)
 
-### W5 — web-admin: ໝວດ nav ໃໝ່ «ການຊຳລະເງິນ»
+**ສິ່ງທີ່ສ້າງແລ້ວ (backend + shared-types, ຍັງບໍ່ມີ UI — ຢູ່ W5):**
+- Schema `expenses.prisma` (`ExpenseCategory` / `ExpenseAttachment` / `RecurringExpense` + enum
+  `ExpenseStatus`, `ExpenseCategoryKind`) + `Expense` ໃນ `inventory.prisma` ຂະຫຍາຍ (categoryId, status,
+  supplier/PO, paidFromAccount, createdBy/approvedBy, recurring). Migration
+  `20260920110000_payments_treasury_w4_expenses` — backfill ແຖວເກົ່າ: ໝວດ `OTHER`, ສະຖານະ `PAID`
+  (ຮັກສາຕົວເລກ dashboard ເດີມ), ຖິ້ມ column `category` ເກົ່າ. Seed 9 ໝວດມາດຕະຖານ.
+- ໝວດມີ `kind`: `OPERATING` / `PAYROLL` (ເງິນເດືອນນອກລະບົບຄອມມິດຊັນ → ເຂົ້າ labour) / `INVENTORY`
+  (ຊື້ວັດຖຸດິບ — **ບໍ່ນັບ** ໃນ P&L ເພາະ COGS ຄິດຈາກການຕັດສະຕັອກແລ້ວ, ສະແດງເປັນ memo).
+- API `/api/v1/expenses`: `categories` (GET ທຸກ admin / POST,PATCH ສະເພາະ SUPER_ADMIN), CRUD, `submit|approve|reject|pay`,
+  `attachments` (base64, sha256 ກັນໃບຮັບເງິນຊ້ຳທົ່ວລະບົບ), `summary`, `profit-loss`, `recurring` CRUD.
+- Permission ໃໝ່ `expenses:manage` (ສ້າງ/ແກ້/ສົ່ງ/ແນບ) ຄຽງຄູ່ `expenses:view` / `expenses:approve`.
+- ທຸກ transition ເປັນ atomic (`updateMany where status=from`) — ອະນຸມັດ/ຈ່າຍພ້ອມກັນ = ສຳເລັດເທື່ອດຽວ;
+  ຜູ້ສ້າງອະນຸມັດຂອງຕົນເອງບໍ່ໄດ້ (ຍົກເວັ້ນ SUPER_ADMIN); ຈ່າຍອອກຈາກບັນຊີຂອງສາຂາ/ສະກຸນດຽວກັນເທົ່ານັ້ນ; AuditLog ທຸກຂັ້ນ.
+- P&L ລາຍເດືອນ (ວຽງຈັນ): ລາຍຮັບເກັບໄດ້ຈິງ (tender SUCCESS) − ຄືນເງິນ − COGS (Σ SERVICE_CONSUMED × costPrice
+  **ປັດຈຸບັນ**, ຍັງບໍ່ແມ່ນ WAC — ຕິດອຸດ C4 ຂອງ inventory audit) − ຄອມ+ໂບນັດ (`getPayrollReport.totals.payable`)
+  − ເງິນເດືອນນອກລະບົບ − ລາຍຈ່າຍດຳເນີນງານ.
+- ລາຍຈ່າຍຊ້ຳ: BullMQ `recurring-expense` ທຸກມື້ 06:00 ສ້າງ DRAFT ຂອງເດືອນນີ້ (idempotent ດ້ວຍ
+  `@@unique([recurringExpenseId, recurringPeriod])`, catch-up ໄດ້ ແຕ່ບໍ່ຍ້ອນຫຼັງຂ້າມເດືອນ).
+- Dashboard `period.expenses` ປ່ຽນໃຫ້ນັບສະເພາະ APPROVED/PAID ແລະ ບໍ່ນັບໝວດ INVENTORY.
+- Test: `tests/integration/expenses.test.ts` (14).
+- **ຍັງຄ້າງ:** OCR ດຶງຈຳນວນເງິນ/ວັນທີຈາກໃບຮັບເງິນ (`ExpenseAttachment.ocrStatus/ocrRaw` ຈອງໄວ້ແລ້ວ, ລໍ pipeline W3);
+  body parser ຂອງ app ຈຳກັດ 2MB ຈຶ່ງແນບໄຟລ໌ໄດ້ຈິງ ≲1.5MB (ຄືກັບ chat media) — client ຕ້ອງ resize.
+
+### W5 — web-admin: ໝວດ nav ໃໝ່ «ການຊຳລະເງິນ» — ✅ ສຳເລັດ 2026-09-20
 | ໜ້າ | ເນື້ອໃນ |
 |---|---|
 | ທະນາຄານ & ຊ່ອງທາງຈ່າຍ | ບັນຊີຕໍ່ສາຂາ, ເປີດ/ປິດ provider, QR ຄົງທີ່, ສະຖານະ mock/live |
@@ -167,14 +236,88 @@ ExpenseAttachment    ບິນ/ໃບຮັບເງິນແນບ (ໃຊ້ p
 - ໃຊ້ template ຂອງ `/referrals` ຕາມ convention; `/finance` ເກົ່າຢູ່ບ່ອນເດີມ
 - Permission ໃໝ່: `payments:manage`, `payments:review`, `expenses:view`, `expenses:approve`
 
-### W6 — mobile
-- ລູກຄ້າ: ເລືອກທະນາຄານ → ເຫັນ QR/ເລກບັນຊີ (copy ໄດ້) → ໂອນ → **ຖ່າຍ/ເລືອກສະລິບ**
-  (`expo-image-picker` / `expo-camera` ມີຢູ່ແລ້ວ) → ສະຖານະ «ລໍຖ້າກວດ» → push ເມື່ອຜົນອອກ
-- ພະນັກງານ: ກວດສະລິບໄວໃນ staff portal (ຖ້າມີສິດ)
+**ສິ່ງທີ່ສ້າງແລ້ວ (W5):**
+- Nav ກຸ່ມ `payments` + 4 ໜ້າ ໃນ `apps/web-admin/src/features/payments-treasury/`, route `/payments/banks|slips|expenses|reconciliation`
+  (permission: `payments:manage` / `payments:review` / `expenses:view` / `payments:manage`), breadcrumb + i18n `lo`/`en` (`payTreasury.*`, 292 keys, ສະແກນຕົວ Thai ແລ້ວ).
+- **ທະນາຄານ & ຊ່ອງທາງຈ່າຍ**: ບັນຊີຕໍ່ສາຂາ (ເພີ່ມ/ແກ້/ຕັ້ງຫຼັກ/ປິດ-ເປີດ, ເລກບັນຊີ mask), ອັບໂຫຼດ QR ຄົງທີ່, ບັດ provider (mode MOCK/LIVE, ເປີດ-ປິດ, ຄ່າທຳນຽມ,
+  webhook path + ຄັດລອກ, ສະຖານະ secret, intent ຄ້າງ, event ຜິດປົກກະຕິ 7 ມື້), ບັດນະໂຍບາຍສະລິບ (auto-approve ຕ້ອງຢືນຢັນຄວາມສ່ຽງ, tolerance) — ແກ້ໄຂໄດ້ສະເພາະ SUPER_ADMIN.
+- **ກວດສະລິບ**: inbox 2-pane (Sheet ເທິງໜ້າຈໍແຄບ), ຄິວລຽງ NEEDS_REVIEW → AUTO_MATCHED, ຕາຕະລາງ «ຄາດໝາຍ vs ອ່ານໄດ້» ຊີ້ field ບໍ່ກົງດ້ວຍໄອຄອນ+ຂໍ້ຄວາມ,
+  ແກ້ຄ່າ OCR (ສົ່ງສະເພາະ field ທີ່ປ່ຽນ), ອະນຸມັດ (confirm) / ປະຕິເສດ (ຕ້ອງມີເຫດຜົນ), live ຜ່ານ socket `payment-slip:updated`, ລູກສອນ ↑↓ ເລື່ອນຄິວ, ເປີດສະລິບຜ່ານ `?s=`.
+- **ລາຍຈ່າຍ**: stat + ກຣາຟແຍກໝວດ + P&L ຈິງ, ຕາຕະລາງ server-paginated + ຕົວກັ່ນຕອງ, sheet ລາຍລະອຽດ (submit/approve/reject/pay + ໃບຮັບເງິນແນບ, resize ຝັ່ງ client),
+  ແຜງ «ລາຍຈ່າຍຊ້ຳ & ໝວດ» (ໝວດແກ້ໄດ້ສະເພາະ SUPER_ADMIN), export CSV.
+- **ກະທົບຍອດ**: ລາຍວັນ × ບັນຊີ — ລະບົບ (tender BANK_TRANSFER/BANK_QR ທີ່ SUCCESS + ລາຍຈ່າຍ PAID ຈາກບັນຊີ) ທຽບ statement ທີ່ປ້ອນເອງ → MATCHED / VARIANCE / UNRECONCILED;
+  ແຈ້ງສະລິບຄ້າງ + webhook ທີ່ບໍ່ໄດ້ຕັດຍອດ (ສາເຫດທີ່ພົບຫຼາຍ).
+- Backend ທີ່ເພີ່ມສຳລັບ W5 (migration `20260920120000_payments_treasury_w5_bank_statement`, model `BankStatementEntry`): `GET/PATCH /payments-treasury/providers`,
+  `GET/PUT /settings`, `POST /bank-accounts/:id/qr`, `GET /reconciliation`, `PUT/DELETE /reconciliation/statements`; BankAccountView +`qrImageUrl`; ຈຳກັດຊ່ວງກະທົບຍອດ ≤62 ມື້,
+  BRANCH_ADMIN ຈຳກັດສາຂາຕົນ, ຂຽນ AuditLog ທຸກການແກ້.
+- ແກ້ໜີ້ຈາກ W1: `PaymentMethod` +`BANK_TRANSFER`/`BANK_QR` ເຮັດໃຫ້ web-admin typecheck ແດງ (`finance.methods.ts`) — ເພີ່ມ icon/ສີ/ປ້າຍແລ້ວ.
+- Test: backend `payments-treasury-w5.test.ts` (7); web-admin 18 (BanksPage 4, SlipReviewPage 3, ExpensesPage 4, ReconciliationPage 3, slipModel 4).
+  ຜົນ: backend 264/264, web-admin 103/103, typecheck+lint ຂຽວທັງ backend/web-admin/shared-types, web-admin build ຜ່ານ.
+- **ຂໍ້ຈຳກັດທີ່ຮູ້:** statement ຕ້ອງປ້ອນເອງ (ຍັງບໍ່ມີ API ດຶງຈາກທະນາຄານ); ຍັງບໍ່ໄດ້ທົດສອບດ້ວຍສາຍຕາໃນ browser ຈິງ (ມີແຕ່ jsdom test); Refund ຍັງບໍ່ມີ API/UI;
+  ຟອມລາຍຈ່າຍຍັງບໍ່ມີຕົວເລືອກ supplier/PO (API ຮອງຮັບແລ້ວ); OCR ດຶງຈຳນວນເງິນຈາກໃບຮັບເງິນລາຍຈ່າຍ ຍັງຄ້າງຈາກ W4.
 
-### W7 — ປິດງານ
+### W6 — mobile — ✅ ສຳເລັດ 2026-09-20
+- ລູກຄ້າ (ທັງ 3 ໜ້າຈ່າຍເງິນ: ນັດ `PaymentScreen`, ບັດຂອງຂວັນ, ແພັກເກັດ) ໃຊ້ component ດຽວກັນ
+  `features/payments/transfer.parts.tsx › BankTransferPanel`: ເລືອກທະນາຄານ (chip, ເມື່ອສາຂາມີ >1 ບັນຊີ) →
+  ເຫັນຊື່/ເລກບັນຊີ + QR ຄົງທີ່ (ຖ້າຕັ້ງ `qrImageKey`) + ຈຳນວນທີ່ຕ້ອງໂອນ (ສຳເນົາໄດ້ແຕ່ລະແຖວ) → ຖ່າຍ/ເລືອກສະລິບ
+  (`expo-image-picker`, quality 0.8 ເພື່ອໃຫ້ OCR ອ່ານຕົວເລກຄົມ) → ເບິ່ງຕົວຢ່າງ → ສົ່ງ → ລາຍການສະລິບທີ່ສົ່ງແລ້ວ
+  ພ້ອມສະຖານະ (ກຳລັງກວດ / ລໍຢືນຢັນ / ຢືນຢັນແລ້ວ / ບໍ່ຜ່ານ + ເຫດຜົນ / ສະລິບຊ້ຳ). ບິນທີ່ມີມັດຈຳຄ້າງ ໃຫ້ເລືອກ
+  ໂອນ «ມັດຈຳ» ຫຼື «ເຕັມ». ຜົນມາທາງ socket `payment-slip:updated` (ຫ້ອງ `user:<id>`) + poll ທຸກ 8 ວິ ຕາບໃດທີ່ມີສະລິບຄ້າງ.
+- **ໜ້າ "ສຳເລັດ" = ບິນ FULLY_PAID ຝັ່ງ server** (ພະນັກງານອະນຸມັດແລ້ວ) — ລູກຄ້າບໍ່ໄດ້ຕັດຍອດເອງ (ກົດຂໍ້ 1). ໜ້າຊື້
+  ບັດ/ແພັກເກັດອ່ານ `GET /payments/:id` ແທນ state ຝັ່ງ client.
+- **ຖອດ QR mock ອອກຈາກ mobile ທັງໝົດ**: ລຶບ `QrCard`/`DepositIntro`/`useCountdown`/`useDepositIntent`/`useSettleMock`
+  (settle-mock ໃຊ້ໄດ້ສະເພາະ dev ຢູ່ແລ້ວ ຈຶ່ງເຮັດໃຫ້ການຈ່າຍ deposit ໃນ production ບໍ່ເຄີຍໃຊ້ໄດ້). backend endpoint
+  `deposit-intent`/`settle-mock` ຍັງຢູ່ (web-admin/test ອາດໃຊ້).
+- ພະນັກງານ (ຕ້ອງມີສິດ `payments:review` ໃນ session — ອ່ານຈາກ `authUser.permissions`): ໄອຄອນໃບບິນ + badge ເທິງຫົວໜ້າ
+  `TodayTab` → `StaffSlipInboxScreen` (ແຖບ ລໍກວດ/ກວດແລ້ວ, pull-to-refresh) → `StaffSlipReviewScreen` (ຮູບ + ຂະຫຍາຍເຕັມຈໍ,
+  ຄ່າ OCR ທຽບຄ່າຄາດໝາຍ ໄຮໄລ້ຈຸດບໍ່ກົງ, ແກ້ຈຳນວນ/ເລກອ້າງອີງ, ອະນຸມັດ (confirm) ຫຼື ປະຕິເສດ (ເຫດຜົນ quick-pick + ພິມເອງ)).
+  ຕິດ socket ຫ້ອງ `join-slip-review` ຢູ່ Today tab (ຄ້າງຢູ່ຕະຫຼອດ) ເພື່ອໃຫ້ badge ສົດ.
+- Backend ທີ່ເພີ່ມເພື່ອ W6: `GET /payments-treasury/payments/:id/bank-accounts` (ລູກຄ້າເຈົ້າຂອງບິນ/ພະນັກງານ — endpoint
+  `/bank-accounts` ເກົ່າເປີດສະເພາະ admin; ຄືນສະເພາະບັນຊີ ACTIVE ຂອງສາຂາ, ບໍ່ມີ field ພາຍໃນ) + shared type
+  `PaymentBankAccountView`; push `SLIP_APPROVED/REJECTED` ແນບ `appointmentId` ແລະ ຖືກຈັດເຂົ້າໝວດ `payments`
+  (ກ່ອນນີ້ຕົກໄປ `system`, `SLIP_REJECTED` = warning); mobile Notifications ກົດແລ້ວເປີດໜ້າຈ່າຍເງິນຂອງນັດນັ້ນ.
+- ບໍ່ມີ native module ໃໝ່ (image-picker ຖືກໃຊ້ໃນແຊັດຢູ່ແລ້ວ) → ບໍ່ຕ້ອງ rebuild dev-client.
+- Test: `payments-treasury-slips.test.ts` +1 (bank-accounts: ສະເພາະ ACTIVE, default ກ່ອນ, QR url, ລູກຄ້າອື່ນ 403). mobile: tsc + eslint ຂຽວ.
+  **ຍັງບໍ່ໄດ້ທົດສອບເທິງເຄື່ອງ/simulator** (ບໍ່ມີ UI test ໃນ repo mobile) — ຕ້ອງລອງ flow ຈິງ: ອັບສະລິບຈາກກ້ອງ, ຮູບໃຫຍ່ (base64 body
+  limit ສະເພາະ route ສະລິບ), staff ອະນຸມັດ → ໜ້າລູກຄ້າປ່ຽນສະຖານະ.
+- ຂໍ້ຈຳກັດ: ການກົດ push ບໍ່ deep-link (`lib/push.ts` ບໍ່ມີ handler — ເປັນພຶດຕິກຳເດີມຂອງທຸກ notification; ເປີດຈາກ
+  ໜ້າ Notifications ໄດ້). ບໍ່ມີ UI ໃຫ້ staff ແກ້ `receiverAccount`/`transferredAt` ໃນ mobile (ແກ້ໄດ້ສະເພາະຈຳນວນ+ເລກອ້າງອີງ;
+  ສ່ວນທີ່ເຫຼືອຢູ່ web-admin W5). W5 ຍັງບໍ່ໄດ້ເຮັດ ຈຶ່ງຍັງບໍ່ມີ UI ຕັ້ງບັນຊີ/QR ຂອງສາຂາ — ຕ້ອງ seed/API ໄປກ່ອນ.
+
+### W7 — ປິດງານ — ✅ ສຳເລັດ 2026-09-20
 tests ຄົບ 3 ຊັ້ນ · migration · i18n `lo`/`en` (ສະແກນຕົວ Thai ໃນ `lo.json`) ·
 ອັບເດດ `implementation_plan.md` + doc ນີ້ · `pnpm -r typecheck/lint/test/build` ຂຽວທັງ repo
+
+**ຜົນ W7 (ແລ່ນຈິງ 2026-09-20):**
+
+| ລາຍການ | ຜົນ |
+|---|---|
+| `pnpm -r typecheck` | ຂຽວ — shared-types, backend, web-admin, mobile |
+| `pnpm -r lint` | ຂຽວ — ທັງ 4 ໂປຼເຈັກ |
+| `pnpm -r build` | ຂຽວ — shared-types, backend (`tsc`), web-admin (vite). `apps/mobile` ບໍ່ມີ build script (Expo/EAS) |
+| Test — backend | **264/264** (42 ໄຟລ໌) ແລ່ນກັບ DB ແຍກ `abcp_test` (`.env.test`), ບໍ່ແຕະ dev DB |
+| Test — web-admin | 103/103 (30 ໄຟລ໌) |
+| Test — shared-types / mobile | 12/12 · 11/11 |
+| Migration | `prisma migrate status` = "up to date" ທັງ `abcp` (dev) ແລະ `abcp_test` (30 migrations; Phase 9 = 4 ກ້ອນ) |
+| i18n | `lo.json` (web-admin + mobile) ບໍ່ມີຕົວ Thai (U+0E01–0E7F) ປົນ; `payTreasury.*` ຄົບທັງ `lo`/`en` |
+
+Test 3 ຊັ້ນຂອງ Module 39: **unit** (`payments-treasury.registry`, `payments-treasury.slips` — parser/matcher/QR),
+**integration** (`payments-treasury`, `-webhook`, `-slips` ດ້ວຍ OCR ຈິງ, `-w5`, `expenses`), **UI** (web-admin: BanksPage,
+SlipReviewPage, ExpensesPage, ReconciliationPage, slipModel). mobile ບໍ່ມີ UI test ໃນ repo — ກວດໄດ້ສະເພາະ tsc + eslint.
+
+**ຍັງຄ້າງກ່ອນ production (ບໍ່ blocked ການປິດ Module):**
+1. ເຊື່ອມ API ທະນາຄານຈິງ (ທຸກ provider ຍັງ MOCK; ປ່ຽນຜ່ານ `providers/registry.ts` ໂດຍບໍ່ແຕະ route) + IP allowlist ຂອງ webhook.
+2. ເກັບສະລິບຈິງ BCEL/LDB/JDB ມາປັບ parser/QR (ຍັງບໍ່ໄດ້ທົດສອບກັບຂອງຈິງ; `Bank.ocrTemplate` ຍັງບໍ່ໄດ້ໃຊ້).
+3. Refund API/UI (model `Refund` ມີແລ້ວ, ຍັງບໍ່ມີ endpoint).
+4. OCR ດຶງຈຳນວນເງິນ/ວັນທີຈາກໃບຮັບເງິນລາຍຈ່າຍ (ຄໍລຳ `ExpenseAttachment.ocrStatus/ocrRaw` ຈອງໄວ້ແລ້ວ); ຕົວເລືອກ supplier/PO ໃນຟອມລາຍຈ່າຍ.
+5. ຍ້າຍຮູບສະລິບ/ໃບຮັບເງິນຈາກ `/uploads` ສາທາລະນະ ໄປ signed URL + job ລຶບສະລິບທີ່ຖືກປະຕິເສດເກີນ N ມື້.
+6. ທົດສອບດ້ວຍສາຍຕາ: web-admin ໃນ browser ຈິງ, mobile ເທິງເຄື່ອງ/simulator (ອັບສະລິບຈາກກ້ອງ → staff ອະນຸມັດ → ໜ້າລູກຄ້າປ່ຽນສະຖານະ).
+7. Push ທີ່ກົດແລ້ວ deep-link ໄປໜ້າຈ່າຍ (`lib/push.ts` ຍັງບໍ່ມີ handler — ເປັນພຶດຕິກຳເດີມຂອງທຸກ notification).
+8. ຄ່າ COGS ໃນ P&L ໃຊ້ `costPrice` ປັດຈຸບັນ (ບໍ່ແມ່ນ WAC) ຈົນກວ່າຈະແກ້ C4 ຂອງ `docs/inventory-audit.md`.
+
+**ໝາຍເຫດ:** backend test ຕ້ອງແລ່ນກັບ `.env.test` ສະເໝີ (wipe() ຂອງບາງໄຟລ໌ລຶບແບບ blanket). ຖ້າແລ່ນຂະໜານແລ້ວມີ test
+ລົ້ມແບບສຸ່ມ 1–4 ອັນ (ຄືກັບ audit-log / inventory) ໃຫ້ແລ່ນຊ້ຳ — ເປັນການແຍ່ງ DB ລະຫວ່າງໄຟລ໌ ບໍ່ແມ່ນ regression;
+ຮອບຢືນຢັນ W7 ນີ້ຜ່ານໝົດໃນຮອບດຽວ. `apps/backend/uploads-test/*` ຖືກເພີ່ມເຂົ້າ `.gitignore` ແລ້ວ.
 
 ---
 

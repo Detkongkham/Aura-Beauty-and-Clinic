@@ -1,12 +1,7 @@
 import { z } from 'zod';
 import { isoDateTimeSchema, paginationQuerySchema } from './common.schema.js';
-import {
-  AppointmentSource,
-  AppointmentStatus,
-  PaymentMethod,
-  PaymentStatus,
-  ServiceDeliveryType,
-} from './enums.js';
+import { AppointmentSource, AppointmentStatus, ServiceDeliveryType } from './enums.js';
+import type { PaymentMethod, PaymentStatus } from './enums.js';
 
 /** ຄິວຮ້ອງຂໍ slot ວ່າງຂອງມື້ໃດໜຶ່ງ (Booking Slot Engine — Module 04). */
 export const availabilityQuerySchema = z.object({
@@ -245,7 +240,7 @@ export type BookingPolicyView = {
 };
 
 export type AppointmentPaymentSummary = {
-  status: 'PENDING' | 'DEPOSIT_PAID' | 'FULLY_PAID' | 'REFUNDED' | 'FAILED';
+  status: 'PENDING' | 'DEPOSIT_PAID' | 'FULLY_PAID' | 'REFUNDED' | 'FAILED' | 'VOIDED';
   totalAmount: number;
   depositAmount: number;
   /** ຍອດທີ່ຊຳລະສຳເລັດແລ້ວ (ລວມ PaymentTransaction status SUCCESS). */
@@ -316,10 +311,10 @@ export type AdminAppointmentListItem = {
   durationMin: number;
   updatedAt: string;
   /** null = ຍັງບໍ່ມີບິນເລີຍ (ຈ່າຍໜ້າຮ້ານ). */
-  paymentStatus: z.infer<typeof PaymentStatus> | null;
+  paymentStatus: PaymentStatus | null;
   paidAt: string | null;
   /** ວິທີຈ່າຍທີ່ສຳເລັດແລ້ວ (distinct, ຕາມລຳດັບທີ່ບັນທຶກ). */
-  paymentMethods: z.infer<typeof PaymentMethod>[];
+  paymentMethods: PaymentMethod[];
   /** ມັດຈຳທີ່ "ຕ້ອງ" ຈ່າຍຕາມນະໂຍບາຍບໍລິການ (0 = ບໍ່ບັງຄັບ). */
   depositRequired: number;
   /** ດາວຣີວິວຫຼັງໃຊ້ບໍລິການ — null = ຍັງບໍ່ໄດ້ຣີວິວ. */

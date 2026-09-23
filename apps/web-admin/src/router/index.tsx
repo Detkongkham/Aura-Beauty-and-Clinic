@@ -95,6 +95,16 @@ const StockTransfersPage = lazyPage(
   'StockTransfersPage',
 );
 const PayrollPage = lazyPage(() => import('@/features/payroll/PayrollPage'), 'PayrollPage');
+const BanksPage = lazyPage(() => import('@/features/payments-treasury/BanksPage'), 'BanksPage');
+const SlipReviewPage = lazyPage(
+  () => import('@/features/payments-treasury/SlipReviewPage'),
+  'SlipReviewPage',
+);
+const ExpensesPage = lazyPage(() => import('@/features/payments-treasury/ExpensesPage'), 'ExpensesPage');
+const ReconciliationPage = lazyPage(
+  () => import('@/features/payments-treasury/ReconciliationPage'),
+  'ReconciliationPage',
+);
 const PricingPage = lazyPage(() => import('@/features/pricing/PricingPage'), 'PricingPage');
 const ReferralsPage = lazyPage(() => import('@/features/referrals/ReferralsPage'), 'ReferralsPage');
 const HomeServiceDispatchPage = lazyPage(
@@ -198,6 +208,22 @@ export const router = createBrowserRouter([
           {
             element: <RoleRoute permission="marketing:view" />,
             children: [{ path: ROUTES.marketing, element: <CampaignsPage /> }],
+          },
+          {
+            // Module 39 — Payments & Treasury
+            element: <RoleRoute permission="payments:manage" />,
+            children: [
+              { path: ROUTES.paymentsBanks, element: <BanksPage /> },
+              { path: ROUTES.paymentsReconciliation, element: <ReconciliationPage /> },
+            ],
+          },
+          {
+            element: <RoleRoute permission="payments:review" />,
+            children: [{ path: ROUTES.paymentsSlips, element: <SlipReviewPage /> }],
+          },
+          {
+            element: <RoleRoute permission="expenses:view" />,
+            children: [{ path: ROUTES.paymentsExpenses, element: <ExpensesPage /> }],
           },
           {
             // Phase 7A — Revenue (Module 28 Dynamic Pricing + 33 Referral/Affiliate)

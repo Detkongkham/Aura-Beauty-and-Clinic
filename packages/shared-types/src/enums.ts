@@ -36,6 +36,7 @@ export const PaymentStatus = z.enum([
   'FULLY_PAID',
   'REFUNDED',
   'FAILED',
+  'VOIDED',
 ]);
 export type PaymentStatus = z.infer<typeof PaymentStatus>;
 
@@ -46,6 +47,8 @@ export const PaymentMethod = z.enum([
   'GIFT_CARD',
   'PACKAGE_CREDIT',
   'LOYALTY_POINTS',
+  'BANK_TRANSFER',
+  'BANK_QR',
 ]);
 export type PaymentMethod = z.infer<typeof PaymentMethod>;
 

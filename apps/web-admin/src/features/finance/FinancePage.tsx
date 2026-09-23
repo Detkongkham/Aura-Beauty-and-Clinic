@@ -30,6 +30,7 @@ import { useUiStore } from '@/store/ui.store';
 
 import { financeApi, useFinanceSummary, usePayments, type FinanceFilters } from './finance.api';
 import { FinanceStatCard } from './FinanceStatCard';
+import { VatReportSheet } from './VatReportSheet';
 import { CollectionHealthCard } from './CollectionHealthCard';
 import {
   PAYMENT_STATUSES,
@@ -75,6 +76,7 @@ export function FinancePage() {
   const activeBranch = useUiStore((s) => s.activeBranchId);
 
   const [branchId, setBranchId] = useState<string | 'all'>(activeBranch);
+  const [vatOpen, setVatOpen] = useState(false);
   const [from, setFrom] = useState(isoDaysAgo(30));
   const [to, setTo] = useState(TODAY);
   const [activeRange, setActiveRange] = useState<RangeKey | null>('30d');
@@ -317,6 +319,10 @@ export function FinancePage() {
             </h1>
             <p className="mt-0.5 text-sm text-muted-foreground">{t('finance.subtitle')}</p>
           </div>
+          <Button variant="secondary" onClick={() => setVatOpen(true)}>
+            <Receipt className="mr-1 h-4 w-4" aria-hidden="true" />
+            {t('finance.vat.open')}
+          </Button>
           <Button variant="secondary" onClick={handleExport} disabled={(listQ.data?.total ?? 0) === 0}>
             <Download className="mr-1 h-4 w-4" aria-hidden="true" />
             {t('common.export')}
@@ -544,6 +550,7 @@ export function FinancePage() {
       </div>
 
       <PaymentDetailSheet paymentId={detailId} onClose={() => setDetailId(null)} />
+      <VatReportSheet open={vatOpen} branchId={branchId} onClose={() => setVatOpen(false)} />
     </div>
     </TooltipProvider>
   );

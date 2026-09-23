@@ -88,9 +88,15 @@ export type PayrollRow = {
   attainmentPct: number;
   bonusAmount: number;
   bonusPaid: boolean;
-  /** commissionTotal + bonusAmount */
+  /**
+   * ຄອມມິດຊັນທີ່ຈ່າຍໄປແລ້ວ ແຕ່ບິນຖືກຄືນເງິນ — ຫັກໃນເດືອນນີ້ (CommissionClawback.monthYear = ເດືອນນີ້).
+   */
+  clawbackTotal: number;
+  /** ສ່ວນຂອງ clawbackTotal ທີ່ຍັງບໍ່ໄດ້ຫັກ (ຈະຖືກໝາຍວ່າຫັກແລ້ວ ພ້ອມກັບການຈ່າຍຄອມເດືອນນີ້). */
+  clawbackUnsettled: number;
+  /** commissionTotal + bonusAmount − clawbackTotal */
   payable: number;
-  /** commissionUnpaid + (bonusPaid ? 0 : bonusAmount) */
+  /** max(0, commissionUnpaid + (bonusPaid ? 0 : bonusAmount) − clawbackUnsettled) */
   outstanding: number;
 
   // ── ບໍລິບົດເພີ່ມ (Wave 11 — payroll console) ─────────────────────
@@ -130,7 +136,9 @@ export type PayrollTotals = {
   commissionUnpaid: number;
   bonusTotal: number;
   bonusUnpaid: number;
-  /** commissionTotal + bonusTotal — ຄ່າແຮງລວມຂອງເດືອນ. */
+  /** ຍອດຫັກຄືນຄອມມິດຊັນ (ຄືນເງິນບິນທີ່ຈ່າຍຄອມແລ້ວ) ຂອງເດືອນນີ້. */
+  clawbackTotal: number;
+  /** commissionTotal + bonusTotal − clawbackTotal — ຄ່າແຮງລວມຂອງເດືອນ. */
   payable: number;
   outstanding: number;
   /** ຈຳນວນຄົນທີ່ຍັງມີຍອດຄ້າງ. */

@@ -49,6 +49,12 @@ export const ROUTES = {
   giftCards: '/gift-cards',
   marketing: '/marketing',
 
+  // Module 39 — Payments & Treasury
+  paymentsBanks: '/payments/banks',
+  paymentsSlips: '/payments/slips',
+  paymentsExpenses: '/payments/expenses',
+  paymentsReconciliation: '/payments/reconciliation',
+
   // Phase 7A — Revenue (Module 28 + 33)
   pricing: '/pricing',
   referrals: '/referrals',

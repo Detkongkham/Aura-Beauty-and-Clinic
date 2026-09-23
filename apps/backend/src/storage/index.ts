@@ -4,6 +4,8 @@ import { LocalDiskStorage } from './localDisk.js';
 export interface StorageAdapter {
   /** ບັນທຶກ buffer, ຄືນ public URL. */
   save(key: string, data: Buffer, contentType?: string): Promise<{ url: string; key: string }>;
+  /** ອ່ານໄຟລ໌ທີ່ບັນທຶກໄວ້ກັບຄືນເປັນ buffer (ໃຊ້ໂດຍ background job, ເຊັ່ນ OCR ສະລິບ). */
+  read(key: string): Promise<Buffer>;
   delete(key: string): Promise<void>;
   url(key: string): string;
 }

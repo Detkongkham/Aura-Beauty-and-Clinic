@@ -25,6 +25,8 @@ import {
 } from './modules/inventory/inventory.routes.js';
 import { loyaltyRouter } from './modules/loyalty/loyalty.routes.js';
 import { marketingRouter } from './modules/marketing/marketing.routes.js';
+import { consentRouter } from './modules/marketing/consent.routes.js';
+import { expensesRouter } from './modules/expenses/expenses.routes.js';
 import { payrollRouter } from './modules/payroll/payroll.routes.js';
 import { pricingQuoteRouter, pricingRulesRouter } from './modules/pricing/pricing.routes.js';
 import {
@@ -33,6 +35,10 @@ import {
   referralRouter,
 } from './modules/referral/referral.routes.js';
 import { paymentsRouter } from './modules/payments/payments.routes.js';
+import {
+  paymentsTreasuryRouter,
+  paymentsWebhookRouter,
+} from './modules/payments-treasury/payments-treasury.routes.js';
 import { queueRouter } from './modules/queue/queue.routes.js';
 import { equipmentRouter, roomsRouter } from './modules/resources/resources.routes.js';
 import { rolesRouter } from './modules/roles/roles.routes.js';
@@ -65,11 +71,15 @@ apiRouter.use('/chatbot', chatbotRouter);
 apiRouter.use('/conversations', conversationsRouter);
 apiRouter.use('/customers', customersRouter);
 apiRouter.use('/dashboard', dashboardRouter);
+apiRouter.use('/payments/webhooks', paymentsWebhookRouter);
 apiRouter.use('/payments', paymentsRouter);
+apiRouter.use('/payments-treasury', paymentsTreasuryRouter);
+apiRouter.use('/expenses', expensesRouter);
 apiRouter.use('/loyalty', loyaltyRouter);
 apiRouter.use('/gift-cards', giftCardsRouter);
 apiRouter.use('/packages', packagesRouter);
 apiRouter.use('/marketing', marketingRouter);
+apiRouter.use('/consent', consentRouter);
 apiRouter.use('/waitlist', waitlistRouter);
 apiRouter.use('/queue', queueRouter);
 apiRouter.use('/suppliers', suppliersRouter);

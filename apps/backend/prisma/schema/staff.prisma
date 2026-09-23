@@ -26,16 +26,17 @@ model StaffProfile {
   lastKnownLongitude     Float?
   lastLocationAt         DateTime?
 
-  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  staffBranches    StaffBranch[]
-  workingHours     WorkingHour[]
-  timeOffs         StaffTimeOff[]
-  staffServices    StaffService[]
-  appointments     Appointment[]     @relation("StaffAppointments")
-  commissions      StaffCommission[]
-  attendances      StaffAttendance[]
-  kpiGoals         StaffKpiGoal[]
-  homeServiceTrips HomeServiceTrip[] @relation("HomeServiceTrips")
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  staffBranches       StaffBranch[]
+  workingHours        WorkingHour[]
+  timeOffs            StaffTimeOff[]
+  staffServices       StaffService[]
+  appointments        Appointment[]        @relation("StaffAppointments")
+  commissions         StaffCommission[]
+  commissionClawbacks CommissionClawback[]
+  attendances         StaffAttendance[]
+  kpiGoals            StaffKpiGoal[]
+  homeServiceTrips    HomeServiceTrip[]    @relation("HomeServiceTrips")
 
   @@map("staff_profiles")
 }

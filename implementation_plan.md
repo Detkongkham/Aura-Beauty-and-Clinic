@@ -32,7 +32,7 @@
 
 ---
 
-## 📦 1. ລາຍລະອຽດທັງໝົດ 38 ໂມດູນ (Renumbered 01 → 37 Sequential, + Module 38 ເພີ່ມພາຍຫຼັງ)
+## 📦 1. ລາຍລະອຽດທັງໝົດ 39 ໂມດູນ (Renumbered 01 → 37 Sequential, + Module 38, 39 ເພີ່ມພາຍຫຼັງ)
 
 ລະບົບຖືກຈັດລຽງເລກໂມດູນ 1 ຫາ 37 ຢ່າງຕໍ່ເນື່ອງຕາມ 5 ໝວດໝູ່ໃຫຍ່:
 
@@ -131,6 +131,11 @@
   * ຕໍ່ຍອດ `Conversation`/`ConversationParticipant`/`ChatMessage` ຈາກ Module 21 ໃຫ້ຄອບຄຸມທຸກຄູ່ຜູ້ໃຊ້:
     ພະນັກງານ↔ພະນັກງານ (ຂ້າມສາຂາ), ລູກຄ້າ↔ພະນັກງານ/ສາຂາ (ຂ້າມສາຂາໄດ້ ບໍ່ຈຳກັດສະເພາະສາຂາທີ່ຈອງ), ແລະ
     ລູກຄ້າ↔ລູກຄ້າ; ໃຊ້ WebSocket/Redis Pub-Sub infra ດຽວກັນກັບ Module 29.
+* **Module 39: Payments & Treasury (ຊ່ອງທາງເງິນ, ສະລິບ + OCR, ລາຍຈ່າຍ, ກະທົບຍອດ)**
+  * ຊັ້ນ "ເງິນຈິງ" ຕໍ່ຍອດຈາກ Module 08: ທະນາຄານ/ບັນຊີຮັບເງິນຕໍ່ສາຂາ, provider adapter (Mock ⇄ LIVE ສະຫຼັບໄດ້),
+    webhook ຮັບຜົນຈາກທະນາຄານ (HMAC + idempotent), ສະລິບໂອນເງິນ + OCR ຟຣີ/offline (QR → tesseract.js → ພະນັກງານຢືນຢັນ),
+    ລາຍຈ່າຍ (ໝວດ/ອະນຸມັດ/ຈ່າຍອອກຈາກບັນຊີ/ຊ້ຳປະຈຳເດືອນ) + P&L ຈິງ, ແລະ ກະທົບຍອດລາຍວັນ. ລູກຄ້າບໍ່ເຄີຍຕັດຍອດເອງ.
+    ເບິ່ງ `docs/payments-treasury-plan.md`.
 
 ---
 
@@ -1411,7 +1416,7 @@ abcp/
 
 ---
 
-## 🚀 5. ແຜນແມ່ບົດການພັດທະນາ 8 ໄລຍະ (Roadmap)
+## 🚀 5. ແຜນແມ່ບົດການພັດທະນາ 9 ໄລຍະ (Roadmap)
 
 ### 🚩 Phase 0: Monorepo Bootstrap (ວາງ Skeleton Workspace)
 1. `pnpm init` + `pnpm-workspace.yaml` (`apps/*`, `packages/*`).
@@ -1618,6 +1623,27 @@ model ChatBlock {                           // ✏️ ໃໝ່: ສະເພາ
 - `audit-log` (M37) ຕ້ອງບັນທຶກ `conversation:locked`, `chat:report`, `chat:block` ເປັນ action ໃໝ່.
 - `notification` (M23) ຕ້ອງຮອງຮັບ push ຂ້າມສາຂາ (ປັດຈຸບັນ notification job ອາດ scope ຕາມ branch ຂອງຜູ້ຮັບ —
   ຕ້ອງກວດວ່າບໍ່ blocked ໂດຍ branch-filter logic ທີ່ມີຢູ່).
+
+### 🚩 Phase 9: Payments & Treasury (Module 39) — ✅ ສຳເລັດ 2026-09-20 (W1–W7)
+> ແຜນເຕັມ + ບັນທຶກແຕ່ລະ wave: `docs/payments-treasury-plan.md`.
+
+| Wave | ຂອບເຂດ | ສະຖານະ |
+|---|---|---|
+| W1 | Bank registry, `BankAccount` ຕໍ່ສາຂາ, `BankProvider` adapter (Mock BCEL / Mock Lao-QR / Manual), permission ໃໝ່ | ✅ |
+| W2 | Webhook `POST /payments/webhooks/:code` (HMAC-SHA256 ຈາກ raw body, `ProviderEvent` idempotent), simulator (ປິດໃນ prod), job ປິດ intent ໝົດອາຍຸ + replay | ✅ |
+| W3 | `PaymentSlip` + pipeline OCR 3 ຊັ້ນ (jsqr → sharp+tesseract.js → parser/matcher → staff review), auto-approve ປິດເປັນຄ່າເລີ່ມຕົ້ນ | ✅ |
+| W4 | ໂມດູນລາຍຈ່າຍ (ໝວດ, workflow DRAFT→PAID, ແນບໃບຮັບເງິນ, recurring job, P&L ຈິງ) | ✅ |
+| W5 | web-admin ໝວດ «ການຊຳລະເງິນ»: ທະນາຄານ & ຊ່ອງທາງ, ກວດສະລິບ, ລາຍຈ່າຍ, ກະທົບຍອດ (`BankStatementEntry`) | ✅ |
+| W6 | mobile: `BankTransferPanel` ໃຫ້ລູກຄ້າ (3 ໜ້າຈ່າຍ) + inbox/review ສະລິບຂອງພະນັກງານ | ✅ |
+| W7 | ປິດງານ: typecheck/lint/test/build ທັງ repo, i18n scan, docs | ✅ |
+
+**Migration ຂອງ Phase 9 (4 ກ້ອນ):** `20260920000000_payments_treasury_w1_bank_provider`,
+`20260920100000_payments_treasury_w3_payment_slip`, `20260920110000_payments_treasury_w4_expenses`,
+`20260920120000_payments_treasury_w5_bank_statement`.
+
+**ຍັງຄ້າງກ່ອນ production (ບໍ່ blocked ການປິດ Phase):** ເຊື່ອມ API ທະນາຄານຈິງ (ປັດຈຸບັນ provider = MOCK),
+ທົດສອບ OCR ກັບສະລິບຈິງ BCEL/LDB/JDB, Refund API/UI, OCR ໃບຮັບເງິນລາຍຈ່າຍ, signed URL ແທນ `/uploads` ສາທາລະນະ,
+ທົດສອບ mobile ເທິງເຄື່ອງຈິງ ແລະ web-admin ໃນ browser ຈິງ. ລາຍລະອຽດ: `docs/payments-treasury-plan.md` §W7.
 
 ---
 

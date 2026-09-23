@@ -70,6 +70,10 @@ export const DateField = forwardRef<HTMLInputElement, DateFieldProps>(function D
           'absolute inset-0 h-full w-full cursor-pointer rounded-sm bg-transparent text-transparent outline-none',
           'disabled:cursor-not-allowed',
           '[&::-webkit-datetime-edit]:text-transparent',
+          // Chromium locks (and paints grey) the month/year fields when min and max share them,
+          // which bypasses the wrapper colour above — hide the individual fields too.
+          '[&::-webkit-datetime-edit-day-field]:text-transparent [&::-webkit-datetime-edit-month-field]:text-transparent',
+          '[&::-webkit-datetime-edit-year-field]:text-transparent [&::-webkit-datetime-edit-text]:text-transparent',
           '[&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0',
           '[&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:w-full',
           '[&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0',

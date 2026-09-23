@@ -1,5 +1,6 @@
 import type { DashboardStatsQuery, DashboardStatsView } from '@abcp/shared-types';
 import { Prisma } from '@prisma/client';
+import { recognisedOperatingCost } from '../expenses/expenses.service.js';
 import { prisma } from '../../config/database.js';
 
 const DAY = 86_400_000;
@@ -190,13 +191,8 @@ export async function getDashboardStats(query: DashboardStatsQuery): Promise<Das
         ...(branchId === 'all' ? {} : { payment: { branchId } }),
       },
     }),
-    prisma.expense.aggregate({
-      _sum: { amount: true },
-      where: {
-        ...branchWhere,
-        expenseDate: { gte: vteDayStart(vteDayKey(periodStart.getTime())) },
-      },
-    }),
+    // E10 — ຕາມສ່ວນແບ່ງຂອງສາຂາ; amountBase = LAK. ໝວດຊື້ສິນຄ້າບໍ່ນັບ (COGS ຄິດຈາກສະຕັອກແລ້ວ).
+    recognisedOperatingCost(branchId === 'all' ? undefined : branchId, vteDayStart(vteDayKey(periodStart.getTime()))),
     // ບິນທີ່ຍັງຄ້າງຊຳລະ (ທຸກຊ່ວງເວລາ) — ສູດດຽວກັບ financeSummary: total − Σ SUCCESS tenders.
     prisma.$queryRaw<{ bills: bigint; outstanding: Prisma.Decimal | null }[]>`
       SELECT
@@ -491,7 +487,7 @@ export async function getDashboardStats(query: DashboardStatsQuery): Promise<Das
       cancelled: lastN.filter((a) => a.status === 'CANCELLED').length,
       noShow: lastN.filter((a) => a.status === 'NO_SHOW').length,
       avgTicket: avg(lastNCompleted),
-      expenses: num(expensesAgg._sum.amount),
+      expenses: expensesAgg,
       prevRevenue: sum(prevNCompleted),
       prevBookings: prevN.length,
       prevCompleted: prevNCompleted.length,

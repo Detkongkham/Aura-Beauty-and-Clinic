@@ -17,6 +17,16 @@ import { cn } from '@/lib/utils';
 import { groupColor, groupIcon, GROUP_KEYS } from './permissionGroups';
 
 const ALL_PERMISSIONS = new Set<string>(PERMISSIONS);
+const COLUMN_ACTIONS = new Set(['view', 'create', 'edit', 'delete', 'special', 'manage']);
+
+/**
+ * Permissions whose action is not one of the six matrix columns (payments:review,
+ * payments:reconcile, expenses:approve, …). Without this they could not be granted or
+ * revoked from the UI at all.
+ */
+function extraKeys(group: string): Permission[] {
+  return PERMISSIONS.filter((p) => p.startsWith(`${group}:`) && !COLUMN_ACTIONS.has(p.slice(group.length + 1)));
+}
 
 const ACTIONS: Array<{ key: string; icon: LucideIcon; colorClass: string }> = [
   { key: 'view', icon: Eye, colorClass: 'text-indigo-600' },
@@ -78,8 +88,10 @@ interface PermissionMatrixProps {
 export function PermissionMatrix({ isChecked, onToggle, isOverridden }: PermissionMatrixProps) {
   const { t } = useTranslation();
 
-  const rowKeys = (group: string) =>
-    ACTIONS.map((a) => `${group}:${a.key}`).filter((k) => ALL_PERMISSIONS.has(k)) as Permission[];
+  const rowKeys = (group: string) => [
+    ...(ACTIONS.map((a) => `${group}:${a.key}`).filter((k) => ALL_PERMISSIONS.has(k)) as Permission[]),
+    ...extraKeys(group),
+  ];
 
   const toggleRow = (group: string) => (e: MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
@@ -131,6 +143,34 @@ export function PermissionMatrix({ isChecked, onToggle, isOverridden }: Permissi
                     {t(`users.permissionGroup.${group}`, { defaultValue: group })}
                   </p>
                   <p className="truncate text-[9px] text-muted-foreground">/{group}</p>
+                  {extraKeys(group).length > 0 ? (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {extraKeys(group).map((p) => {
+                        const checked = isChecked(p);
+                        const overridden = isOverridden?.(p) ?? false;
+                        const action = p.slice(group.length + 1);
+                        return (
+                          <button
+                            key={p}
+                            type="button"
+                            role="switch"
+                            aria-checked={checked}
+                            aria-label={p}
+                            onClick={() => onToggle(p)}
+                            className={cn(
+                              'inline-flex items-center gap-1 rounded-full border px-1.5 py-px text-[9px] font-medium transition-colors',
+                              checked ? 'text-white' : 'border-input bg-card text-muted-foreground hover:border-primary',
+                              overridden && (checked ? 'ring-2 ring-success ring-offset-1' : 'ring-2 ring-destructive ring-offset-1'),
+                            )}
+                            style={checked ? { background: color, borderColor: color } : undefined}
+                          >
+                            {checked ? <Check className="h-2 w-2" strokeWidth={3.5} aria-hidden="true" /> : null}
+                            {t(`users.permissionAction.${action}`, { defaultValue: action })}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
                 </div>
               </div>
 

@@ -28,33 +28,13 @@ import {
 } from '../../utils/dateHelpers.js';
 import { computeAvailableSlots, type BusyInterval } from './slotEngine.js';
 import { resolvePrice } from '../pricing/pricing.service.js';
+import { runSerializable } from '../../utils/serializable.js';
 import { applyReferralAtBooking } from '../referral/referral.service.js';
 import { computeTravelFee, createTrip, matchNearestStaff } from '../home-service/home-service.service.js';
 
 /** ສະຖານະທີ່ຍັງ "active" (ນັບເປັນຄິວ, ຍົກເລີກ/ເລື່ອນໄດ້). */
 const ACTIVE_STATUSES = ['PENDING', 'CONFIRMED', 'IN_PROGRESS'] as const;
 
-/**
- * ຣັນ callback ໃນ Serializable transaction, ລອງໃໝ່ເມື່ອຊົນກັນ (write conflict / deadlock —
- * Prisma `P2034`). ຄິວ 2 ຄົນຈອງພ້ອມກັນ = ຄວາມຈິງ production, ບໍ່ແມ່ນ error ຂອງຜູ້ໃຊ້.
- */
-async function runSerializable<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
-  const MAX = 3;
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      return await prisma.$transaction(fn, {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      });
-    } catch (err) {
-      const code = (err as { code?: string }).code;
-      if ((code === 'P2034' || code === '40001' || code === '40P01') && attempt < MAX) {
-        await new Promise((r) => setTimeout(r, 15 * attempt));
-        continue;
-      }
-      throw err;
-    }
-  }
-}
 const MODIFIABLE_STATUSES: ReadonlyArray<string> = ['PENDING', 'CONFIRMED'];
 
 /**

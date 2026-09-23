@@ -90,6 +90,8 @@ export function targetOf(n: AppNotification): Target | null {
   const appointmentId = str('appointmentId');
   if (n.module === 'homeService' && appointmentId)
     return ['HomeServiceTracking', { appointmentId }];
+  // ຜົນກວດສະລິບ / ໃບຮັບເງິນ → ໜ້າຈ່າຍເງິນຂອງນັດນັ້ນ (ເຫັນສະຖານະສະລິບ)
+  if (n.module === 'payments' && appointmentId) return ['Payment', { appointmentId }];
   if (appointmentId) return ['AppointmentDetail', { id: appointmentId }];
   if (n.module === 'waitlist' && str('serviceId')) {
     return ['ServiceDetail', { serviceId: str('serviceId')! }];

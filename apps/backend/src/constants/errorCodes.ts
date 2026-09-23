@@ -17,6 +17,12 @@ export const ErrorCode = {
   NO_STYLIST_AVAILABLE: 'NO_STYLIST_AVAILABLE',
   CANCEL_WINDOW_PASSED: 'CANCEL_WINDOW_PASSED',
   TENDER_NOT_ALLOWED: 'TENDER_NOT_ALLOWED',
+  CASH_DRAWER_REQUIRED: 'CASH_DRAWER_REQUIRED',
+  /** trigger ຖານຂໍ້ມູນປະຕິເສດການແກ້ເອກະສານການເງິນທີ່ອອກແລ້ວ (INV/CN/Z/ກະທີ່ປິດ). */
+  LEDGER_LOCKED: 'LEDGER_LOCKED',
+  /** ຕ້ອງຢືນຢັນລະຫັດຜ່ານກ່ອນເຮັດທຸລະກຳທີ່ອ່ອນໄຫວ (ເຊັ່ນ ປ່ຽນເລກບັນຊີຮັບເງິນ). */
+  REAUTH_REQUIRED: 'REAUTH_REQUIRED',
+  REAUTH_FAILED: 'REAUTH_FAILED',
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

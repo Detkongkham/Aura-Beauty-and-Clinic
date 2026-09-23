@@ -1,4 +1,4 @@
-import { LOYALTY_POINT_VALUE_LAK, type AddTendersInput, type DepositIntentView, type PaymentView } from '@abcp/shared-types';
+import { LOYALTY_POINT_VALUE_LAK, type AddTendersInput, type PaymentView } from '@abcp/shared-types';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -20,25 +20,19 @@ import { useMyLoyalty } from '../../features/loyalty/loyalty.api';
 import {
   AppointmentContext,
   BillSummary,
-  DepositIntro,
   GiftCardChips,
-  QrCard,
   Receipt,
   TenderToggle,
 } from '../../features/payments/payment.parts';
-import {
-  useAddTenders,
-  useDepositIntent,
-  useOpenBill,
-  useSettleMock,
-} from '../../features/payments/payments.api';
+import { useAddTenders, useOpenBill } from '../../features/payments/payments.api';
+import { BankTransferPanel } from '../../features/payments/transfer.parts';
 import { formatLAK } from '../../lib/format';
 import { haptics } from '../../lib/haptics';
 import { normalizeError } from '../../services/apiError';
 import { colors } from '../../theme';
 import type { AppScreenProps } from '../../navigation/types';
 
-type Mode = 'deposit' | 'wallet';
+type Mode = 'transfer' | 'wallet';
 
 const digits = (v: string): number => Number(v.replace(/[^0-9]/g, '')) || 0;
 
@@ -48,15 +42,12 @@ export function PaymentScreen({ navigation, route }: AppScreenProps<'Payment'>):
 
   const appt = useAppointment(appointmentId).data;
   const openBill = useOpenBill(appointmentId);
-  const depositIntent = useDepositIntent();
-  const settle = useSettleMock(appointmentId);
   const addTenders = useAddTenders(appointmentId);
   const loyalty = useMyLoyalty();
   const giftCards = useMyGiftCards();
 
   const [bill, setBill] = useState<PaymentView | null>(null);
-  const [intent, setIntent] = useState<DepositIntentView | null>(null);
-  const [mode, setMode] = useState<Mode>('deposit');
+  const [mode, setMode] = useState<Mode>('transfer');
   const [err, setErr] = useState<string | null>(null);
 
   // wallet tenders (ຄະແນນ + ບັດຂອງຂວັນ)
@@ -79,12 +70,16 @@ export function PaymentScreen({ navigation, route }: AppScreenProps<'Payment'>):
 
   useEffect(loadBill, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /** ສະລິບຖືກອະນຸມັດ → ດຶງບິນໃໝ່ (ບໍ່ປ່ຽນໂໝດ ເພື່ອໃຫ້ລູກຄ້າເຫັນສະຖານະສະລິບຕໍ່). */
+  const refreshBill = (): void => {
+    openBill.mutate(undefined, { onSuccess: setBill });
+  };
+
   const status = bill?.paymentStatus;
   const settled = status === 'FULLY_PAID';
   const depositDone = status === 'DEPOSIT_PAID' || settled;
   const balance = bill?.balanceAmount ?? 0;
   const depositDue = bill ? Math.max(0, Math.min(bill.depositAmount - bill.paidAmount, balance)) : 0;
-  const showDepositMode = depositDue > 0;
 
   const availablePoints = loyalty.data?.points ?? 0;
   const maxPoints = useMemo(
@@ -109,31 +104,6 @@ export function PaymentScreen({ navigation, route }: AppScreenProps<'Payment'>):
   const remainingAtStore = Math.max(0, balance - walletTotal);
 
   // ---- actions ---------------------------------------------------------------
-  function startDeposit(): void {
-    if (!bill) return;
-    setErr(null);
-    depositIntent.mutate(bill.id, {
-      onSuccess: setIntent,
-      onError: (e) => setErr(normalizeError(e).message),
-    });
-  }
-
-  function confirmDeposit(): void {
-    if (!bill || !intent) return;
-    setErr(null);
-    settle.mutate(
-      { paymentId: bill.id, qrReference: intent.qrReference },
-      {
-        onSuccess: (p) => {
-          setBill(p);
-          setIntent(null);
-          haptics.success();
-        },
-        onError: (e) => setErr(normalizeError(e).message),
-      },
-    );
-  }
-
   /** ໃຊ້ຄະແນນ/ບັດຂອງຂວັນ. ເງິນສົດທີ່ເຫຼືອ ພະນັກງານບັນທຶກທີ່ໜ້າຮ້ານ — ລູກຄ້າບໍ່ສາມາດບັນທຶກເອງ. */
   function applyWallet(): void {
     if (!bill || walletTotal <= 0) return;
@@ -213,36 +183,28 @@ export function PaymentScreen({ navigation, route }: AppScreenProps<'Payment'>):
 
             {!settled ? (
               <>
-                {showDepositMode ? (
-                  <AnimatedEntrance index={3}>
-                    <Segmented
-                      value={mode}
-                      onChange={(v) => {
-                        setMode(v);
-                        setIntent(null);
-                        setErr(null);
-                      }}
-                      options={[
-                        { value: 'deposit', label: t('payment.modeDeposit') },
-                        { value: 'wallet', label: t('payment.modeWallet') },
-                      ]}
-                    />
-                  </AnimatedEntrance>
-                ) : null}
+                <AnimatedEntrance index={3}>
+                  <Segmented
+                    value={mode}
+                    onChange={(v) => {
+                      setMode(v);
+                      setErr(null);
+                    }}
+                    options={[
+                      { value: 'transfer', label: t('payment.modeTransfer') },
+                      { value: 'wallet', label: t('payment.modeWallet') },
+                    ]}
+                  />
+                </AnimatedEntrance>
 
-                {mode === 'deposit' && showDepositMode ? (
+                {mode === 'transfer' ? (
                   <AnimatedEntrance index={4}>
-                    {intent ? (
-                      <QrCard
-                        payload={intent.qrPayload}
-                        amount={intent.amount}
-                        reference={intent.qrReference}
-                        expiresAt={intent.expiresAt}
-                        onRegenerate={startDeposit}
-                      />
-                    ) : (
-                      <DepositIntro amount={depositDue} />
-                    )}
+                    <BankTransferPanel
+                      paymentId={bill.id}
+                      balance={balance}
+                      deposit={depositDue}
+                      onApproved={refreshBill}
+                    />
                   </AnimatedEntrance>
                 ) : (
                   <AnimatedEntrance index={4}>
@@ -401,26 +363,14 @@ export function PaymentScreen({ navigation, route }: AppScreenProps<'Payment'>):
             labelClassName="text-[13px] text-center"
             onPress={() => navigation.goBack()}
           />
-        ) : mode === 'deposit' && showDepositMode ? (
-          intent ? (
-            <Button
-              label={t('payment.confirmPaid')}
-              size="md"
-              icon="checkmark-circle-outline"
-              loading={settle.isPending}
-              labelClassName="text-[13px] text-center"
-              onPress={confirmDeposit}
-            />
-          ) : (
-            <Button
-              label={t('payment.payDepositAmount', { amount: formatLAK(depositDue) })}
-              size="md"
-              icon="qr-code-outline"
-              loading={depositIntent.isPending}
-              labelClassName="text-[13px] text-center"
-              onPress={startDeposit}
-            />
-          )
+        ) : mode === 'transfer' ? (
+          <Button
+            label={depositDone ? t('payment.later') : t('payment.payAtStore')}
+            variant="secondary"
+            size="md"
+            labelClassName="text-[13px] text-center"
+            onPress={() => navigation.goBack()}
+          />
         ) : walletTotal <= 0 && depositDone ? (
           <Button
             label={t('payment.done')}
@@ -445,7 +395,7 @@ export function PaymentScreen({ navigation, route }: AppScreenProps<'Payment'>):
           />
         )}
 
-        {bill && !settled && !(walletTotal <= 0 && depositDone) ? (
+        {bill && !settled && mode === 'wallet' && !(walletTotal <= 0 && depositDone) ? (
           <Button
             label={depositDone ? t('payment.later') : t('payment.payAtStore')}
             variant="ghost"

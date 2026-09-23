@@ -1,6 +1,7 @@
 import type { Job } from 'bullmq';
 import { prisma } from '../config/database.js';
 import { logger } from '../config/logger.js';
+import { replayStaleEvents } from '../modules/payments-treasury/payments-treasury.webhook.js';
 import type { PaymentExpiryJobData } from './queues.js';
 
 /**
@@ -13,5 +14,14 @@ export async function processPaymentExpiry(job: Job<PaymentExpiryJobData>): Prom
     where: { status: 'PENDING', expiresAt: { lt: new Date() } },
     data: { status: 'EXPIRED' },
   });
-  logger.info({ expired: count, job: job.name }, 'payment expiry sweep processed');
+  // Module 39 W2 — provider intent ທີ່ໝົດອາຍຸ + replay webhook ທີ່ຄ້າງ (process ລົ້ມກາງທາງ)
+  const intents = await prisma.providerIntent.updateMany({
+    where: { status: 'PENDING', expiresAt: { lt: new Date() } },
+    data: { status: 'EXPIRED' },
+  });
+  const replay = await replayStaleEvents();
+  logger.info(
+    { expired: count, expiredIntents: intents.count, replay, job: job.name },
+    'payment expiry sweep processed',
+  );
 }

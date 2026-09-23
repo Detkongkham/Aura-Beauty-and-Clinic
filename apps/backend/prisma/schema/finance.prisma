@@ -7,15 +7,22 @@ enum PaymentStatus {
   FULLY_PAID
   REFUNDED
   FAILED
+  /// Wave 10B — ບິນທີ່ຖືກຍົກເລີກກ່ອນຈ່າຍ (ບໍ່ມີເງິນເຂົ້າ) — ຕ່າງຈາກ REFUNDED (ຄືນເງິນຫຼັງຈ່າຍ).
+  VOIDED
 }
 
 enum PaymentMethod {
   CASH
+  /// ເກົ່າ — ຮັກສາໄວ້ເພື່ອ backward-compat ຂອງຂໍ້ມູນເກົ່າ. ໃຊ້ໃໝ່ໃຫ້ໃຊ້ BANK_QR ແທນ.
   BCEL_ONE_QR
   CREDIT_CARD
   GIFT_CARD
   PACKAGE_CREDIT
   LOYALTY_POINTS
+  /// ໂອນເງິນ + ອັບສະລິບ (Module 39 W1) — ຕ້ອງກວດ/ອະນຸມັດກ່ອນຈຶ່ງກາຍເປັນ SUCCESS.
+  BANK_TRANSFER
+  /// QR ກາງມາດຕະຖານ (Module 39 W1) — ຜ່ານ provider adapter, ຕັດຍອດຜ່ານ webhook.
+  BANK_QR
 }
 
 enum LoyaltyTier {
@@ -40,6 +47,12 @@ enum UserPackageStatus {
   VOID
 }
 
+/// ຂໍ້ຈຳກັດ 10B — ວິທີຄິດ VAT ທີ່ຖືກ "ຢຸດ" ໃນບິນ: INCLUSIVE = ລາຄາລວມພາສີແລ້ວ, EXCLUSIVE = ບວກພາສີເທິງລາຄາຕອນສ້າງບິນ.
+enum VatMode {
+  INCLUSIVE
+  EXCLUSIVE
+}
+
 enum GiftCardStatus {
   PENDING_PAYMENT
   ACTIVE
@@ -58,6 +71,19 @@ model Payment {
   currency       String        @default("LAK")
   paymentStatus  PaymentStatus @default(PENDING)
   paidAt         DateTime?
+  /// Wave 10B — ເລກໃບຮັບເງິນຕໍ່ເນື່ອງ ບໍ່ຂາດຕອນ (INV-<ສາຂາ>-<ປີ>-<ລຳດັບ>) ອອກຕອນ FULLY_PAID.
+  invoiceNo      String?       @unique
+  /// Wave 10B — VAT ທີ່ "ຢຸດ" ໄວ້ຕອນອອກບິນ (ລວມຢູ່ໃນ totalAmount): ອັດຕາ/ພາສີ/ມູນຄ່າກ່ອນພາສີ.
+  vatRate        Decimal?      @db.Decimal(6, 4)
+  /// null = ບໍ່ມີ VAT. EXCLUSIVE ຖືກຢຸດຕອນສ້າງບິນ (totalAmount = net + tax); INCLUSIVE ຢຸດຕອນອອກເລກ INV.
+  vatMode        VatMode?
+  taxAmount      Decimal?      @db.Decimal(16, 2)
+  netAmount      Decimal?      @db.Decimal(16, 2)
+  /// Wave 10B — ຍອດຄືນເງິນສະສົມ (ເງິນສົດ/ໂອນ + ຄືນເຂົ້າບັດ/ຄະແນນ) ຂອງ refund ທີ່ PAID ແລ້ວ.
+  refundedAmount Decimal       @default(0.0) @db.Decimal(16, 2)
+  voidedAt       DateTime?
+  voidReason     String?
+  voidedById     String?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
@@ -69,6 +95,9 @@ model Payment {
   giftCardPurchase GiftCard?
   /// ບິນຊື້ແພັກເກັດເອງໃນແອັບ — activate UserPackage ເມື່ອ FULLY_PAID.
   packagePurchase  UserPackage?
+  providerIntents  ProviderIntent[]
+  refunds          Refund[]
+  slips            PaymentSlip[]
 
   @@index([paymentStatus, paidAt])
   @@map("payments")
@@ -84,6 +113,10 @@ model PaymentTransaction {
   loyaltyAccountId String?
   userPackageId    String?
   qrReference      String?
+  /// Module 39 W1 — ບັນຊີທະນາຄານທີ່ຮັບເງິນ (ຖ້າ method ເປັນ BANK_TRANSFER/BANK_QR).
+  bankAccountId    String?
+  /// Module 39 W1 — intent ຂອງ provider ທີ່ນຳໄປສູ່ tx ນີ້ (ຖ້າຜ່ານ adapter).
+  providerIntentId String?       @unique
   status           String        @default("SUCCESS")
   /// Wave 10A (ອຸດ H1) — QR/deposit-intent ໝົດອາຍຸເມື່ອໃດ; null = ບໍ່ມີກຳນົດ (ເຊັ່ນ tender ທີ່ commit ທັນທີ).
   expiresAt        DateTime?
@@ -93,6 +126,9 @@ model PaymentTransaction {
   giftCard       GiftCard?             @relation(fields: [giftCardId], references: [id])
   loyaltyAccount LoyaltyAccount?       @relation(fields: [loyaltyAccountId], references: [id])
   userPackage    UserPackage?          @relation(fields: [userPackageId], references: [id])
+  bankAccount    BankAccount?          @relation(fields: [bankAccountId], references: [id])
+  providerIntent ProviderIntent?       @relation(fields: [providerIntentId], references: [id])
+  slip           PaymentSlip?
   giftCardTxs    GiftCardTransaction[]
   loyaltyTxs     LoyaltyTransaction[]
 
@@ -114,6 +150,27 @@ model StaffCommission {
   appointment  Appointment  @relation(fields: [appointmentId], references: [id])
 
   @@map("staff_commissions")
+}
+
+/// ຂໍ້ຈຳກັດ 10B — ຄອມມິດຊັນທີ່ຈ່າຍພະນັກງານແລ້ວ ແຕ່ບິນຖືກຄືນເງິນ → ໜີ້ທີ່ຫັກໃນຮອບເງິນເດືອນ `monthYear`
+/// (ເດືອນວຽງຈັນທີ່ຈ່າຍຄືນເງິນ). `isSettled` = ຫັກແລ້ວ (ໝາຍພ້ອມກັບການຈ່າຍຄອມຂອງເດືອນນັ້ນ). 1 ແຖວ/refund.
+model CommissionClawback {
+  id             String   @id @default(uuid())
+  staffProfileId String
+  appointmentId  String
+  refundId       String   @unique
+  branchId       String
+  amount         Decimal  @db.Decimal(16, 2)
+  monthYear      String
+  isSettled      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  staffProfile StaffProfile @relation(fields: [staffProfileId], references: [id])
+
+  @@index([staffProfileId, monthYear])
+  @@index([monthYear])
+  @@map("commission_clawbacks")
 }
 
 model GiftCard {
@@ -311,4 +368,17 @@ model ReferralUsage {
   referredUser User         @relation("ReferredUser", fields: [referredUserId], references: [id])
 
   @@map("referral_usages")
+}
+
+/// Wave 10B — ຕົວນັບເລກເອກະສານ (ໃບຮັບເງິນ INV / ໃບຄືນເງິນ CN) ຕໍ່ (ສາຂາ, ປະເພດ, ປີ). ເພີ່ມ +1 ພາຍໃນ transaction
+/// ດຽວກັບການອອກເອກະສານ → ຖ້າ rollback ເລກກໍ rollback ນຳ ⇒ ບໍ່ຂາດຕອນ, ບໍ່ຊ້ຳ.
+model DocumentSequence {
+  branchId  String
+  docType   String
+  year      Int
+  lastNo    Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@id([branchId, docType, year])
+  @@map("document_sequences")
 }
