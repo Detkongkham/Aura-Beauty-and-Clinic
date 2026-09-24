@@ -21,6 +21,7 @@ import { onSessionsRevoked } from '../modules/auth/security.js';
 import { getTripViewByAppointmentId, recordLocationPing } from '../modules/home-service/home-service.service.js';
 import { authorizeThreadAccess, postMessage } from '../modules/chat/chat.service.js';
 import { markConversationRead } from '../modules/conversations/conversations.service.js';
+import { signUrlsDeep } from '../storage/signedUrl.js';
 
 type SocketData = { auth: AccessTokenPayload };
 
@@ -303,7 +304,7 @@ export function emitHomeServiceAdminUpdate(trip: HomeServiceTripView): void {
 }
 
 export function emitChatMessage(event: ChatMessageEvent): void {
-  io?.to(chatRoom(event.threadId)).emit('chat:message', event);
+  io?.to(chatRoom(event.threadId)).emit('chat:message', signUrlsDeep(event));
 }
 
 export function emitChatRead(event: ChatReadEvent): void {
@@ -314,6 +315,6 @@ export function emitChatRead(event: ChatReadEvent): void {
 export function emitPaymentSlipUpdated(event: PaymentSlipEvent, uploadedById: string): void {
   io?.to([userRoom(uploadedById), slipReviewRoom(event.branchId), slipReviewRoom('all')]).emit(
     'payment-slip:updated',
-    event,
+    signUrlsDeep(event),
   );
 }

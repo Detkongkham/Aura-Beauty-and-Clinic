@@ -55,7 +55,7 @@
     "react-dom": "18.3.1",
     "react-hook-form": "^7.54.2",
     "react-i18next": "^15.4.0",
-    "react-native": "0.76.6",
+    "react-native": "0.76.9",
     "react-native-css-interop": "~0.1.22",
     "react-native-gesture-handler": "~2.20.2",
     "react-native-qrcode-svg": "^6.3.15",

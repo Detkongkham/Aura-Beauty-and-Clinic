@@ -36,13 +36,16 @@ async function wipe(): Promise<void> {
     await prisma.purchaseOrderItem.deleteMany({ where: { productId: { in: pids } } });
     await prisma.stockMovement.deleteMany({ where: { productId: { in: pids } } });
   }
-  // C5 — sweep leftovers from an aborted lot test run
-  const lotProducts = await prisma.product.findMany({ where: { sku: { startsWith: 'SKU-P6-LOT-' } }, select: { id: true } });
-  if (lotProducts.length) {
-    const lp = lotProducts.map((p) => p.id);
+  // sweep leftovers of every per-test product (SKU-P6-*) from an aborted run — a test that throws
+  // before its own cleanup otherwise leaves its SKU behind and the next run's create returns 400
+  const strayProducts = await prisma.product.findMany({ where: { sku: { startsWith: 'SKU-P6-' } }, select: { id: true } });
+  if (strayProducts.length) {
+    const lp = strayProducts.map((p) => p.id);
     await prisma.stockMovement.deleteMany({ where: { productId: { in: lp } } });
     await prisma.stockLot.deleteMany({ where: { productId: { in: lp } } });
     await prisma.purchaseOrderItem.deleteMany({ where: { productId: { in: lp } } });
+    await prisma.stockTransferItem.deleteMany({ where: { productId: { in: lp } } });
+    await prisma.serviceConsumable.deleteMany({ where: { productId: { in: lp } } });
     await prisma.product.deleteMany({ where: { id: { in: lp } } });
   }
   await prisma.purchaseOrder.deleteMany({ where: { supplier: { name: 'ຜູ້ສະໜອງທົດສອບ P6' } } });

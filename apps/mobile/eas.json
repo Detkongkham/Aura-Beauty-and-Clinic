@@ -1,21 +1,34 @@
 {
   "cli": {
-    "version": ">= 5.9.0",
-    "appVersionSource": "local"
+    "version": ">= 12.0.0",
+    "appVersionSource": "remote"
   },
   "build": {
+    "base": {
+      "node": "20.18.0"
+    },
     "development": {
+      "extends": "base",
       "developmentClient": true,
       "distribution": "internal",
       "ios": { "simulator": true },
       "env": { "EXPO_PUBLIC_API_BASE_URL": "http://localhost:4000/api/v1" }
     },
-    "preview": {
+    "development-device": {
+      "extends": "base",
+      "developmentClient": true,
       "distribution": "internal",
-      "channel": "preview"
+      "environment": "development"
+    },
+    "preview": {
+      "extends": "base",
+      "distribution": "internal",
+      "environment": "preview",
+      "android": { "buildType": "apk" }
     },
     "production": {
-      "channel": "production",
+      "extends": "base",
+      "environment": "production",
       "autoIncrement": true
     }
   },

@@ -21,6 +21,10 @@ apps/mobile/.expo/
 *.mobileprovision
 apps/mobile/ios/
 apps/mobile/android/
+# FCM config + Google service-account key (PUSH_SETUP.md §D) — never commit
+apps/mobile/google-services.json
+apps/mobile/GoogleService-Info.plist
+apps/mobile/*service-account*.json
 
 # env
 .env

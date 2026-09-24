@@ -479,7 +479,7 @@ describe('payments-treasury: slips + OCR + review', () => {
       expect(list[0]!.accountNumber).toBe(HOME_ACCOUNT);
       const q = list.find((a) => a.id === withQr.id)!;
       expect(q.bank.code).toBe('LDB');
-      expect(q.qrImageUrl).toMatch(/bank-qr\/test\.png$/);
+      expect(q.qrImageUrl).toMatch(/bank-qr\/test\.png\?exp=\d+&sig=[\w-]{32}$/);
       expect(list[0]).not.toHaveProperty('branchId');
 
       const other = await request(app)

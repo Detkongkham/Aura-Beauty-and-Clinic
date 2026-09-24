@@ -8,6 +8,7 @@ import { apiRouter } from './routes.js';
 import { apiLimiter } from './middlewares/rateLimiter.js';
 import { auditLog } from './middlewares/auditLog.js';
 import { errorHandler, notFoundHandler } from './middlewares/errorHandler.js';
+import { requireUploadSignature, signedUploadUrls } from './storage/signedUrl.js';
 
 export function createApp(): Express {
   const app = express();
@@ -32,22 +33,25 @@ export function createApp(): Express {
   app.use(pinoHttp({ logger }));
 
   // helmet()'s default Cross-Origin-Resource-Policy: same-origin blocks <img>/<audio> tags loading
-  // these from web-admin's own origin (different port ⇒ different origin) — uploads are meant to be
-  // publicly embeddable, so relax just this route rather than helmet's app-wide defaults.
+  // these from web-admin's own origin (different port ⇒ different origin), so relax just this route.
+  // Files are private (slips, receipts, chat media…) — access needs the short-lived signed URL the API
+  // hands out (storage/signedUrl.ts), so being embeddable cross-origin leaks nothing on its own.
   app.use(
     '/uploads',
+    requireUploadSignature,
     (_req, res, next) => {
       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
       next();
     },
-    express.static(env.STORAGE_LOCAL_DIR),
+    // cacheControl off so requireUploadSignature's private max-age (bounded by the signature) stands
+    express.static(env.STORAGE_LOCAL_DIR, { cacheControl: false }),
   );
 
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', service: 'abcp-backend', ts: new Date().toISOString() });
   });
 
-  app.use('/api/v1', apiLimiter, auditLog, apiRouter);
+  app.use('/api/v1', apiLimiter, auditLog, signedUploadUrls, apiRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

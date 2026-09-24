@@ -3,6 +3,7 @@ import request from 'supertest';
 import type { Express } from 'express';
 import { createApp } from '../../src/app.js';
 import { prisma } from '../../src/config/database.js';
+import { vientianeDateKey } from '../../src/utils/dateHelpers.js';
 
 /**
  * Integration — walk-in = real Appointment (Phase 4 follow-up).
@@ -19,8 +20,10 @@ const ADMIN_PHONE = '02000000000';
 const ADMIN_PASSWORD = 'Admin@12345';
 const WI_PHONE = '02088840066';
 
-function todayUtc(): string {
-  return new Date().toISOString().slice(0, 10);
+/** Today's calendar date in Vientiane — the schedule endpoint's `date` is a Vientiane day, so a UTC date
+ * is off by one between 00:00 and 07:00 local time. */
+function todayVientiane(): string {
+  return vientianeDateKey(new Date()).toISOString().slice(0, 10);
 }
 
 async function wipe(): Promise<void> {
@@ -93,7 +96,7 @@ describe('walk-in creates a real appointment', () => {
 
     // 2) it shows on the staff's own "today" schedule, flagged as walk-in
     const sched = await request(app)
-      .get(`/api/v1/staff-portal/schedule?date=${todayUtc()}`)
+      .get(`/api/v1/staff-portal/schedule?date=${todayVientiane()}`)
       .set(...bearer(staffToken));
     expect(sched.status).toBe(200);
     const mine = (sched.body.data.items as Array<{ id: string; isWalkIn: boolean; status: string }>).find(

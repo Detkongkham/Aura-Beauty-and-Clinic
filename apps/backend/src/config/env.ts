@@ -22,6 +22,15 @@ const envSchema = z.object({
   STORAGE_DRIVER: z.enum(['local']).default('local'),
   STORAGE_LOCAL_DIR: z.string().default('./uploads'),
   STORAGE_PUBLIC_URL: z.string().url().default('http://localhost:4000/uploads'),
+  /** ບັງຄັບ signed URL ສຳລັບ /uploads (ປິດໄດ້ຊົ່ວຄາວດ້ວຍ `false` ຕອນ debug ເທົ່ານັ້ນ). */
+  UPLOAD_URL_SIGNING: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
+  /** ກະແຈເຊັນ URL ໄຟລ໌ — ບໍ່ຕັ້ງ = derive ຈາກ JWT_ACCESS_SECRET (ປ່ຽນ JWT secret ⇒ URL ເກົ່າໃຊ້ບໍ່ໄດ້ ເຊິ່ງບໍ່ເປັນຫຍັງ). */
+  UPLOAD_URL_SECRET: z.string().min(16).optional(),
+  /** ຂະໜາດ bucket ອາຍຸ signed URL (ວິນາທີ) — URL ມີອາຍຸ TTL ຫາ 2×TTL. ຄ່າເລີ່ມຕົ້ນ 6 ຊົ່ວໂມງ. */
+  UPLOAD_URL_TTL_SECONDS: z.coerce.number().int().min(60).default(6 * 60 * 60),
 
   /** ລັດສະໝີ (ແມັດ) ທີ່ຊ່າງ check-in/out ໄດ້ ໂດຍນັບຈາກພິກັດສາຂາ (Phase 4 GPS Attendance). */
   STAFF_ATTENDANCE_RADIUS_METERS: z.coerce.number().int().positive().default(300),

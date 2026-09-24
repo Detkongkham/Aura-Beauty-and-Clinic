@@ -27,6 +27,12 @@ if (!window.matchMedia) {
   }));
 }
 
+// jsdom lacks object URLs; SlipUploadDialog previews the picked file with one.
+if (!URL.createObjectURL) {
+  URL.createObjectURL = vi.fn(() => 'blob:mock');
+  URL.revokeObjectURL = vi.fn();
+}
+
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());

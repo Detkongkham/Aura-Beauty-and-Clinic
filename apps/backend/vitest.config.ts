@@ -15,6 +15,10 @@ export default defineConfig({
     setupFiles: [],
     testTimeout: 20_000,
     pool: 'forks',
+    // every integration file shares the one abcp_test DB and several touch the same singleton rows
+    // (branch cash-drawer shift, Z-report/invoice counters, ledger-lock triggers) — running files in
+    // parallel made refund/slip/wave10 tests fail at random, so files run one at a time
+    fileParallelism: false,
     env: testEnv,
   },
 });
