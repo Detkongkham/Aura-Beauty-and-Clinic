@@ -13,6 +13,7 @@ import {
   PackageX,
   Pencil,
   Plus,
+  Receipt,
   Ruler,
   ShieldAlert,
   Store,
@@ -33,6 +34,7 @@ import {
 
 import { StickyPageHeader } from '@/components/layout/StickyPageHeader';
 import { CurrencyText, DataTable, FilterBar, Pagination, StatusPill } from '@/components/shared';
+import { dayjs } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -53,14 +55,27 @@ import { NormalizedApiError } from '@/services/apiError';
 
 import { InventoryStatCard } from './InventoryStatCard';
 import { InventoryTabs } from './InventoryTabs';
+import { LotFields } from './LotFields';
+import { EMPTY_LOT, lotPayload, type LotDraft } from './lotDraft';
+import { LotExpiryWatchCard } from './LotExpiryWatchCard';
+import { LotUsageDialog } from './LotUsageDialog';
 import { StockHealthBar } from './StockHealthBar';
 import {
   useAdjustStock,
+  useCogsSummary,
   useInventoryStats,
   useProducts,
   useSaveProduct,
+  useStockLots,
   type ProductFilters,
 } from './inventory.api';
+
+// C5 — ໜ້າຕ່າງ "ໃກ້ໝົດອາຍຸ" ຕ້ອງກົງກັບ LOT_EXPIRY_WARN_DAYS ຂອງ backend (job ແຈ້ງເຕືອນ).
+const LOT_WATCH_DAYS = 60;
+
+// C4 — ຄິດໄລ່ຂອບເຂດເດືອນນີ້ ໜຶ່ງຄັ້ງຕໍ່ mount (ບໍ່ໃຫ້ query key ປ່ຽນທຸກ render ຍ້ອນ `dayjs()` ໃໝ່).
+const MONTH_START = dayjs().startOf('month').toISOString();
+const MONTH_END = dayjs().endOf('month').toISOString();
 
 export function InventoryPage() {
   const { t } = useTranslation();
@@ -76,6 +91,7 @@ export function InventoryPage() {
   const [editing, setEditing] = useState<ProductView | null>(null);
   const [creating, setCreating] = useState(false);
   const [adjustFor, setAdjustFor] = useState<ProductView | null>(null);
+  const [lotUsageId, setLotUsageId] = useState<string | null>(null);
 
   const filters: ProductFilters = {
     q: q || undefined,
@@ -86,6 +102,19 @@ export function InventoryPage() {
   };
   const { data, isLoading } = useProducts(filters);
   const { data: stats, isLoading: statsLoading } = useInventoryStats(branchId || undefined);
+  // C5 — lot ທີ່ໃກ້/ໝົດອາຍຸແລ້ວ (ຮວມ lot ທີ່ໝົດອາຍຸແລ້ວແຕ່ຍັງມີສະຕັອກ).
+  const { data: expiring, isLoading: expiringLoading } = useStockLots({
+    branchId: branchId || undefined,
+    expiringWithinDays: LOT_WATCH_DAYS,
+    page: 1,
+    pageSize: 12,
+  });
+  // C4 — ຕົ້ນທຶນສິນຄ້າທີ່ໃຊ້ໄປ (COGS) ຂອງເດືອນນີ້, ຕໍ່ສາຂາທີ່ເລືອກ.
+  const { data: cogs, isLoading: cogsLoading } = useCogsSummary({
+    branchId: branchId || undefined,
+    from: MONTH_START,
+    to: MONTH_END,
+  });
 
   // Inventory audit C2 — ອະນຸຍາດໃຫ້ BOM ຕັດສະຕັອກຕິດລົບໄດ້ (backflush exception) ຕໍ່ສາຂາ.
   const selectedBranch = branches?.find((b) => b.id === branchId) ?? null;
@@ -103,6 +132,11 @@ export function InventoryPage() {
               {!row.original.isActive ? (
                 <span className="rounded-full bg-muted px-1.5 py-0.5 text-2xs font-medium text-muted-foreground">
                   {t('inventory.inactiveTag')}
+                </span>
+              ) : null}
+              {row.original.trackLot ? (
+                <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-2xs font-medium text-primary">
+                  {t('inventory.lot.tag')}
                 </span>
               ) : null}
             </div>
@@ -239,13 +273,13 @@ export function InventoryPage() {
       </StickyPageHeader>
 
       {statsLoading ? (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {Array.from({ length: 5 }).map((_, i) => (
             <Skeleton key={i} className="h-[62px] w-full rounded-lg" />
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <InventoryStatCard
             index={0}
             icon={Boxes}
@@ -283,6 +317,14 @@ export function InventoryPage() {
             value={<CurrencyText amount={stats?.totalStockValue ?? 0} />}
             hint={t('inventory.stat.openPoHint', { count: stats?.openPurchaseOrders ?? 0 })}
           />
+          <InventoryStatCard
+            index={4}
+            icon={Receipt}
+            tone="neutral"
+            label={t('inventory.stat.cogs')}
+            value={cogsLoading ? '—' : <CurrencyText amount={cogs?.totalCogs ?? 0} />}
+            hint={t('inventory.stat.cogsHint')}
+          />
         </div>
       )}
 
@@ -294,6 +336,14 @@ export function InventoryPage() {
         )}
         low={stats?.lowStockCount ?? 0}
         out={stats?.outOfStockCount ?? 0}
+      />
+
+      <LotExpiryWatchCard
+        loading={expiringLoading}
+        lots={expiring?.items ?? []}
+        total={expiring?.total ?? 0}
+        days={LOT_WATCH_DAYS}
+        onSelect={(l) => setLotUsageId(l.id)}
       />
 
       {selectedBranch ? (
@@ -429,6 +479,7 @@ export function InventoryPage() {
         branches={branches ?? []}
         onClose={() => setAdjustFor(null)}
       />
+      <LotUsageDialog lotId={lotUsageId} onClose={() => setLotUsageId(null)} />
     </div>
   );
 }
@@ -447,6 +498,8 @@ function ProductDialog({
   const { t } = useTranslation();
   const save = useSaveProduct();
   const isEdit = Boolean(product);
+  // C5 — ເລກ lot ຂອງຍອດເປີດ (ໃຊ້ສະເພາະຕອນສ້າງໃໝ່ + trackLot + openingStock > 0)
+  const [openingLot, setOpeningLot] = useState<LotDraft>(EMPTY_LOT);
 
   const form = useForm<ProductCreateInput>({
     resolver: zodResolver(productCreateSchema),
@@ -459,10 +512,16 @@ function ProductDialog({
       openingStock: 0,
       minStockQty: product?.minStockQty ?? 5,
       isActive: product?.isActive ?? true,
+      trackLot: product?.trackLot ?? false,
     },
   });
 
   function submit(values: ProductCreateInput) {
+    const needsOpeningLot = !isEdit && values.trackLot && values.openingStock > 0;
+    if (needsOpeningLot && !openingLot.lotNumber.trim()) {
+      toast.error(t('inventory.lot.openingRequired'));
+      return;
+    }
     const payload = isEdit
       ? {
           name: values.name,
@@ -471,8 +530,9 @@ function ProductDialog({
           costPrice: values.costPrice,
           minStockQty: values.minStockQty,
           isActive: values.isActive,
+          trackLot: values.trackLot,
         }
-      : values;
+      : { ...values, openingLot: needsOpeningLot ? lotPayload(openingLot) : undefined };
     save.mutate(
       { id: product?.id, input: payload },
       {
@@ -487,6 +547,8 @@ function ProductDialog({
   }
 
   const isActive = form.watch('isActive');
+  const trackLot = form.watch('trackLot');
+  const openingStock = form.watch('openingStock');
   const errors = form.formState.errors;
 
   return (
@@ -604,6 +666,12 @@ function ProductDialog({
                   />
                 </Field>
               </div>
+              {!isEdit && trackLot && openingStock > 0 ? (
+                <div className="space-y-2 rounded-xl border border-border bg-muted/30 p-3">
+                  <p className="text-xs font-medium text-foreground">{t('inventory.lot.openingLot')}</p>
+                  <LotFields value={openingLot} onChange={setOpeningLot} idPrefix="p-open" />
+                </div>
+              ) : null}
             </section>
 
             {/* Settings */}
@@ -623,6 +691,21 @@ function ProductDialog({
                     checked={isActive}
                     onCheckedChange={(v) => form.setValue('isActive', v, { shouldDirty: true })}
                     aria-label={t('inventory.active')}
+                  />
+                </label>
+                <label className="flex cursor-pointer items-center justify-between gap-3 border-t border-border px-3.5 py-3">
+                  <span className="space-y-0.5">
+                    <span className="block text-sm font-medium text-foreground">
+                      {t('inventory.lot.trackLot')}
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      {t('inventory.lot.trackLotHint')}
+                    </span>
+                  </span>
+                  <Switch
+                    checked={trackLot}
+                    onCheckedChange={(v) => form.setValue('trackLot', v, { shouldDirty: true })}
+                    aria-label={t('inventory.lot.trackLot')}
                   />
                 </label>
               </div>
@@ -694,6 +777,7 @@ function AdjustDialog({
   const [delta, setDelta] = useState('');
   const [notes, setNotes] = useState('');
   const [deltaError, setDeltaError] = useState<string | null>(null);
+  const [lot, setLot] = useState<LotDraft>(EMPTY_LOT);
 
   const branch = branches.find((b) => b.id === product?.branchId);
   const deltaNum = Number(delta);
@@ -714,6 +798,7 @@ function AdjustDialog({
     setDelta('');
     setNotes('');
     setDeltaError(null);
+    setLot(EMPTY_LOT);
   }
 
   function step(amount: number) {
@@ -730,8 +815,19 @@ function AdjustDialog({
       setDeltaError(t('inventory.deltaInvalid'));
       return;
     }
+    // C5 — ເພີ່ມສະຕັອກສິນຄ້າ trackLot ຕ້ອງບອກ lot; ຫັກອອກ backend ໃຊ້ FEFO ໃຫ້ເອງ.
+    const needsLot = product.trackLot && deltaNum > 0;
+    if (needsLot && !lot.lotNumber.trim()) {
+      setDeltaError(t('inventory.lot.adjustRequired'));
+      return;
+    }
     adjust.mutate(
-      { productId: product.id, delta: deltaNum, notes: notes || undefined },
+      {
+        productId: product.id,
+        delta: deltaNum,
+        notes: notes || undefined,
+        ...(needsLot ? { lot: lotPayload(lot) } : {}),
+      },
       {
         onSuccess: () => {
           toast.success(t('inventory.adjusted'));
@@ -754,7 +850,7 @@ function AdjustDialog({
         }
       }}
     >
-      <DialogContent className="max-w-sm gap-0 overflow-hidden p-0">
+      <DialogContent className="max-w-lg gap-0 overflow-hidden p-0">
         <DialogHeader className="flex-row items-start gap-3 border-b border-border px-6 py-4 pr-12">
           <span
             className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
@@ -853,6 +949,19 @@ function AdjustDialog({
                 </p>
               ) : null}
             </div>
+
+            {product.trackLot && hasValidDelta ? (
+              deltaNum > 0 ? (
+                <div className="space-y-2 rounded-xl border border-border bg-muted/30 p-3">
+                  <p className="text-xs font-medium text-foreground">{t('inventory.lot.adjustAddInto')}</p>
+                  <LotFields value={lot} onChange={setLot} idPrefix="a" />
+                </div>
+              ) : (
+                <p className="rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                  {t('inventory.lot.fefoNote')}
+                </p>
+              )
+            ) : null}
 
             <div className="space-y-1.5">
               <Label htmlFor="a-notes" className="flex items-center gap-1.5">

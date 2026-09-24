@@ -2,6 +2,8 @@ import type { Request, Response } from 'express';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import * as accountService from './account.service.js';
 import * as authService from './auth.service.js';
+import * as passwordReset from './password-reset.service.js';
+import * as twoFactor from './two-factor.service.js';
 
 const ctx = (req: Request) => ({ userAgent: req.headers['user-agent'], ipAddress: req.ip });
 
@@ -72,4 +74,56 @@ export const setOwnPinHandler = asyncHandler(async (req: Request, res: Response)
 
 export const disableOwnPinHandler = asyncHandler(async (req: Request, res: Response) => {
   res.json({ data: await accountService.disableOwnQuickLogin(req.auth!.sub, req.ip) });
+});
+
+// --- 2FA during login (public; carries the mfaToken from /auth/login) ---
+
+export const mfaVerifyHandler = asyncHandler(async (req: Request, res: Response) => {
+  res.json({ data: await twoFactor.verifyLogin(req.body.mfaToken, req.body.code, ctx(req)) });
+});
+
+export const mfaSetupHandler = asyncHandler(async (req: Request, res: Response) => {
+  res.json({ data: await twoFactor.setupDuringLogin(req.body.mfaToken) });
+});
+
+export const mfaActivateHandler = asyncHandler(async (req: Request, res: Response) => {
+  res.json({ data: await twoFactor.activateDuringLogin(req.body.mfaToken, req.body.code, ctx(req)) });
+});
+
+// --- Forgot / reset password (public) ---
+
+export const forgotPasswordHandler = asyncHandler(async (req: Request, res: Response) => {
+  res.json({ data: await passwordReset.requestReset(req.body.phone, ctx(req)) });
+});
+
+export const resetPasswordHandler = asyncHandler(async (req: Request, res: Response) => {
+  res.json({ data: await passwordReset.resetPassword(req.body, ctx(req)) });
+});
+
+// --- /auth/me/2fa/* ---
+
+export const twoFactorStartHandler = asyncHandler(async (req: Request, res: Response) => {
+  res.json({ data: await twoFactor.startSelfSetup(req.auth!.sub, req.body.currentPassword) });
+});
+
+export const twoFactorEnableHandler = asyncHandler(async (req: Request, res: Response) => {
+  res.json({ data: await twoFactor.enableSelf(req.auth!.sub, req.body.code, req.ip) });
+});
+
+export const twoFactorDisableHandler = asyncHandler(async (req: Request, res: Response) => {
+  res.json({ data: await twoFactor.disableSelf(req.auth!.sub, req.body, req.ip) });
+});
+
+export const twoFactorRecoveryHandler = asyncHandler(async (req: Request, res: Response) => {
+  res.json({ data: await twoFactor.regenerateRecoveryCodes(req.auth!.sub, req.body, req.ip) });
+});
+
+// --- /auth/me/preferences ---
+
+export const getPreferencesHandler = asyncHandler(async (req: Request, res: Response) => {
+  res.json({ data: await accountService.getPreferences(req.auth!.sub) });
+});
+
+export const updatePreferencesHandler = asyncHandler(async (req: Request, res: Response) => {
+  res.json({ data: await accountService.updatePreferences(req.auth!.sub, req.body) });
 });

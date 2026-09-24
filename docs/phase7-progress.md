@@ -553,3 +553,17 @@ flow, customer live map). Next: Phase 7C (AI camera / AR / chatbot / SaaS billin
   socket disconnects mid-trip — `usePostLocationPing`/socket reconnect is assumed sufficient for v1.
 - `assignTrip` admin reassignment (7B.1/7B.3) has web-admin UI but no equivalent audit trail beyond the
   existing generic audit log — not revisited, consistent with other admin-mutation modules.
+
+## Map provider switch — Google/Apple Maps → MapLibre + OpenStreetMap (2026-09-24)
+- `react-native-maps` removed; `@maplibre/maplibre-react-native@^10.4.2` added (+ its Expo config plugin
+  in `app.config.ts`, + `@types/geojson` dev dep). Fully Google-free on iOS and Android — the
+  `android.config.googleMaps` block is gone and **`GOOGLE_MAPS_API_KEY` is no longer needed**.
+- `HomeServiceTrackingScreen.tsx` renders an OSM raster style (`MapView mapStyle`), `MarkerView`
+  for stylist/destination, `ShapeSource`+`LineLayer` for the dashed route, `Camera.fitBounds` for recenter.
+  OSM attribution stays visible (licence requirement).
+- Tile URL is config: `EXPO_PUBLIC_MAP_TILE_URL` → `extra.mapTileUrl` → dev default
+  `https://tile.openstreetmap.org/{z}/{x}/{y}.png` (`src/config/env.ts`). **Production must point at a
+  tile provider (MapTiler/Stadia/etc.) or a self-hosted tile server** — the public OSM tile server's
+  usage policy forbids app-scale traffic.
+- Verified: mobile typecheck/lint ✅, test 11 ✅, `expo config --type prebuild --json` resolves the
+  MapLibre plugin. Still owed: a real `eas build` dev-client rebuild (MapLibre is a native module too).

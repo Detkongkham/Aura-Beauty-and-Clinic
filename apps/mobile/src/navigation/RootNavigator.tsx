@@ -7,6 +7,7 @@ import {
 } from '@react-navigation/native';
 import { useMemo, useRef } from 'react';
 import { useAuthBootstrap } from '../features/auth/useAuthBootstrap';
+import { usePreferenceSync } from '../features/auth/preferences';
 import { useAuthStore } from '../store/auth.store';
 import { fonts } from '../theme';
 import { useTheme } from '../theme/ThemeProvider';
@@ -17,6 +18,7 @@ import { StaffNavigator } from './StaffNavigator';
 
 export function RootNavigator(): React.JSX.Element {
   useAuthBootstrap();
+  usePreferenceSync();
   const status = useAuthStore((s) => s.status);
   const role = useAuthStore((s) => s.user?.role);
   const { palette, isDark } = useTheme();

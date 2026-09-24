@@ -40,7 +40,7 @@ export const PASSWORD_MAX_AGE_DAYS = 180;
 export const SESSION_SOFT_LIMIT = 3;
 const DAY_MS = 86_400_000;
 
-export type SecurityCheckKey = 'passwordFresh' | 'sessionsTidy' | 'email' | 'photo';
+export type SecurityCheckKey = 'passwordFresh' | 'twoFactor' | 'sessionsTidy' | 'email' | 'photo';
 
 export interface SecurityCheck {
   key: SecurityCheckKey;
@@ -64,17 +64,18 @@ export function securityChecks(o: AccountOverview, now = Date.now()): SecurityCh
     {
       key: 'passwordFresh',
       ok: passwordAgeDays(o, now) <= PASSWORD_MAX_AGE_DAYS,
-      weight: 40,
+      weight: 35,
       target: 'acc-security',
     },
+    { key: 'twoFactor', ok: Boolean(o.twoFactor?.enabled), weight: 25, target: 'acc-2fa' },
     {
       key: 'sessionsTidy',
       ok: o.stats.activeSessions <= SESSION_SOFT_LIMIT,
-      weight: 25,
+      weight: 20,
       target: 'acc-sessions',
     },
-    { key: 'email', ok: Boolean(o.user.email), weight: 20, target: 'acc-profile' },
-    { key: 'photo', ok: Boolean(o.avatarUrl), weight: 15, target: 'acc-profile' },
+    { key: 'email', ok: Boolean(o.user.email), weight: 12, target: 'acc-profile' },
+    { key: 'photo', ok: Boolean(o.avatarUrl), weight: 8, target: 'acc-profile' },
   ];
 }
 

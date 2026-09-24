@@ -5,9 +5,10 @@ export type NormalizedApiError = {
   code: string;
   message: string;
   status?: number;
+  details?: unknown;
 };
 
-type ErrorEnvelope = { error?: { code?: string; message?: string } };
+type ErrorEnvelope = { error?: { code?: string; message?: string; details?: unknown } };
 
 /** ແປງ error ໃດກໍ່ໄດ້ → { code, message } ທີ່ localize ແລ້ວ. */
 export function normalizeError(err: unknown): NormalizedApiError {
@@ -20,6 +21,7 @@ export function normalizeError(err: unknown): NormalizedApiError {
     return {
       code,
       status,
+      details: body?.error?.details,
       message: translated === key ? body?.error?.message ?? i18n.t('errors.generic') : translated,
     };
   }

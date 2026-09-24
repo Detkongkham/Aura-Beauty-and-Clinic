@@ -32,6 +32,7 @@ async function wipe(): Promise<void> {
     await prisma.stockTransferItem.deleteMany({ where: { productId: { in: pids } } });
     await prisma.stockTransfer.deleteMany({ where: { id: { in: items.map((i) => i.stockTransferId) } } });
     await prisma.stockMovement.deleteMany({ where: { productId: { in: pids } } });
+    await prisma.stockLot.deleteMany({ where: { productId: { in: pids } } });
   }
   const otherBranch = await prisma.branch.findFirst({ where: { name: OTHER_BRANCH_NAME }, select: { id: true } });
   if (otherBranch) {
@@ -197,5 +198,72 @@ describe('Cross-branch stock transfer', () => {
       .delete(`/api/v1/stock-transfers/${draft.body.data.id}`)
       .set(...bearer(superToken));
     expect(del.status).toBe(204);
+  });
+  it('C5 — transfer of a lot-tracked product carries lot number/expiry and moves lot qty across branches', async () => {
+    const lotSku = `${TEST_SKU}-LOT`;
+    const product = await prisma.product.create({
+      data: {
+        branchId: HOME_BRANCH_ID,
+        name: 'ສິນຄ້າ lot ໂອນ',
+        sku: lotSku,
+        unit: 'ຕຸກ',
+        costPrice: '100.00',
+        stockQty: '10',
+        trackLot: true,
+      },
+    });
+    const lot = await prisma.stockLot.create({
+      data: {
+        productId: product.id,
+        branchId: HOME_BRANCH_ID,
+        lotNumber: 'LOT-TRF-1',
+        expiryDate: new Date('2027-06-30'),
+        qtyOnHand: 10,
+        unitCost: 120,
+      },
+    });
+
+    // trackLot ແຕ່ບໍ່ເລືອກ lot → 400
+    const noLot = await request(app)
+      .post('/api/v1/stock-transfers')
+      .set(...bearer(superToken))
+      .send({ fromBranchId: HOME_BRANCH_ID, toBranchId: otherBranchId, items: [{ productId: product.id, quantity: 4 }] });
+    expect(noLot.status).toBe(400);
+
+    const created = await request(app)
+      .post('/api/v1/stock-transfers')
+      .set(...bearer(superToken))
+      .send({
+        fromBranchId: HOME_BRANCH_ID,
+        toBranchId: otherBranchId,
+        items: [{ productId: product.id, quantity: 4, lotId: lot.id }],
+      });
+    expect(created.status).toBe(201);
+    expect(created.body.data.items[0].lotNumber).toBe('LOT-TRF-1');
+    expect(created.body.data.items[0].expiryDate).toBe('2027-06-30');
+    const transferId = created.body.data.id as string;
+
+    expect(
+      (await request(app).post(`/api/v1/stock-transfers/${transferId}/send`).set(...bearer(superToken))).status,
+    ).toBe(200);
+    const srcLot = await prisma.stockLot.findUniqueOrThrow({ where: { id: lot.id } });
+    expect(srcLot.qtyOnHand.toNumber()).toBe(6);
+
+    expect(
+      (await request(app).post(`/api/v1/stock-transfers/${transferId}/receive`).set(...bearer(superToken))).status,
+    ).toBe(200);
+    const dest = await prisma.product.findFirstOrThrow({
+      where: { branchId: otherBranchId, sku: lotSku, deletedAt: null },
+    });
+    expect(dest.trackLot).toBe(true);
+    const destLot = await prisma.stockLot.findFirstOrThrow({
+      where: { productId: dest.id, branchId: otherBranchId, lotNumber: 'LOT-TRF-1' },
+    });
+    expect(destLot.qtyOnHand.toNumber()).toBe(4);
+    expect(destLot.expiryDate?.toISOString().slice(0, 10)).toBe('2027-06-30');
+    const inMove = await prisma.stockMovement.findFirst({
+      where: { productId: dest.id, type: 'TRANSFER_IN', lotId: destLot.id },
+    });
+    expect(inMove).not.toBeNull();
   });
 });

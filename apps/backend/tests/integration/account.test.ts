@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
+import type { AuthResponse } from '@abcp/shared-types';
 import { createApp } from '../../src/app.js';
 import { prisma } from '../../src/config/database.js';
 import * as authService from '../../src/modules/auth/auth.service.js';
@@ -25,7 +26,7 @@ describe('account console', () => {
   let userId: string;
 
   const login = (ua: string, password = PASSWORD) =>
-    authService.login({ phone: PHONE, password }, { userAgent: ua });
+    authService.login({ phone: PHONE, password }, { userAgent: ua }) as Promise<AuthResponse>;
   const refreshFails = (refreshToken: string) =>
     expect(authService.refresh(refreshToken)).rejects.toMatchObject({ code: 'TOKEN_INVALID' });
 

@@ -14,6 +14,10 @@ const envSchema = z.object({
   JWT_REFRESH_SECRET: z.string().min(8),
   JWT_ACCESS_TTL: z.coerce.number().int().positive().default(900),
   JWT_REFRESH_TTL: z.coerce.number().int().positive().default(60 * 60 * 24 * 14),
+  /** ກະແຈເຂົ້າລະຫັດ TOTP secret (2FA) — ບໍ່ຕັ້ງ = ໃຊ້ JWT_REFRESH_SECRET (ປ່ຽນ JWT secret ແລ້ວ 2FA ຕ້ອງຕັ້ງໃໝ່). */
+  TWO_FACTOR_ENC_KEY: z.string().min(16).optional(),
+  /** ຊື່ທີ່ສະແດງໃນແອັບ authenticator. */
+  TWO_FACTOR_ISSUER: z.string().default('Aura Clinic'),
 
   STORAGE_DRIVER: z.enum(['local']).default('local'),
   STORAGE_LOCAL_DIR: z.string().default('./uploads'),

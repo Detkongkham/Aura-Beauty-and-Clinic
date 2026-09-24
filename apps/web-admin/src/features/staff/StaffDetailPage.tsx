@@ -7,6 +7,7 @@ import {
   Mail,
   Percent,
   Phone,
+  ShieldCheck,
   Sparkles,
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -27,6 +28,7 @@ import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { ROUTES } from '@/router/paths';
 import type { WorkingHour } from '@/types/models';
+import { UserSecurityDialog } from '@/features/users/UserSecurityDialog';
 
 import { SegmentMeter, StaffMetricCard, WeekRibbon } from './StaffMetricCard';
 import { useStaffMember, useUpdateStaff } from './staff.api';
@@ -47,6 +49,7 @@ export function StaffDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { hasPermission } = useAuth();
   const canManage = hasPermission('staff:manage');
+  const [securityOpen, setSecurityOpen] = useState(false);
 
   const { data, isLoading, isError } = useStaffMember(id);
   const update = useUpdateStaff(id ?? '');
@@ -165,6 +168,13 @@ export function StaffDetailPage() {
               </Badge>
 
               {canManage ? (
+                <Button variant="secondary" size="sm" onClick={() => setSecurityOpen(true)}>
+                  <ShieldCheck aria-hidden="true" />
+                  <span className="hidden sm:inline">{t('userSecurity.open')}</span>
+                </Button>
+              ) : null}
+
+              {canManage ? (
                 <div className="flex items-center gap-3">
                   <span
                     className={`hidden text-xs text-muted-foreground sm:inline ${
@@ -181,6 +191,13 @@ export function StaffDetailPage() {
               ) : null}
             </div>
           </StickyPageHeader>
+
+          <UserSecurityDialog
+            userId={data.userId}
+            name={data.name}
+            open={securityOpen}
+            onClose={() => setSecurityOpen(false)}
+          />
 
           <div className="mt-8 space-y-5">
             <div className="grid gap-4 sm:grid-cols-3">

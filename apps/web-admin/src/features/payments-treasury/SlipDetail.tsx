@@ -29,7 +29,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
-import type { PaymentSlipDetail, PaymentSlipView, SlipRef, SlipRejectCode } from '@abcp/shared-types';
+import type {
+  PaymentSlipDetail,
+  PaymentSlipView,
+  SlipRef,
+  SlipRejectCode,
+} from '@abcp/shared-types';
 
 import { CurrencyText } from '@/components/shared';
 import { Button } from '@/components/ui/button';
@@ -531,19 +536,34 @@ export function SlipDetail({
           />
         ) : null}
         {s.infoRequestedAt && isReviewable(s) ? (
-          <div className="flex items-start gap-3 border-b border-border bg-warning-soft/50 px-4 py-2.5" role="status">
-            <MessageCircleQuestion className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+          <div
+            className="flex items-start gap-3 border-b border-border bg-warning-soft/50 px-4 py-2.5"
+            role="status"
+          >
+            <MessageCircleQuestion
+              className="mt-0.5 h-4 w-4 shrink-0 text-warning"
+              aria-hidden="true"
+            />
             <div className="min-w-0 text-xs">
               <p className="font-semibold">
-                {t('payTreasury.slips.ask.waiting', { ago: formatRelative(s.infoRequestedAt, lang) })}
+                {t('payTreasury.slips.ask.waiting', {
+                  ago: formatRelative(s.infoRequestedAt, lang),
+                })}
               </p>
-              {s.infoRequestNote ? <p className="text-muted-foreground">“{s.infoRequestNote}”</p> : null}
+              {s.infoRequestNote ? (
+                <p className="text-muted-foreground">“{s.infoRequestNote}”</p>
+              ) : null}
             </div>
           </div>
         ) : null}
 
         <div className="space-y-4 p-4">
-          <RiskCard slip={s} nearDuplicateOf={detail?.nearDuplicateOf ?? null} onOpenSlip={onOpenSlip} lang={lang} />
+          <RiskCard
+            slip={s}
+            nearDuplicateOf={detail?.nearDuplicateOf ?? null}
+            onOpenSlip={onOpenSlip}
+            lang={lang}
+          />
           <div className="grid gap-4 sm:grid-cols-[minmax(0,240px)_1fr] 2xl:grid-cols-[minmax(0,300px)_1fr]">
             <div className="min-w-0 space-y-2">
               <SlipImageViewer src={s.imageUrl} slipId={s.id} zoomSignal={zoomSignal} />
@@ -1067,7 +1087,9 @@ export function SlipDetail({
                 <TimelineItem
                   icon={Undo2}
                   tone="danger"
-                  title={t('payTreasury.slips.timeline.reversedBy', { name: s.reversedByName ?? '—' })}
+                  title={t('payTreasury.slips.timeline.reversedBy', {
+                    name: s.reversedByName ?? '—',
+                  })}
                   at={s.reversedAt}
                   body={s.reverseReason ?? undefined}
                 />
@@ -1083,7 +1105,9 @@ export function SlipDetail({
           <p className="text-2xs text-muted-foreground">
             {s.reversal.allowed
               ? t('payTreasury.slips.reverse.available')
-              : t(`payTreasury.slips.reverse.blocked.${s.reversal.blockedReason ?? 'NOT_APPROVED'}`)}
+              : t(
+                  `payTreasury.slips.reverse.blocked.${s.reversal.blockedReason ?? 'NOT_APPROVED'}`,
+                )}
           </p>
           <Button
             variant="secondary"

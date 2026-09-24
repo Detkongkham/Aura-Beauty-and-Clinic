@@ -5,6 +5,8 @@ const BROWSERS: Array<[RegExp, string]> = [
   [/CriOS\//, 'Chrome'],
   [/Firefox\//, 'Firefox'],
   [/Version\/.*Safari\//, 'Safari'],
+  // React Native / Expo HTTP stacks — the Aura mobile app.
+  [/okhttp|CFNetwork|Expo/i, 'App'],
 ];
 
 const PLATFORMS: Array<[RegExp, string]> = [
@@ -13,6 +15,8 @@ const PLATFORMS: Array<[RegExp, string]> = [
   [/Android/, 'Android'],
   [/iPhone|iPad|iPod/, 'iOS'],
   [/Linux/, 'Linux'],
+  [/okhttp/i, 'Android'],
+  [/CFNetwork|Darwin/, 'iOS'],
 ];
 
 /** Short "Browser • OS" label for a login's User-Agent header — no external dependency. */

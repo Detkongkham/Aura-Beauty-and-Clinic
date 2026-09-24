@@ -20,6 +20,7 @@ export const QueueName = {
   RECURRING_EXPENSE: 'recurring-expense',
   RECON_REMINDER: 'recon-reminder',
   SLIP_SLA: 'slip-sla',
+  LOT_EXPIRY: 'lot-expiry',
 } as const;
 
 export type ReminderJobData = { appointmentId?: string };
@@ -38,6 +39,7 @@ export type SlipOcrJobData = { slipId: string };
 export type RecurringExpenseJobData = Record<string, never>;
 export type ReconReminderJobData = Record<string, never>;
 export type SlipSlaJobData = Record<string, never>;
+export type LotExpiryJobData = Record<string, never>;
 
 const defaultJobOptions = {
   attempts: 3,
@@ -106,6 +108,12 @@ export const slipSlaQueue = new Queue<SlipSlaJobData>(QueueName.SLIP_SLA, {
   defaultJobOptions,
 });
 
+/** C5 — ແຈ້ງເຕືອນ lot ສິນຄ້າໃກ້/ໝົດອາຍຸ ທຸກເຊົ້າ. */
+export const lotExpiryQueue = new Queue<LotExpiryJobData>(QueueName.LOT_EXPIRY, {
+  connection,
+  defaultJobOptions,
+});
+
 export const allQueues = [
   reminderQueue,
   waitlistQueue,
@@ -117,6 +125,7 @@ export const allQueues = [
   recurringExpenseQueue,
   reconReminderQueue,
   slipSlaQueue,
+  lotExpiryQueue,
 ];
 
 /**
@@ -172,8 +181,14 @@ export async function registerRepeatableJobs(): Promise<void> {
     );
     // Module 39 S4 — ທຸກ 5 ນາທີ: ສະລິບທີ່ລໍເກີນ SLA ຂອງສາຂາ → ແຈ້ງຜູ້ຈັດການ.
     await slipSlaQueue.add('sweep', {}, { repeat: { pattern: '*/5 * * * *' }, jobId: 'slip-sla-sweep' });
+    // C5 — 08:30 ເວລາວຽງຈັນ (ຫຼັງ marketing 08:00, ກ່ອນ recon reminder 09:00): lot ໃກ້ໝົດອາຍຸ ≤ 60 ວັນ.
+    await lotExpiryQueue.add(
+      'daily',
+      {},
+      { repeat: { pattern: '30 8 * * *', tz: 'Asia/Vientiane' }, jobId: 'lot-expiry-daily' },
+    );
     logger.info(
-      '🔁 repeatable jobs ລົງທະບຽນແລ້ວ (reminder sweep, marketing daily, chat-lock daily, home-service SLA sweep, stock reconcile nightly, payment expiry sweep, recurring expense daily, recon reminder daily, slip SLA sweep)',
+      '🔁 repeatable jobs ລົງທະບຽນແລ້ວ (reminder sweep, marketing daily, chat-lock daily, home-service SLA sweep, stock reconcile nightly, payment expiry sweep, recurring expense daily, recon reminder daily, slip SLA sweep, lot expiry daily)',
     );
   } catch (err) {
     logger.warn({ err }, 'ລົງທະບຽນ repeatable jobs ບໍ່ສຳເລັດ (Redis?)');

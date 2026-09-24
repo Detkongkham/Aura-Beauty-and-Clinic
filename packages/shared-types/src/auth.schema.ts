@@ -164,7 +164,168 @@ export interface AccountOverview {
   role: { name: string; color: string; icon: string } | null;
   staff: { title: string } | null;
   /** ນະໂຍບາຍຈາກ Settings ▸ Security. */
-  policy: { minPasswordLength: number; sessionTimeoutMinutes: number };
+  policy: { minPasswordLength: number; sessionTimeoutMinutes: number; require2fa: boolean };
+  /** Authenticator-app 2FA. Optional so older payloads still parse. */
+  twoFactor?: TwoFactorStatus;
   stats: { activeSessions: number; actions30d: number; lastActionAt: string | null };
   currentSessionId: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Account security (2026-09-24) — 2FA (TOTP), lockout, password reset, preferences,
+// admin view of another user's sessions.
+// ---------------------------------------------------------------------------
+
+/** 6-digit TOTP code or an `XXXX-XXXX` recovery code (dash / spaces optional). */
+export const twoFactorCodeSchema = z
+  .string()
+  .trim()
+  .transform((v) => v.replace(/[\s-]/g, '').toUpperCase())
+  .refine((v) => /^\d{6}$/.test(v) || /^[A-Z0-9]{8}$/.test(v), 'ລະຫັດບໍ່ຖືກຕ້ອງ');
+
+/**
+ * POST /auth/login (and /auth/quick-login) when a second step is needed. No tokens yet —
+ * `mfaToken` is a 5-minute ticket for POST /auth/2fa/verify (mode `verify`) or the
+ * /auth/2fa/setup → /auth/2fa/activate enrolment (mode `setup`, when Settings ▸ require2fa
+ * applies to the account and it has no authenticator yet).
+ */
+export interface MfaChallenge {
+  mfaRequired: true;
+  mode: 'verify' | 'setup';
+  mfaToken: string;
+  expiresIn: number;
+}
+export type LoginResult = AuthResponse | MfaChallenge;
+
+export function isMfaChallenge(res: LoginResult): res is MfaChallenge {
+  return (res as MfaChallenge).mfaRequired === true;
+}
+
+export const mfaTokenSchema = z.object({ mfaToken: z.string().min(10) });
+export const mfaVerifySchema = z.object({ mfaToken: z.string().min(10), code: twoFactorCodeSchema });
+export type MfaVerifyInput = z.infer<typeof mfaVerifySchema>;
+
+/** Secret shown once while enrolling — `otpauthUrl` goes into a QR code. */
+export interface TwoFactorSetup {
+  secret: string;
+  otpauthUrl: string;
+}
+
+/** Enrolment finished (login flow) — tokens plus the one-time recovery codes. */
+export interface MfaActivateResult extends AuthResponse {
+  recoveryCodes: string[];
+}
+
+export const startTwoFactorSchema = z.object({ currentPassword: z.string().min(1) });
+export const enableTwoFactorSchema = z.object({ code: twoFactorCodeSchema });
+export const disableTwoFactorSchema = z.object({
+  currentPassword: z.string().min(1),
+  code: twoFactorCodeSchema,
+});
+export type DisableTwoFactorInput = z.infer<typeof disableTwoFactorSchema>;
+
+export interface TwoFactorStatus {
+  enabled: boolean;
+  enabledAt: string | null;
+  recoveryCodesLeft: number;
+  /** Settings ▸ require2fa applies to this role — disabling is refused. */
+  required: boolean;
+}
+
+// --- Forgot / reset password -------------------------------------------------
+
+export const forgotPasswordSchema = z.object({ phone: phoneSchema });
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+
+export const resetPasswordSchema = z.object({
+  phone: phoneSchema,
+  /** 6-digit code (SMS / e-mail) or 8-digit code issued by an admin. */
+  code: z.string().trim().regex(/^\d{6,8}$/, 'ລະຫັດບໍ່ຖືກຕ້ອງ'),
+  newPassword: passwordSchema,
+});
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
+
+export interface ForgotPasswordResult {
+  /** Always true — whether the phone exists is never revealed. */
+  accepted: true;
+  expiresInMinutes: number;
+}
+
+export interface IssuedResetCode {
+  code: string;
+  expiresAt: string;
+}
+
+// --- Personal preferences (server-synced) ------------------------------------
+
+/** Notification sources a user can mute; `security` is always delivered. */
+export const NOTIFICATION_PREF_MODULES = [
+  'appointments',
+  'waitlist',
+  'homeService',
+  'staff',
+  'inventory',
+  'payments',
+  'giftCards',
+  'loyalty',
+  'marketing',
+  'system',
+] as const;
+export type NotificationPrefModule = (typeof NOTIFICATION_PREF_MODULES)[number];
+
+export const notificationChannelPrefSchema = z.object({
+  inbox: z.boolean().optional(),
+  push: z.boolean().optional(),
+});
+
+export const userPreferencesSchema = z.object({
+  language: z.enum(['lo', 'en']).optional(),
+  colorMode: z.enum(['light', 'dark', 'system']).optional(),
+  /** web-admin brand tone (azure / teal / indigo / cobalt). */
+  webTheme: z.string().max(20).optional(),
+  tableDensity: z.enum(['standard', 'compact']).optional(),
+  /** mobile tone preset. */
+  mobileTone: z.string().max(20).optional(),
+  notifications: z
+    .object(
+      Object.fromEntries(NOTIFICATION_PREF_MODULES.map((m) => [m, notificationChannelPrefSchema.optional()])) as Record<
+        NotificationPrefModule,
+        z.ZodOptional<typeof notificationChannelPrefSchema>
+      >,
+    )
+    .optional(),
+});
+export type UserPreferences = z.infer<typeof userPreferencesSchema>;
+
+export interface UserPreferencesResponse {
+  preferences: UserPreferences;
+  policy: { sessionTimeoutMinutes: number; require2fa: boolean };
+}
+
+// --- Admin: another user's security -----------------------------------------
+
+export interface AdminSession extends Omit<AccountSession, 'isCurrent'> {
+  revokedAt: string | null;
+  revokedReason: string | null;
+}
+
+export interface FailedLoginItem {
+  id: string;
+  createdAt: string;
+  ipAddress: string | null;
+  reason: string | null;
+  device: string | null;
+}
+
+export interface UserSecurityView {
+  userId: string;
+  name: string;
+  role: string;
+  isActive: boolean;
+  twoFactorEnabled: boolean;
+  lockedUntil: string | null;
+  failedLoginCount: number;
+  lastLoginAt: string | null;
+  sessions: AdminSession[];
+  recentFailures: FailedLoginItem[];
 }

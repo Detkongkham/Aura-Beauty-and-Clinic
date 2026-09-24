@@ -5,14 +5,19 @@ import type {
   AccountSession,
   AccountSessionMethod,
   SetOwnQuickLoginPinInput,
+  UserPreferences,
+  UserPreferencesResponse,
 } from '@abcp/shared-types';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import { ErrorCode } from '../../constants/errorCodes.js';
 import { ApiError } from '../../utils/ApiError.js';
 import { hashPassword, verifyPassword } from '../../utils/password.js';
 import { getSettings } from '../settings/settings.service.js';
 import { toAuthUser } from './auth.service.js';
-import { activeSessionWhere, deviceKind, writeAccountAudit } from './sessions.js';
+import { revokeAllSessions } from './security.js';
+import { activeSessionWhere, deviceKind, revokeSessionById, writeAccountAudit } from './sessions.js';
+import * as twoFactor from './two-factor.service.js';
 
 /**
  * Web-admin /account — everything a signed-in user can see or change about their *own*
@@ -32,7 +37,7 @@ async function loadUser(userId: string) {
 export async function overview(userId: string, currentSid?: string): Promise<AccountOverview> {
   const user = await loadUser(userId);
   const since = new Date(Date.now() - 30 * DAY_MS);
-  const [authUser, branch, role, staff, settings, activeSessions, actions30d, lastAction] = await Promise.all([
+  const [authUser, branch, role, staff, settings, activeSessions, actions30d, lastAction, twoFactorStatus] = await Promise.all([
     toAuthUser(user),
     user.branchId
       ? prisma.branch.findUnique({ where: { id: user.branchId }, select: { id: true, name: true } })
@@ -45,6 +50,7 @@ export async function overview(userId: string, currentSid?: string): Promise<Acc
     prisma.userSession.count({ where: activeSessionWhere(userId) }),
     prisma.auditLog.count({ where: { userId, createdAt: { gte: since } } }),
     prisma.auditLog.findFirst({ where: { userId }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } }),
+    twoFactor.status(user),
   ]);
 
   return {
@@ -65,7 +71,9 @@ export async function overview(userId: string, currentSid?: string): Promise<Acc
     policy: {
       minPasswordLength: settings.minPasswordLength,
       sessionTimeoutMinutes: settings.sessionTimeoutMinutes,
+      require2fa: settings.require2fa,
     },
+    twoFactor: twoFactorStatus,
     stats: {
       activeSessions,
       actions30d,
@@ -104,11 +112,8 @@ export async function revokeSession(
   sessionId: string,
   ipAddress?: string,
 ): Promise<{ success: true }> {
-  const res = await prisma.userSession.updateMany({
-    where: { id: sessionId, userId, revokedAt: null },
-    data: { revokedAt: new Date() },
-  });
-  if (res.count === 0) throw ApiError.notFound('ບໍ່ພົບເຊດຊັນ');
+  const count = await revokeSessionById(sessionId, 'USER', userId);
+  if (count === 0) throw ApiError.notFound('ບໍ່ພົບເຊດຊັນ');
   const user = await loadUser(userId);
   writeAccountAudit(user, 'auth.session_revoked', { sessionId }, ipAddress);
   return { success: true };
@@ -120,15 +125,12 @@ export async function revokeOtherSessions(
   currentSid?: string,
   ipAddress?: string,
 ): Promise<{ revoked: number }> {
-  const res = await prisma.userSession.updateMany({
-    where: { userId, revokedAt: null, ...(currentSid ? { id: { not: currentSid } } : {}) },
-    data: { revokedAt: new Date() },
-  });
-  if (res.count > 0) {
+  const revoked = await revokeAllSessions(userId, 'OTHERS', currentSid);
+  if (revoked > 0) {
     const user = await loadUser(userId);
-    writeAccountAudit(user, 'auth.sessions_revoked', { revoked: res.count }, ipAddress);
+    writeAccountAudit(user, 'auth.sessions_revoked', { revoked }, ipAddress);
   }
-  return { revoked: res.count };
+  return { revoked };
 }
 
 /** GET /auth/me/activity — the caller's own audit trail, keyset-paged by `createdAt`. */
@@ -183,4 +185,32 @@ export async function disableOwnQuickLogin(userId: string, ipAddress?: string): 
   });
   if (user.quickLoginEnabled) writeAccountAudit(user, 'auth.pin_removed', undefined, ipAddress);
   return { enabled: false };
+}
+
+// --- Personal preferences (synced across devices) -------------------------------
+
+/** GET /auth/me/preferences — plus the two policy values clients act on (idle logout, 2FA). */
+export async function getPreferences(userId: string): Promise<UserPreferencesResponse> {
+  const [user, settings] = await Promise.all([loadUser(userId), getSettings()]);
+  return {
+    preferences: (user.preferences as UserPreferences | null) ?? {},
+    policy: { sessionTimeoutMinutes: settings.sessionTimeoutMinutes, require2fa: settings.require2fa },
+  };
+}
+
+/** PATCH /auth/me/preferences — shallow merge; `notifications` merges per module. */
+export async function updatePreferences(userId: string, patch: UserPreferences): Promise<UserPreferencesResponse> {
+  const user = await loadUser(userId);
+  const current = (user.preferences as UserPreferences | null) ?? {};
+  const notifications = patch.notifications
+    ? Object.fromEntries(
+        Object.entries({ ...current.notifications, ...patch.notifications }).map(([k, v]) => [
+          k,
+          { ...current.notifications?.[k as keyof typeof current.notifications], ...v },
+        ]),
+      )
+    : current.notifications;
+  const next: UserPreferences = { ...current, ...patch, ...(notifications ? { notifications } : {}) };
+  await prisma.user.update({ where: { id: userId }, data: { preferences: next as Prisma.InputJsonValue } });
+  return getPreferences(userId);
 }

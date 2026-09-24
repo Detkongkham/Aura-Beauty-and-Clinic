@@ -9,6 +9,7 @@ const extra = (Constants.expoConfig?.extra ?? {}) as Record<string, unknown>;
 
 const schema = z.object({
   apiBaseUrl: z.string().url(),
+  mapTileUrl: z.string().includes('{z}'),
 });
 
 const parsed = schema.safeParse({
@@ -16,6 +17,11 @@ const parsed = schema.safeParse({
     process.env.EXPO_PUBLIC_API_BASE_URL ??
     extra.apiBaseUrl ??
     'http://localhost:4000/api/v1',
+  // tile.openstreetmap.org ໃຊ້ໄດ້ສະເພາະ dev — production ຕ້ອງຊີ້ໄປ tile provider/self-host (OSM tile usage policy).
+  mapTileUrl:
+    process.env.EXPO_PUBLIC_MAP_TILE_URL ??
+    extra.mapTileUrl ??
+    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
 });
 
 if (!parsed.success) {
@@ -25,6 +31,7 @@ if (!parsed.success) {
 
 export const env = {
   apiBaseUrl: parsed.data.apiBaseUrl,
+  mapTileUrl: parsed.data.mapTileUrl,
 } as const;
 
 /** ສາຂາ default (Phase 3 = 1 ສາຂາ, ຈາກ seed). BranchSwitcher = Phase 5. */

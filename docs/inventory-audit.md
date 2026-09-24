@@ -167,6 +167,8 @@ model ProductStock {       // ຍອດຄົງເຫຼືອ ຕໍ່ສາ�
 
 ### C5. ບໍ່ມີ Lot / Batch / ວັນໝົດອາຍຸ — ຜິດມາດຕະຖານເຄື່ອງສຳອາງ & ຄລີນິກ
 
+> ✅ **FIXED 2026-09-24 (ຄື້ນ 9C)** — ລາຍລະອຽດ + ຂໍ້ແຕກຕ່າງຈາກ sketch ຂ້າງລຸ່ມ ໃນຫົວຂໍ້ "ຄື້ນ 9C".
+
 ທຸລະກິດນີ້ (ຮ້ານເສີມສວຍ + ຄລີນິກຜິວໜັງ) ໃຊ້ **ເຄື່ອງສຳອາງ, ນ້ຳຢາເຄມີ, ຢາສີດ/filler**
 ຊຶ່ງທັງ **ASEAN Cosmetic Directive** ແລະ **GMP** ບັງຄັບໃຫ້ສືບຍ້ອນ lot ໄດ້. ປັດຈຸບັນ:
 - ບໍ່ມີ model ໃດເກັບ lot number / ວັນໝົດອາຍຸ / ວັນຜະລິດ
@@ -406,8 +408,19 @@ UI ຕ້ອງສະແດງ 3 ຕົວເລກ ບໍ່ແມ່ນຕົ�
   product data ໃນ mock ໃຫ້ເບິ່ງແຖວທີ່ມີ badge ຈິງ — layout/tone/motion ຢືນຢັນຜ່ານ empty-state + toggle state.
 
 ### 🟠 ຄື້ນ 9B — ບັນຊີ & ການຄວບຄຸມພາຍໃນ (2–3 ອາທິດ)
-1. C4 — WAC costing: `avgCost`, `StockMovement.unitCost/valueChange`, ອັບເດດຕອນຮັບເຄື່ອງ
-2. C4b — COGS ຕໍ່ນັດໝາຍ → ຕໍ່ເຂົ້າ finance/dashboard (ກຳໄລຕໍ່ບໍລິການທີ່ແທ້ຈິງ)
+1. ✅ **C4 — WAC costing — DONE 2026-09-24.** `Product.costPrice` ຕອນນີ້ເປັນ WAC ຂະຫຍາຍເປັນ
+   `Decimal(16,4)` (ຈາກ 2dp) ອັບເດດອັດຕະໂນມັດຕອນຮັບເຄື່ອງ (`receivePurchaseOrder`/`receiveStockTransfer`)
+   ດ້ວຍສູດ `wacAfterReceipt()` ໃນ `inventory.service.ts`; `StockMovement` ເພີ່ມ `unitCost Decimal(16,4)?`
+   + `valueChange Decimal(16,2)?` ໃຫ້ທຸກປະເພດການເໜັງຕີງ (ບວກ=ຮັບເຂົ້າ ณ ຕົ້ນທຶນຮັບ, ລົບ=ຕັດອອກ/COGS
+   ณ WAC *ກ່ອນ* ຕັດ) — ໄດ້ valued ledger ຢ່າງແທ້ຈິງ, ບໍ່ backfill ແຖວເກົ່າ (null). ການປັບດ້ວຍມື
+   (`adjustStock`) ແລະ ໂອນອອກ (`sendStockTransfer`) ບັນທຶກ unitCost/valueChange ນຳແຕ່ **ບໍ່**ປ່ຽນ WAC.
+   Migration `20260924120000_inventory_wac_costing` (additive: widen costPrice ເປັນ 4dp + ເພີ່ມ 2 ຖັນ
+   nullable ໃນ stock_movements) ຖືກ apply ແລ້ວທັງ dev ແລະ test DB ໂດຍບໍ່ reset ຂໍ້ມູນ.
+2. ✅ **C4b — COGS summary — DONE 2026-09-24.** `getCogsSummary()` + `GET /stock-movements/cogs-summary`
+   (sum `valueChange` ຂອງ `SERVICE_CONSUMED` ຕໍ່ສາຂາ/ຊ່ວງວັນທີ) — ພ້ອມໃຫ້ Finance/Dashboard ເອົາໄປທຽບ
+   ກັບລາຍຮັບໃນຮອບຕໍ່ໄປ. ໜ້າ Inventory ▸ Products ເພີ່ມ stat card "ຕົ້ນທຶນສິນຄ້າທີ່ໃຊ້ (COGS)" ຂອງ
+   ເດືອນນີ້; ໜ້າ Stock Ledger ເພີ່ມ 2 ຖັນ "ຕົ້ນທຶນ/ໜ່ວຍ" + "ມູນຄ່າ" (signed, ສີຂຽວ/ແດງ). ບໍ່ໄດ້ຜູກ COGS
+   ເຂົ້າ `finance.prisma`/P&L ໂດຍກົງ ในຮອບນີ້ (ຢູ່ນອກຂອບເຂດ — ອອກແບບເປັນ endpoint ອ່ານໄດ້ອິດສະຫຼະໄວ້ກ່ອນ)
 3. H2 — reason code + maker-checker + ແນບຮູບ
 4. H3 — Stock-take / cycle count ຄົບວົງຈອນ (backend + web-admin)
 5. M5 — PO number ແບບ sequential ຕໍ່ສາຂາ/ປີ
@@ -416,7 +429,27 @@ UI ຕ້ອງສະແດງ 3 ຕົວເລກ ບໍ່ແມ່ນຕົ�
 > **ຜົນ:** ຜ່ານການກວດສອບບັນຊີ ແລະ IAS 2 ໃນລະດັບພື້ນຖານ
 
 ### 🟡 ຄື້ນ 9C — ການສືບຍ້ອນ & ຄວາມປອດໄພຜະລິດຕະພັນ (2–3 ອາທິດ)
-1. C5 — `StockLot`, ວັນໝົດອາຍຸ, FEFO, ແຈ້ງເຕືອນໃກ້ໝົດອາຍຸ
+1. ✅ **C5 — Lot / ວັນໝົດອາຍຸ / FEFO / recall — DONE 2026-09-24.** Migration
+   `20260924140000_inventory_lot_tracking` (additive: `stock_lots`, `Product.trackLot`,
+   `StockMovement.lotId`, lot fields ໃນ `PurchaseOrderItem` + `StockTransferItem`; apply ແລ້ວທັງ dev ແລະ test DB).
+   - **trackLot ເປັນ opt-in ຕໍ່ສິນຄ້າ** (toggle ໃນຟອມສິນຄ້າ; ປິດບໍ່ໄດ້ຖ້າ lot ຍັງມີຂອງ). ຮັບເຄື່ອງສິນຄ້າ trackLot
+     ໂດຍບໍ່ມີເລກ lot → 400. lot ເລກດຽວກັນມາຊ້ຳ = ບວກຈຳນວນ + ສະເລ່ຍຕົ້ນທຶນຖ່ວງນ້ຳໜັກ; ວັນໝົດອາຍຸຂັດກັນ → 409.
+   - **FEFO** (`deductStock` ໃນ `inventory.service.ts`): `consumeServiceStock` ແລະ `ADJUSTMENT_DEDUCT` ຍ່າງ lot
+     `expiryDate ASC NULLS LAST, receivedAt ASC`, ໜຶ່ງແຖວ ledger ຕໍ່ lot (`lotId`, `unitCost` = ຕົ້ນທຶນຂອງ lot).
+     ສ່ວນທີ່ lot ບໍ່ຄອບຄຸມ (ສະຕັອກເກົ່າກ່ອນເປີດ trackLot / ຕິດລົບທີ່ສາຂາອະນຸຍາດ) ຕັດເປັນແຖວ `lotId = null` ຕາມ WAC;
+     ການກວດ negative-stock ຍັງເປັນລະດັບສິນຄ້າ (C2 ບໍ່ປ່ຽນ). idempotency ຍັງກວດຕາມ (productId, refId).
+   - **Recall**: `GET /stock-lots/:id/usage` (`getLotUsage`) → ນັດໝາຍ + ລູກຄ້າ (ຊື່/ເບີ) ທີ່ໃຊ້ lot ນັ້ນ + ການໂອນອອກ
+     ໄປສາຂາອື່ນ. `GET /stock-lots?productId&branchId&expiringWithinDays&includeEmpty` (admin ເທົ່ານັ້ນ, BRANCH_ADMIN ຖືກ scope).
+   - **Job** `lot-expiry.job.ts` ທຸກມື້ 08:30 (Asia/Vientiane) → `NotificationLog` (type `stock_lot_expiry`) ຫາ
+     SUPER_ADMIN + BRANCH_ADMIN ຂອງສາຂາ; ແຈ້ງເມື່ອຂ້າມຂັ້ນ 60/30/7 ວັນ/ໝົດອາຍຸ ເທື່ອລະຄັ້ງ (dedupeKey ມີຂັ້ນ).
+   - **Web-admin**: toggle trackLot, lot ຂອງຍອດເປີດ/ປັບເພີ່ມ, ຟອມ lot ຕອນ receive PO, ເລືອກ lot ຕອນໂອນ,
+     ກາດ "ໃກ້ໝົດອາຍຸ" (pattern ຂອງ giftcards `ExpiryWatchCard`) + dialog recall, ຖັນ Lot ໃນ Stock Ledger.
+   - **ຂໍ້ແຕກຕ່າງຈາກ sketch ເດີມ**: (1) ເລກ lot ບັງຄັບຕອນ *receive* ບໍ່ແມ່ນຕອນສ້າງ PO (PO item ມີ lot fields
+     ແບບ optional ເປັນ prefill; body ຂອງ `/receive` ທັບໄດ້) ເພາະເລກ lot ມັກຮູ້ຕອນເຄື່ອງມາຮອດ. (2) ການໂອນຂ້າມສາຂາ:
+     ຜູ້ໃຊ້ເລືອກ lot ຕົ້ນທາງເອງ (ບໍ່ FEFO) — ລາຍການໂອນ = 1 ສິນຄ້າ = 1 lot; ປາຍທາງເປີດ trackLot ອັດຕະໂນມັດ.
+     (3) `ADJUSTMENT_ADD` ໃນສິນຄ້າ trackLot ຕ້ອງລະບຸ lot; `ADJUSTMENT_DEDUCT` ໃຊ້ FEFO (ບໍ່ມີ pick lot ດ້ວຍມື).
+     (4) ບໍ່ backfill lot ໃຫ້ສະຕັອກເກົ່າ; Σ `qtyOnHand` ຂອງ lot ອາດ < `stockQty` ໄດ້ (ສ່ວນຕ່າງ = ສະຕັອກບໍ່ມີ lot).
+     (5) ການຄິດມູນຄ່າ (`stockValue`) ຍັງໃຊ້ WAC ຂອງສິນຄ້າ; COGS ຂອງແຖວ lot ໃຊ້ຕົ້ນທຶນຈິງຂອງ lot.
 2. M1 — UoM + ການແປງໜ່ວຍ
 3. M2 — barcode/GTIN + ສະແກນຜ່ານກ້ອງມືຖື
 4. M3 — ໝວດສິນຄ້າ + ABC

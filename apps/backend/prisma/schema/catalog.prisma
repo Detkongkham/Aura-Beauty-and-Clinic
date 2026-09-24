@@ -52,6 +52,7 @@ model Branch {
   pricingRules       DynamicPricingRule[]
   purchaseOrders     PurchaseOrder[]
   stockMovements     StockMovement[]
+  stockLots          StockLot[]
   transfersOut       StockTransfer[]            @relation("StockTransferFrom")
   transfersIn        StockTransfer[]            @relation("StockTransferTo")
   waitlists          Waitlist[]

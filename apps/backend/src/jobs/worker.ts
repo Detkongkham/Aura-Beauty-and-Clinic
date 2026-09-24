@@ -13,6 +13,7 @@ import { processSlipOcr } from './slip-ocr.job.js';
 import { processSlipSla } from './slip-sla.job.js';
 import { processRecurringExpense } from './recurring-expense.job.js';
 import { processReconReminder } from './reconciliation-reminder.job.js';
+import { processLotExpiry } from './lot-expiry.job.js';
 
 /** Bootstrap ທຸກ BullMQ worker. ຮຽກຈາກ src/jobs/main.ts (process ແຍກ). */
 export function startWorkers(): Worker[] {
@@ -50,6 +51,8 @@ export function startWorkers(): Worker[] {
 
   const slipSlaWorker = new Worker(QueueName.SLIP_SLA, processSlipSla, { connection, concurrency: 1 });
 
+  const lotExpiryWorker = new Worker(QueueName.LOT_EXPIRY, processLotExpiry, { connection, concurrency: 1 });
+
   const workers = [
     reminderWorker,
     waitlistWorker,
@@ -62,6 +65,7 @@ export function startWorkers(): Worker[] {
     reconReminderWorker,
     slipOcrWorker,
     slipSlaWorker,
+    lotExpiryWorker,
   ];
   for (const w of workers) {
     w.on('failed', (job, err) => logger.error({ jobId: job?.id, err }, `${w.name} job failed`));
@@ -71,7 +75,7 @@ export function startWorkers(): Worker[] {
   void registerRepeatableJobs();
 
   logger.info(
-    '⚙️  BullMQ workers ເລີ່ມແລ້ວ (reminder, waitlist, marketing, chat-lock, home-service SLA, stock reconcile, payment expiry, recurring expense, slip OCR, slip SLA)',
+    '⚙️  BullMQ workers ເລີ່ມແລ້ວ (reminder, waitlist, marketing, chat-lock, home-service SLA, stock reconcile, payment expiry, recurring expense, slip OCR, slip SLA, lot expiry)',
   );
   return workers;
 }

@@ -1,12 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
-import type { ConsentChannel, ConsentChannelView } from '@abcp/shared-types';
+import type { ConsentChannel, ConsentChannelView, NotificationPrefModule } from '@abcp/shared-types';
 import { useTranslation } from 'react-i18next';
 import { Alert, Linking, ScrollView, Switch, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ScreenHeader } from '../../components/shared/ScreenHeader';
 import { AnimatedEntrance } from '../../components/ui/AnimatedEntrance';
 import { Notice } from '../../features/booking/booking-kit';
+import { useMyPreferences, useUpdatePreferences } from '../../features/auth/preferences';
 import { useConsentPreferences, useLineLinkCode, useUpdateConsent } from '../../features/consent/consent.api';
+import { useAuthStore } from '../../store/auth.store';
 import { Card, ListRow, LoadingBlock, SectionHeader } from '../../features/profile/profile-kit';
 import { haptics } from '../../lib/haptics';
 import { normalizeError } from '../../services/apiError';
@@ -25,12 +27,50 @@ const CHANNELS: ReadonlyArray<{ channel: ConsentChannel; icon: 'notifications-ou
   { channel: 'LINE', icon: 'chatbubbles-outline' },
 ];
 
+type IconName = React.ComponentProps<typeof Ionicons>['name'];
+
+/** Per-source push switches (account-level — the same choices as web-admin ▸ /account). */
+const CUSTOMER_SOURCES: ReadonlyArray<{ module: NotificationPrefModule; icon: IconName }> = [
+  { module: 'appointments', icon: 'calendar-outline' },
+  { module: 'waitlist', icon: 'hourglass-outline' },
+  { module: 'homeService', icon: 'car-outline' },
+  { module: 'payments', icon: 'wallet-outline' },
+  { module: 'giftCards', icon: 'gift-outline' },
+  { module: 'loyalty', icon: 'ribbon-outline' },
+  { module: 'system', icon: 'information-circle-outline' },
+];
+const STAFF_SOURCES: ReadonlyArray<{ module: NotificationPrefModule; icon: IconName }> = [
+  { module: 'appointments', icon: 'calendar-outline' },
+  { module: 'staff', icon: 'people-outline' },
+  { module: 'homeService', icon: 'car-outline' },
+  { module: 'payments', icon: 'wallet-outline' },
+  { module: 'system', icon: 'information-circle-outline' },
+];
+
 export function NotificationPreferencesScreen({ navigation }: AppScreenProps<'NotificationPreferences'>): React.JSX.Element {
   const { t } = useTranslation();
   const prefs = useConsentPreferences();
   const update = useUpdateConsent();
   const lineLink = useLineLinkCode();
   const contacts = prefs.data?.contacts;
+  const role = useAuthStore((st) => st.user?.role);
+  const account = useMyPreferences();
+  const updateAccount = useUpdatePreferences();
+  const sources = role === 'STAFF' ? STAFF_SOURCES : CUSTOMER_SOURCES;
+  const notif = account.data?.preferences.notifications ?? {};
+
+  const togglePush = (module: NotificationPrefModule, push: boolean): void => {
+    updateAccount.mutate(
+      { notifications: { [module]: { push } } },
+      {
+        onSuccess: () => haptics.success(),
+        onError: (err) => {
+          haptics.error();
+          Alert.alert('', normalizeError(err).message);
+        },
+      },
+    );
+  };
 
   const toggle = (channel: ConsentChannel, granted: boolean): void => {
     update.mutate(
@@ -118,6 +158,37 @@ export function NotificationPreferencesScreen({ navigation }: AppScreenProps<'No
             </AnimatedEntrance>
 
             <AnimatedEntrance index={2}>
+              <View className="gap-2">
+                <SectionHeader title={t('notifPrefs.title')} />
+                <Card className="overflow-hidden">
+                  <ListRow icon="shield-checkmark-outline" label={t('notifPrefs.module.security')} value={t('consent.alwaysOn')} right={<Lock />} />
+                  {sources.map(({ module, icon }, i) => {
+                    const inbox = notif[module]?.inbox ?? true;
+                    const push = inbox && (notif[module]?.push ?? true);
+                    return (
+                      <ListRow
+                        key={module}
+                        icon={icon}
+                        label={t(`notifPrefs.module.${module}`)}
+                        value={inbox ? (push ? t('notifPrefs.pushOn') : t('notifPrefs.inboxOnly')) : t('notifPrefs.mutedOnWeb')}
+                        last={i === sources.length - 1}
+                        right={
+                          <Switch
+                            value={push}
+                            disabled={updateAccount.isPending || account.isLoading || !inbox}
+                            onValueChange={(on) => togglePush(module, on)}
+                            accessibilityLabel={t(`notifPrefs.module.${module}`)}
+                            trackColor={{ true: colors.primary }}
+                          />
+                        }
+                      />
+                    );
+                  })}
+                </Card>
+              </View>
+            </AnimatedEntrance>
+
+            <AnimatedEntrance index={3}>
               <View className="gap-2">
                 <SectionHeader title={t('consent.transactional')} />
                 <Card className="overflow-hidden">

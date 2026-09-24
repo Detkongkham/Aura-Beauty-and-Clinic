@@ -8,10 +8,19 @@ import { NormalizedApiError, normalizeError } from './apiError';
 /** Fired when the session is unrecoverable — the router listens and redirects to /login. */
 export const AUTH_LOGOUT_EVENT = 'aura:auth-logout';
 
-export function emitLogout(): void {
+/** Why the session ended — shown as a notice on /login (`?reason=`). */
+export type LogoutReason = 'idle' | 'mfa' | 'revoked';
+
+export function emitLogout(reason?: LogoutReason): void {
   if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent(AUTH_LOGOUT_EVENT));
+    window.dispatchEvent(new CustomEvent<LogoutReason | undefined>(AUTH_LOGOUT_EVENT, { detail: reason }));
   }
+}
+
+function logoutReason(code: string): LogoutReason {
+  if (code === 'SESSION_IDLE') return 'idle';
+  if (code === 'MFA_REQUIRED') return 'mfa';
+  return 'revoked';
 }
 
 export const http: AxiosInstance = axios.create({
@@ -28,7 +37,7 @@ http.interceptors.request.use((config) => {
   return config;
 });
 
-const PUBLIC_AUTH_PATH = /\/auth\/(login|register|refresh|quick-login|logout)\b/;
+const PUBLIC_AUTH_PATH = /\/auth\/(login|register|refresh|quick-login|logout|2fa|password)\b/;
 
 // --- Single-flight refresh: concurrent 401s share one refresh call ---
 let refreshPromise: Promise<string> | null = null;
@@ -71,16 +80,16 @@ http.interceptors.response.use(
         const newToken = await refreshPromise;
         original.headers = { ...original.headers, Authorization: `Bearer ${newToken}` };
         return http(original);
-      } catch {
+      } catch (refreshErr) {
         useAuthStore.getState().clear();
-        emitLogout();
+        emitLogout(logoutReason(normalizeError(refreshErr).code));
         throw normalized;
       }
     }
 
     if (normalized.status === 401 && !isAuthEndpoint) {
       useAuthStore.getState().clear();
-      emitLogout();
+      emitLogout(logoutReason(normalized.code));
     }
 
     throw normalized;

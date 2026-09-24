@@ -23,6 +23,14 @@ export const ErrorCode = {
   /** ຕ້ອງຢືນຢັນລະຫັດຜ່ານກ່ອນເຮັດທຸລະກຳທີ່ອ່ອນໄຫວ (ເຊັ່ນ ປ່ຽນເລກບັນຊີຮັບເງິນ). */
   REAUTH_REQUIRED: 'REAUTH_REQUIRED',
   REAUTH_FAILED: 'REAUTH_FAILED',
+  /** login ຜິດເກີນ Settings ▸ maxLoginAttempts — details.lockedUntil. */
+  ACCOUNT_LOCKED: 'ACCOUNT_LOCKED',
+  /** ເຊດຊັນຖືກປິດເພາະບໍ່ມີການເຄື່ອນໄຫວເກີນ Settings ▸ sessionTimeoutMinutes. */
+  SESSION_IDLE: 'SESSION_IDLE',
+  /** ລະຫັດ 2FA ຜິດ / mfaToken ໝົດອາຍຸ. */
+  MFA_INVALID: 'MFA_INVALID',
+  /** ຕ້ອງເປີດ 2FA ກ່ອນ (Settings ▸ require2fa) — ປິດບໍ່ໄດ້. */
+  MFA_REQUIRED: 'MFA_REQUIRED',
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

@@ -3,11 +3,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Animated, Linking, Platform, ScrollView, View } from 'react-native';
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import { Camera, LineLayer, MapView, MarkerView, ShapeSource, type CameraRef } from '@maplibre/maplibre-react-native';
+import { Animated, Linking, ScrollView, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Socket } from 'socket.io-client';
 import { ErrorView, LoadingScreen } from '../../components/shared/StateViews';
+import { env } from '../../config/env';
 import { AnimatedEntrance } from '../../components/ui/AnimatedEntrance';
 import { Avatar } from '../../components/ui/Avatar';
 import { GlassView } from '../../components/ui/GlassView';
@@ -48,6 +49,22 @@ const STEP_ICON: Record<HomeServiceJobStatus, IconName> = {
 /** trip status ທີ່ຍັງມີການເຄື່ອນທີ່ຂອງຊ່າງໃຫ້ຕິດຕາມ — ຫຼັງຈາກນີ້ (IN_PROGRESS/COMPLETED/CANCELLED)
  * ຊ່າງໄປຮອດແລ້ວ ບໍ່ຈຳເປັນຕ້ອງເປີດ socket/map ອີກ. */
 const LIVE_STATUSES: HomeServiceJobStatus[] = ['ASSIGNED', 'EN_ROUTE', 'ARRIVED'];
+
+const VIENTIANE_CENTER: [number, number] = [102.6331, 17.9757];
+
+const OSM_STYLE = {
+  version: 8,
+  sources: {
+    osm: {
+      type: 'raster',
+      tiles: [env.mapTileUrl],
+      tileSize: 256,
+      maxzoom: 19,
+      attribution: '© OpenStreetMap contributors',
+    },
+  },
+  layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
+};
 
 /** ຈຸດເຕັ້ນ "ສົດ" — ເຄົາລົບ Reduce Motion. */
 function PulseDot({ color }: { color: string }): React.JSX.Element {
@@ -116,7 +133,7 @@ export function HomeServiceTrackingScreen({
   const [etaMinutes, setEtaMinutes] = useState<number | null>(null);
   const [lastPingAt, setLastPingAt] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  const mapRef = useRef<MapView | null>(null);
+  const cameraRef = useRef<CameraRef | null>(null);
 
   const trip = query.data;
   const isLive = trip ? LIVE_STATUSES.includes(trip.status) : false;
@@ -163,15 +180,24 @@ export function HomeServiceTrackingScreen({
   const hasDest = trip?.destLatitude != null && trip?.destLongitude != null;
 
   const fitMap = useCallback(() => {
-    if (!mapRef.current) return;
-    const points: { latitude: number; longitude: number }[] = [];
-    if (stylistPos) points.push({ latitude: stylistPos.lat, longitude: stylistPos.lng });
-    if (trip && hasDest) points.push({ latitude: trip.destLatitude as number, longitude: trip.destLongitude as number });
+    const camera = cameraRef.current;
+    if (!camera) return;
+    const points: [number, number][] = [];
+    if (stylistPos) points.push([stylistPos.lng, stylistPos.lat]);
+    if (trip && hasDest) points.push([trip.destLongitude as number, trip.destLatitude as number]);
     if (points.length === 0) return;
-    mapRef.current.fitToCoordinates(points, {
-      edgePadding: { top: insets.top + 72, right: 64, bottom: 64, left: 64 },
-      animated: true,
-    });
+    if (points.length === 1) {
+      camera.setCamera({ centerCoordinate: points[0], zoomLevel: 15, animationDuration: 600 });
+      return;
+    }
+    const lngs = points.map((p) => p[0]);
+    const lats = points.map((p) => p[1]);
+    camera.fitBounds(
+      [Math.max(...lngs), Math.max(...lats)],
+      [Math.min(...lngs), Math.min(...lats)],
+      [insets.top + 72, 64, 64, 64],
+      600,
+    );
   }, [stylistPos, trip, hasDest, insets.top]);
 
   useEffect(() => {
@@ -198,12 +224,11 @@ export function HomeServiceTrackingScreen({
     COMPLETED: trip.completedAt,
   };
 
-  const initialRegion = {
-    latitude: stylistPos?.lat ?? trip.destLatitude ?? 17.9757,
-    longitude: stylistPos?.lng ?? trip.destLongitude ?? 102.6331,
-    latitudeDelta: 0.05,
-    longitudeDelta: 0.05,
-  };
+  const initialCenter: [number, number] = stylistPos
+    ? [stylistPos.lng, stylistPos.lat]
+    : hasDest
+      ? [trip.destLongitude as number, trip.destLatitude as number]
+      : VIENTIANE_CENTER;
 
   const callSalon = (): void =>
     void Linking.openURL(`tel:${(trip.branchPhone || CONCIERGE_PHONE).replace(/[^\d+]/g, '')}`);
@@ -219,51 +244,57 @@ export function HomeServiceTrackingScreen({
       <View style={{ height: isLive ? 320 + insets.top : 150 + insets.top }} className="w-full">
         {isLive ? (
           <MapView
-            ref={mapRef}
             style={{ flex: 1 }}
-            provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
-            initialRegion={initialRegion}
-            showsCompass={false}
-            toolbarEnabled={false}
+            mapStyle={OSM_STYLE}
+            compassEnabled={false}
+            logoEnabled={false}
+            attributionEnabled
+            attributionPosition={{ bottom: 28, right: 8 }}
+            onDidFinishLoadingMap={fitMap}
           >
+            <Camera ref={cameraRef} defaultSettings={{ centerCoordinate: initialCenter, zoomLevel: 13 }} />
             {stylistPos && hasDest ? (
-              <Polyline
-                coordinates={[
-                  { latitude: stylistPos.lat, longitude: stylistPos.lng },
-                  { latitude: trip.destLatitude as number, longitude: trip.destLongitude as number },
-                ]}
-                strokeColor={colors.primary}
-                strokeWidth={3}
-                lineDashPattern={[8, 6]}
-              />
-            ) : null}
-            {stylistPos ? (
-              <Marker
-                coordinate={{ latitude: stylistPos.lat, longitude: stylistPos.lng }}
-                title={staffName ?? t('confirm.staff')}
-                anchor={{ x: 0.5, y: 0.5 }}
+              <ShapeSource
+                id="trip-route"
+                shape={{
+                  type: 'Feature',
+                  properties: {},
+                  geometry: {
+                    type: 'LineString',
+                    coordinates: [
+                      [stylistPos.lng, stylistPos.lat],
+                      [trip.destLongitude as number, trip.destLatitude as number],
+                    ],
+                  },
+                }}
               >
-                <View
-                  className="h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-primary"
-                  style={shadow.card}
-                >
-                  <Ionicons name="car" size={16} color={colors.primaryForeground} />
-                </View>
-              </Marker>
+                <LineLayer
+                  id="trip-route-line"
+                  style={{ lineColor: colors.primary, lineWidth: 3, lineDasharray: [2.5, 2], lineCap: 'round' }}
+                />
+              </ShapeSource>
             ) : null}
             {hasDest ? (
-              <Marker
-                coordinate={{ latitude: trip.destLatitude as number, longitude: trip.destLongitude as number }}
-                title={t('tracking.yourLocation')}
-                anchor={{ x: 0.5, y: 0.5 }}
-              >
+              <MarkerView coordinate={[trip.destLongitude as number, trip.destLatitude as number]} anchor={{ x: 0.5, y: 0.5 }}>
                 <View
+                  accessibilityLabel={t('tracking.yourLocation')}
                   className="h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-accent-foreground"
                   style={shadow.card}
                 >
                   <Ionicons name="home" size={14} color={colors.champagne} />
                 </View>
-              </Marker>
+              </MarkerView>
+            ) : null}
+            {stylistPos ? (
+              <MarkerView coordinate={[stylistPos.lng, stylistPos.lat]} anchor={{ x: 0.5, y: 0.5 }}>
+                <View
+                  accessibilityLabel={staffName ?? t('confirm.staff')}
+                  className="h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-primary"
+                  style={shadow.card}
+                >
+                  <Ionicons name="car" size={16} color={colors.primaryForeground} />
+                </View>
+              </MarkerView>
             ) : null}
           </MapView>
         ) : (

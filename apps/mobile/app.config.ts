@@ -1,10 +1,5 @@
 import type { ExpoConfig } from 'expo/config';
 
-/**
- * `app.json` → `app.config.ts` (Wave 7B.5, Module 29): Android needs the Google Maps API key
- * read from an env var / EAS secret rather than committed to source. iOS uses Apple Maps by
- * default (no key needed) — avoids provisioning a Google iOS key for a Laos-only launch.
- */
 const config: ExpoConfig = {
   name: 'Aura',
   slug: 'aura-customer',
@@ -32,11 +27,6 @@ const config: ExpoConfig = {
       foregroundImage: './assets/adaptive-icon.png',
       backgroundColor: '#FAFAF9',
     },
-    config: {
-      googleMaps: {
-        apiKey: process.env.GOOGLE_MAPS_API_KEY ?? '',
-      },
-    },
   },
   web: {
     favicon: './assets/favicon.png',
@@ -45,6 +35,7 @@ const config: ExpoConfig = {
     'expo-localization',
     'expo-secure-store',
     'expo-font',
+    '@maplibre/maplibre-react-native',
     [
       'expo-location',
       {
@@ -83,7 +74,11 @@ const config: ExpoConfig = {
   ],
   extra: {
     apiBaseUrl: 'http://localhost:4000/api/v1',
+    eas: {
+      projectId: '1e5952ee-d133-4e34-9049-81176c617ba3',
+    },
   },
+  owner: 'nongta',
 };
 
 export default config;

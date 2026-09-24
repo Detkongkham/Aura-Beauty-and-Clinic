@@ -46,6 +46,9 @@ export interface AppSettings {
   sessionTimeoutMinutes: number;
   minPasswordLength: number;
   require2fa: boolean;
+  maxLoginAttempts: number;
+  lockoutMinutes: number;
+  newDeviceAlerts: boolean;
   // Data
   dataRetentionMonths: number;
 }

@@ -3,7 +3,9 @@ import { Navigate, Outlet, useLocation } from 'react-router-dom';
 
 import { PageLoader } from '@/components/shared/PageLoader';
 import { useAuth } from '@/features/auth/useAuth';
-import { AUTH_LOGOUT_EVENT } from '@/services/http';
+import { useIdleLogout } from '@/features/auth/useIdleLogout';
+import { usePreferenceSync } from '@/features/account/usePreferenceSync';
+import { AUTH_LOGOUT_EVENT, type LogoutReason } from '@/services/http';
 import { ROUTES } from '@/router/paths';
 
 /**
@@ -16,12 +18,16 @@ import { ROUTES } from '@/router/paths';
 export function ProtectedRoute() {
   const { hydrated, isAuthenticated, isAdmin } = useAuth();
   const location = useLocation();
+  const signedIn = hydrated && isAuthenticated && isAdmin;
+  useIdleLogout(signedIn);
+  usePreferenceSync(signedIn);
 
   useEffect(() => {
-    const onLogout = () => {
+    const onLogout = (e: Event) => {
+      const reason = (e as CustomEvent<LogoutReason | undefined>).detail;
       // hard redirect keeps it simple and clears in-memory query cache on next mount
       if (window.location.pathname !== ROUTES.login) {
-        window.location.assign(ROUTES.login);
+        window.location.assign(reason ? `${ROUTES.login}?reason=${reason}` : ROUTES.login);
       }
     };
     window.addEventListener(AUTH_LOGOUT_EVENT, onLogout);

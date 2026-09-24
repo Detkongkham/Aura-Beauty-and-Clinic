@@ -9,6 +9,7 @@ import type {
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import { ApiError } from '../../utils/ApiError.js';
+import { revokeAllSessions } from '../auth/security.js';
 
 const STAFF_INCLUDE = {
   user: { select: { name: true, phone: true, email: true, avatarUrl: true } },
@@ -109,6 +110,10 @@ export async function updateAdminStaff(
         ...(input.commissionRate !== undefined ? { commissionRate: input.commissionRate } : {}),
       },
     });
+    // The staff member's login follows the profile: deactivated staff can't sign in (e.g. they left).
+    if (input.isActive !== undefined && input.isActive !== staff.isActive) {
+      await tx.user.update({ where: { id: staff.userId }, data: { isActive: input.isActive } });
+    }
 
     if (input.branchId !== undefined) {
       const exists = await tx.branch.findFirst({
@@ -150,7 +155,7 @@ export async function updateAdminStaff(
     }
   });
 
-  void staff;
+  if (input.isActive === false && staff.isActive) await revokeAllSessions(staff.userId, 'DEACTIVATED');
   return getAdminStaff(id);
 }
 

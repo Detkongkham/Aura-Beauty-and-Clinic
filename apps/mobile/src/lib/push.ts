@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import { http } from '../services/http';
+import { authHttp, http } from '../services/http';
 
 /**
  * Expo push registration (Module 23).
@@ -57,13 +57,19 @@ export async function registerPushToken(): Promise<void> {
   }
 }
 
-/** ຮຽກຕອນ logout — ຖອນ token ອອກຈາກ backend. */
-export async function unregisterPushToken(): Promise<void> {
+/**
+ * ຮຽກຕອນ logout — ຖອນ token ອອກຈາກ backend. ຮັບ access token ມາເອງ ເພາະ session ໃນ store ຖືກລ້າງ
+ * ທັນທີ (interceptor ຈະບໍ່ມີ token ແນບໃຫ້ແລ້ວ).
+ */
+export async function unregisterPushToken(accessToken?: string | null): Promise<void> {
   if (!cachedToken) return;
   const token = cachedToken;
   cachedToken = null;
   try {
-    await http.delete('/notifications/devices', { data: { token } });
+    await authHttp.delete('/notifications/devices', {
+      data: { token },
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+    });
   } catch {
     // ignore
   }

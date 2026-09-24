@@ -14,6 +14,7 @@ export type NotificationModule =
   | 'giftCards'
   | 'loyalty'
   | 'marketing'
+  | 'security'
   | 'system';
 
 /** Mirrors `AppNotificationView` in apps/backend/src/modules/system/system.service.ts. */

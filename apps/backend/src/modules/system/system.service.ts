@@ -17,6 +17,7 @@ export type NotificationModule =
   | 'giftCards'
   | 'loyalty'
   | 'marketing'
+  | 'security'
   | 'system';
 
 export type AppNotificationView = {
@@ -64,6 +65,7 @@ const SEVERITIES: readonly NotificationSeverity[] = ['info', 'warning', 'critica
 export function inferNotificationSeverity(type: string): NotificationSeverity {
   const t = type.toUpperCase();
   if (t.includes('RECONCILIATION') || t.includes('NO_MATCH') || t.includes('FAILED')) return 'critical';
+  if (t.startsWith('SECURITY')) return 'warning';
   if (
     t.includes('SLA_LATE') ||
     t.includes('LOW_STOCK') ||
@@ -79,8 +81,9 @@ export function inferNotificationSeverity(type: string): NotificationSeverity {
   return 'info';
 }
 
-function mapModule(type: string): NotificationModule {
+export function mapModule(type: string): NotificationModule {
   const t = type.toUpperCase();
+  if (t.startsWith('SECURITY')) return 'security';
   if (t.includes('HOME_SERVICE')) return 'homeService';
   if (t.includes('WAITLIST')) return 'waitlist';
   if (t.includes('APPOINTMENT') || t.includes('BOOKING')) return 'appointments';

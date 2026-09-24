@@ -27,12 +27,55 @@ import { api, ok, paginated } from '../helpers';
 const BRANCH = '11111111-1111-1111-1111-111111111111';
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
-const bcel = { id: id(901), code: 'BCEL', nameLo: 'ທະນາຄານການຄ້າຕ່າງປະເທດລາວ', nameEn: 'BCEL', supportsQr: true };
-const ldb = { id: id(902), code: 'LDB', nameLo: 'ທະນາຄານພັດທະນາລາວ', nameEn: 'LDB', supportsQr: true };
+const bcel = {
+  id: id(901),
+  code: 'BCEL',
+  nameLo: 'ທະນາຄານການຄ້າຕ່າງປະເທດລາວ',
+  nameEn: 'BCEL',
+  supportsQr: true,
+};
+const ldb = {
+  id: id(902),
+  code: 'LDB',
+  nameLo: 'ທະນາຄານພັດທະນາລາວ',
+  nameEn: 'LDB',
+  supportsQr: true,
+};
 
 export const mockBankAccounts: BankAccountView[] = [
-  { id: id(11), bankId: bcel.id, branchId: BRANCH, accountName: 'Aura Clinic Main', accountNumber: '010120000123456', currency: 'LAK', qrImageKey: null, qrImageUrl: null, isActive: true, isDefault: true, pendingChange: null, bank: bcel },
-  { id: id(12), bankId: ldb.id, branchId: BRANCH, accountName: 'Aura Clinic LDB', accountNumber: '2200998877', currency: 'LAK', qrImageKey: 'bank-qr/x.jpg', qrImageUrl: 'http://localhost/uploads/bank-qr/x.jpg', isActive: true, isDefault: false, pendingChange: { id: id(801), kind: 'UPDATE', requestedByName: 'Branch Manager', createdAt: new Date(Date.now() - 3_600_000).toISOString() }, bank: ldb },
+  {
+    id: id(11),
+    bankId: bcel.id,
+    branchId: BRANCH,
+    accountName: 'Aura Clinic Main',
+    accountNumber: '010120000123456',
+    currency: 'LAK',
+    qrImageKey: null,
+    qrImageUrl: null,
+    isActive: true,
+    isDefault: true,
+    pendingChange: null,
+    bank: bcel,
+  },
+  {
+    id: id(12),
+    bankId: ldb.id,
+    branchId: BRANCH,
+    accountName: 'Aura Clinic LDB',
+    accountNumber: '2200998877',
+    currency: 'LAK',
+    qrImageKey: 'bank-qr/x.jpg',
+    qrImageUrl: 'http://localhost/uploads/bank-qr/x.jpg',
+    isActive: true,
+    isDefault: false,
+    pendingChange: {
+      id: id(801),
+      kind: 'UPDATE',
+      requestedByName: 'Branch Manager',
+      createdAt: new Date(Date.now() - 3_600_000).toISOString(),
+    },
+    bank: ldb,
+  },
 ];
 
 /** One branch-admin request waiting for the owner: a new account number on the LDB account. */
@@ -59,20 +102,58 @@ const mockChanges: BankAccountChangeView[] = [
 ];
 
 const mockUnassigned: UnassignedTransfer[] = [
-  { id: id(851), paymentId: id(70), method: 'BANK_TRANSFER', amount: 150_000, currency: 'LAK', reference: 'BCEL123456', createdAt: new Date(Date.now() - 86_400_000).toISOString(), branchId: BRANCH, branchName: 'Aura Main', receiverAccount: '3456', slipId: null, suggestedAccountId: id(11) },
+  {
+    id: id(851),
+    paymentId: id(70),
+    method: 'BANK_TRANSFER',
+    amount: 150_000,
+    currency: 'LAK',
+    reference: 'BCEL123456',
+    createdAt: new Date(Date.now() - 86_400_000).toISOString(),
+    branchId: BRANCH,
+    branchName: 'Aura Main',
+    receiverAccount: '3456',
+    slipId: null,
+    suggestedAccountId: id(11),
+  },
 ];
 
 /** Insights for the two mock accounts — Main is busy and reconciled, LDB has a variance day + open slips. */
 function mockInsights(days: number): BankAccountInsightsView {
-  const series = (seed: number) => Array.from({ length: days }, (_, i) => ((i * seed) % 7 === 0 ? 0 : ((i * seed) % 5) * 150_000));
+  const series = (seed: number) =>
+    Array.from({ length: days }, (_, i) => ((i * seed) % 7 === 0 ? 0 : ((i * seed) % 5) * 150_000));
   const main = series(3);
-  const ldb = series(3).reverse().map((v) => Math.round(v / 3));
+  const ldb = series(3)
+    .reverse()
+    .map((v) => Math.round(v / 3));
   const sum = (a: number[]) => a.reduce((s, v) => s + v, 0);
   const today = new Date().toISOString().slice(0, 10);
   const from = new Date(Date.now() - (days - 1) * 86_400_000).toISOString().slice(0, 10);
   const accounts = [
-    { bankAccountId: id(11), daily: main, receivedPrevPeriod: Math.round(sum(main) * 0.85), openSlips: 0, pendingIntents: 1, lastStatementDate: today, unreconciledDays: 0, varianceDays: 0, paidOutPeriod: 1_200_000, paidOutPeriodCount: 2 },
-    { bankAccountId: id(12), daily: ldb, receivedPrevPeriod: 0, openSlips: 2, pendingIntents: 0, lastStatementDate: null, unreconciledDays: 3, varianceDays: 1, paidOutPeriod: 0, paidOutPeriodCount: 0 },
+    {
+      bankAccountId: id(11),
+      daily: main,
+      receivedPrevPeriod: Math.round(sum(main) * 0.85),
+      openSlips: 0,
+      pendingIntents: 1,
+      lastStatementDate: today,
+      unreconciledDays: 0,
+      varianceDays: 0,
+      paidOutPeriod: 1_200_000,
+      paidOutPeriodCount: 2,
+    },
+    {
+      bankAccountId: id(12),
+      daily: ldb,
+      receivedPrevPeriod: 0,
+      openSlips: 2,
+      pendingIntents: 0,
+      lastStatementDate: null,
+      unreconciledDays: 3,
+      varianceDays: 1,
+      paidOutPeriod: 0,
+      paidOutPeriodCount: 0,
+    },
   ].map((a) => ({
     ...a,
     receivedToday: a.daily[days - 1] ?? 0,
@@ -81,7 +162,8 @@ function mockInsights(days: number): BankAccountInsightsView {
     receivedPeriodCount: a.daily.filter((v) => v > 0).length,
     lastReceivedAt: new Date(Date.now() - 2 * 3_600_000).toISOString(),
   }));
-  const tot = <K extends keyof (typeof accounts)[number]>(k: K) => accounts.reduce((s, a) => s + (a[k] as number), 0);
+  const tot = <K extends keyof (typeof accounts)[number]>(k: K) =>
+    accounts.reduce((s, a) => s + (a[k] as number), 0);
   return {
     days,
     from,
@@ -105,11 +187,43 @@ function mockInsights(days: number): BankAccountInsightsView {
 }
 
 const providers: PaymentProviderView[] = [
-  { code: 'MOCK_BCEL', nameLo: 'BCEL One (ຈຳລອງ)', nameEn: 'BCEL One (simulated)', mode: 'MOCK', feeRate: 0.01, settlesNet: false, isActive: true, secretConfigured: true, webhookPath: '/api/v1/payments/webhooks/MOCK_BCEL', pendingIntents: 2, lastEventAt: new Date(Date.now() - 3_600_000).toISOString(), recentIssues: 1 },
-  { code: 'MANUAL_TRANSFER', nameLo: 'ໂອນເອງ + ສະລິບ', nameEn: 'Manual transfer + slip', mode: 'MOCK', feeRate: 0, settlesNet: false, isActive: false, secretConfigured: false, webhookPath: '/api/v1/payments/webhooks/MANUAL_TRANSFER', pendingIntents: 0, lastEventAt: null, recentIssues: 0 },
+  {
+    code: 'MOCK_BCEL',
+    nameLo: 'BCEL One (ຈຳລອງ)',
+    nameEn: 'BCEL One (simulated)',
+    mode: 'MOCK',
+    feeRate: 0.01,
+    settlesNet: false,
+    isActive: true,
+    secretConfigured: true,
+    webhookPath: '/api/v1/payments/webhooks/MOCK_BCEL',
+    pendingIntents: 2,
+    lastEventAt: new Date(Date.now() - 3_600_000).toISOString(),
+    recentIssues: 1,
+  },
+  {
+    code: 'MANUAL_TRANSFER',
+    nameLo: 'ໂອນເອງ + ສະລິບ',
+    nameEn: 'Manual transfer + slip',
+    mode: 'MOCK',
+    feeRate: 0,
+    settlesNet: false,
+    isActive: false,
+    secretConfigured: false,
+    webhookPath: '/api/v1/payments/webhooks/MANUAL_TRANSFER',
+    pendingIntents: 0,
+    lastEventAt: null,
+    recentIssues: 0,
+  },
 ];
 
-let settings: SlipSettings = { autoApprove: false, amountTolerance: 0, reviewSlaMinutes: 30, branchSlaMinutes: {}, slaAlertEnabled: true };
+let settings: SlipSettings = {
+  autoApprove: false,
+  amountTolerance: 0,
+  reviewSlaMinutes: 30,
+  branchSlaMinutes: {},
+  slaAlertEnabled: true,
+};
 
 /** Drawn transfer-slip screenshot so the review page's image viewer has something real to show in mock mode. */
 function slipSvg(amount: string, ref: string, color = '#b91c1c'): string {
@@ -152,7 +266,11 @@ const baseSlip = {
   reversedByName: null,
   reversedAt: null,
   reverseReason: null,
-  bankProof: { status: 'NO_STATEMENT', refMatched: false, line: null } as PaymentSlipView['bankProof'],
+  bankProof: {
+    status: 'NO_STATEMENT',
+    refMatched: false,
+    line: null,
+  } as PaymentSlipView['bankProof'],
   reversal: { allowed: false, blockedReason: 'NOT_APPROVED' } as PaymentSlipView['reversal'],
   updatedAt: new Date(Date.now() - 500_000).toISOString(),
   payment: {
@@ -167,12 +285,28 @@ const baseSlip = {
     appointmentId: null,
     createdAt: new Date(Date.now() - 3_600_000).toISOString(),
   },
-  bankAccount: { id: id(11), accountName: 'Aura Clinic Main', accountNumber: '010120000123456', bankCode: 'BCEL' },
+  bankAccount: {
+    id: id(11),
+    accountName: 'Aura Clinic Main',
+    accountNumber: '010120000123456',
+    bankCode: 'BCEL',
+  },
   createdAt: new Date(Date.now() - 600_000).toISOString(),
 };
 
 const slipSummary: SlipSummary = {
-  open: { needsReview: 1, autoMatched: 1, pending: 0, ocrFailed: 0, duplicates: 0, amount: 950000, oldestAt: new Date(Date.now() - 1_800_000).toISOString(), overSla: 1, risky: 1, infoRequested: 0 },
+  open: {
+    needsReview: 1,
+    autoMatched: 1,
+    pending: 0,
+    ocrFailed: 0,
+    duplicates: 0,
+    amount: 950000,
+    oldestAt: new Date(Date.now() - 1_800_000).toISOString(),
+    overSla: 1,
+    risky: 1,
+    infoRequested: 0,
+  },
   today: { approved: 1, approvedAmount: 500000, autoApproved: 0, rejected: 0, uploaded: 2 },
   week: {
     uploaded: 3,
@@ -184,7 +318,12 @@ const slipSummary: SlipSummary = {
       { bankCode: 'LDB', processed: 4, clean: 2, rate: 50 },
     ],
     rejectCodes: { AMOUNT_SHORT: 2, UNREADABLE: 1 },
-    daily: Array.from({ length: 7 }, (_, i) => ({ date: `2026-09-${String(17 + i).padStart(2, '0')}`, uploaded: i === 6 ? 2 : 1, approved: i === 5 ? 1 : 0, rejected: 0 })),
+    daily: Array.from({ length: 7 }, (_, i) => ({
+      date: `2026-09-${String(17 + i).padStart(2, '0')}`,
+      uploaded: i === 6 ? 2 : 1,
+      approved: i === 5 ? 1 : 0,
+      rejected: 0,
+    })),
   },
   slaMinutes: 30,
 };
@@ -200,20 +339,106 @@ function slipMatches(s: PaymentSlipView, view: string | null, flag: string | nul
           : true;
   const byFlag =
     !flag ||
-    (flag === 'ocrFailed' ? s.ocrStatus === 'FAILED' : flag === 'duplicate' ? s.verdict === 'DUPLICATE' : (s.mismatchFields as string[]).includes(flag));
+    (flag === 'ocrFailed'
+      ? s.ocrStatus === 'FAILED'
+      : flag === 'duplicate'
+        ? s.verdict === 'DUPLICATE'
+        : (s.mismatchFields as string[]).includes(flag));
   return byView && byFlag;
 }
 
 export const mockSlips: PaymentSlipView[] = [
-  { ...baseSlip, id: id(21), imageUrl: slipSvg('450,000', 'FT260920AB12'), customerName: 'Somchai Vong', riskSignals: ['NEAR_DUPLICATE'], nearDuplicateOfId: id(23), verdict: 'NEEDS_REVIEW', bankCode: 'BCEL', amount: 450000, txnRef: 'FT260920AB12', transferredAt: new Date(Date.now() - 900_000).toISOString(), receiverAccount: '010120000123456', matchScore: 50, mismatchFields: ['amount'] },
-  { ...baseSlip, id: id(22), imageUrl: slipSvg('500,000', 'FT260920CD34'), customerName: 'Noy Keo', bankProof: { status: 'FOUND', refMatched: true, line: { id: id(801), statementDate: '2026-09-20', postedAt: null, amount: 500000, reference: 'TRF FT260920CD34', description: 'NOY KEO' } }, verdict: 'AUTO_MATCHED', bankCode: 'BCEL', amount: 500000, txnRef: 'FT260920CD34', transferredAt: new Date(Date.now() - 1_200_000).toISOString(), receiverAccount: '010120000123456', createdAt: new Date(Date.now() - 1_800_000).toISOString() },
-  { ...baseSlip, id: id(23), imageUrl: slipSvg('500,000', 'LD0001', '#1d4ed8'), customerName: 'Dara P', reversal: { allowed: true, blockedReason: null }, paymentTransactionId: id(851), verdict: 'APPROVED', bankCode: 'LDB', amount: 500000, txnRef: 'LD0001', transferredAt: new Date(Date.now() - 86_400_000).toISOString(), receiverAccount: '2200998877', reviewedByName: 'Admin', reviewedAt: new Date().toISOString(), createdAt: new Date(Date.now() - 90_000_000).toISOString() },
+  {
+    ...baseSlip,
+    id: id(21),
+    imageUrl: slipSvg('450,000', 'FT260920AB12'),
+    customerName: 'Somchai Vong',
+    riskSignals: ['NEAR_DUPLICATE'],
+    nearDuplicateOfId: id(23),
+    verdict: 'NEEDS_REVIEW',
+    bankCode: 'BCEL',
+    amount: 450000,
+    txnRef: 'FT260920AB12',
+    transferredAt: new Date(Date.now() - 900_000).toISOString(),
+    receiverAccount: '010120000123456',
+    matchScore: 50,
+    mismatchFields: ['amount'],
+  },
+  {
+    ...baseSlip,
+    id: id(22),
+    imageUrl: slipSvg('500,000', 'FT260920CD34'),
+    customerName: 'Noy Keo',
+    bankProof: {
+      status: 'FOUND',
+      refMatched: true,
+      line: {
+        id: id(801),
+        statementDate: '2026-09-20',
+        postedAt: null,
+        amount: 500000,
+        reference: 'TRF FT260920CD34',
+        description: 'NOY KEO',
+      },
+    },
+    verdict: 'AUTO_MATCHED',
+    bankCode: 'BCEL',
+    amount: 500000,
+    txnRef: 'FT260920CD34',
+    transferredAt: new Date(Date.now() - 1_200_000).toISOString(),
+    receiverAccount: '010120000123456',
+    createdAt: new Date(Date.now() - 1_800_000).toISOString(),
+  },
+  {
+    ...baseSlip,
+    id: id(23),
+    imageUrl: slipSvg('500,000', 'LD0001', '#1d4ed8'),
+    customerName: 'Dara P',
+    reversal: { allowed: true, blockedReason: null },
+    paymentTransactionId: id(851),
+    verdict: 'APPROVED',
+    bankCode: 'LDB',
+    amount: 500000,
+    txnRef: 'LD0001',
+    transferredAt: new Date(Date.now() - 86_400_000).toISOString(),
+    receiverAccount: '2200998877',
+    reviewedByName: 'Admin',
+    reviewedAt: new Date().toISOString(),
+    createdAt: new Date(Date.now() - 90_000_000).toISOString(),
+  },
 ];
 
 const categories: ExpenseCategoryView[] = [
-  { id: id(31), code: 'RENT', nameLo: 'ຄ່າເຊົ່າ', nameEn: 'Rent', kind: 'OPERATING', parentId: null, sortOrder: 10, isActive: true },
-  { id: id(32), code: 'UTILITIES', nameLo: 'ໄຟ/ນ້ຳ', nameEn: 'Utilities', kind: 'OPERATING', parentId: null, sortOrder: 20, isActive: true },
-  { id: id(33), code: 'STOCK', nameLo: 'ວັດຖຸດິບ', nameEn: 'Stock purchases', kind: 'INVENTORY', parentId: null, sortOrder: 30, isActive: true },
+  {
+    id: id(31),
+    code: 'RENT',
+    nameLo: 'ຄ່າເຊົ່າ',
+    nameEn: 'Rent',
+    kind: 'OPERATING',
+    parentId: null,
+    sortOrder: 10,
+    isActive: true,
+  },
+  {
+    id: id(32),
+    code: 'UTILITIES',
+    nameLo: 'ໄຟ/ນ້ຳ',
+    nameEn: 'Utilities',
+    kind: 'OPERATING',
+    parentId: null,
+    sortOrder: 20,
+    isActive: true,
+  },
+  {
+    id: id(33),
+    code: 'STOCK',
+    nameLo: 'ວັດຖຸດິບ',
+    nameEn: 'Stock purchases',
+    kind: 'INVENTORY',
+    parentId: null,
+    sortOrder: 30,
+    isActive: true,
+  },
 ];
 
 const expenseBase = {
@@ -253,9 +478,58 @@ const cat = (i: number) => {
 };
 
 export const mockExpenses: ExpenseView[] = [
-  { ...expenseBase, id: id(41), category: cat(0), status: 'SUBMITTED', title: 'September rent', amount: 8_000_000, amountBase: 8_000_000, expenseDate: '2026-09-01', dueDate: '2026-09-05', isOverdue: true, invoiceNumber: 'INV-0901', needsOwnerApproval: true },
-  { ...expenseBase, id: id(42), category: cat(1), status: 'PAID', title: 'Electricity', amount: 1_200_000, amountBase: 1_200_000, expenseDate: '2026-09-05', paidAt: new Date().toISOString(), paidFromAccount: { id: id(11), accountName: 'Aura Clinic Main', accountNumber: '010120000123456', bankCode: 'BCEL' }, bankMatch: { statementDate: '2026-09-06', reference: 'FT0906', description: 'EDL', matchedAt: new Date().toISOString(), auto: true }, allocations: [{ branchId: BRANCH, branchName: 'Vientiane Main', percent: 70, amountBase: 840_000 }, { branchId: id(99), branchName: 'Pakse', percent: 30, amountBase: 360_000 }] },
-  { ...expenseBase, id: id(43), category: cat(1), status: 'DRAFT', title: 'Water bill', amount: 300_000, amountBase: 300_000, expenseDate: '2026-09-06' },
+  {
+    ...expenseBase,
+    id: id(41),
+    category: cat(0),
+    status: 'SUBMITTED',
+    title: 'September rent',
+    amount: 8_000_000,
+    amountBase: 8_000_000,
+    expenseDate: '2026-09-01',
+    dueDate: '2026-09-05',
+    isOverdue: true,
+    invoiceNumber: 'INV-0901',
+    needsOwnerApproval: true,
+  },
+  {
+    ...expenseBase,
+    id: id(42),
+    category: cat(1),
+    status: 'PAID',
+    title: 'Electricity',
+    amount: 1_200_000,
+    amountBase: 1_200_000,
+    expenseDate: '2026-09-05',
+    paidAt: new Date().toISOString(),
+    paidFromAccount: {
+      id: id(11),
+      accountName: 'Aura Clinic Main',
+      accountNumber: '010120000123456',
+      bankCode: 'BCEL',
+    },
+    bankMatch: {
+      statementDate: '2026-09-06',
+      reference: 'FT0906',
+      description: 'EDL',
+      matchedAt: new Date().toISOString(),
+      auto: true,
+    },
+    allocations: [
+      { branchId: BRANCH, branchName: 'Vientiane Main', percent: 70, amountBase: 840_000 },
+      { branchId: id(99), branchName: 'Pakse', percent: 30, amountBase: 360_000 },
+    ],
+  },
+  {
+    ...expenseBase,
+    id: id(43),
+    category: cat(1),
+    status: 'DRAFT',
+    title: 'Water bill',
+    amount: 300_000,
+    amountBase: 300_000,
+    expenseDate: '2026-09-06',
+  },
 ];
 
 const summary: ExpenseSummaryView = {
@@ -266,7 +540,17 @@ const summary: ExpenseSummaryView = {
     { status: 'PAID', count: 1, amount: 1_200_000 },
     { status: 'DRAFT', count: 1, amount: 300_000 },
   ],
-  byCategory: [{ categoryId: id(32), code: 'UTILITIES', nameLo: 'ໄຟ/ນ້ຳ', nameEn: 'Utilities', kind: 'OPERATING', count: 1, amount: 1_200_000 }],
+  byCategory: [
+    {
+      categoryId: id(32),
+      code: 'UTILITIES',
+      nameLo: 'ໄຟ/ນ້ຳ',
+      nameEn: 'Utilities',
+      kind: 'OPERATING',
+      count: 1,
+      amount: 1_200_000,
+    },
+  ],
   byBranch: [{ branchId: BRANCH, branchName: 'Vientiane Main', count: 3, amount: 9_500_000 }],
   byMonth: [{ month: '2026-09', amount: 1_200_000 }],
   recognisedTotal: 1_200_000,
@@ -281,7 +565,10 @@ const summary: ExpenseSummaryView = {
     to: '2026-08-20',
     recognisedTotal: 1_000_000,
     count: 1,
-    byDay: Array.from({ length: 20 }, (_, i) => ({ date: `2026-08-${String(i + 1).padStart(2, '0')}`, amount: i === 3 ? 1_000_000 : 0 })),
+    byDay: Array.from({ length: 20 }, (_, i) => ({
+      date: `2026-08-${String(i + 1).padStart(2, '0')}`,
+      amount: i === 3 ? 1_000_000 : 0,
+    })),
   },
   byCurrency: [{ currency: 'LAK', count: 3, amount: 9_500_000 }],
   missingReceipts: { count: 2, amount: 9_200_000 },
@@ -291,9 +578,25 @@ const summary: ExpenseSummaryView = {
   bankPaid: { count: 1, amount: 1_200_000, matched: 1 },
   cashPaid: { count: 0, amount: 0 },
   dueSoon: { count: 0, amount: 0 },
-  budget: { months: ['2026-09'], total: 2_000_000, byCategory: [{ categoryId: id(32), budget: 1_000_000, actual: 1_200_000 }, { categoryId: id(31), budget: 1_000_000, actual: 0 }] },
+  budget: {
+    months: ['2026-09'],
+    total: 2_000_000,
+    byCategory: [
+      { categoryId: id(32), budget: 1_000_000, actual: 1_200_000 },
+      { categoryId: id(31), budget: 1_000_000, actual: 0 },
+    ],
+  },
   topSuppliers: [],
-  largest: [{ id: id(42), title: 'Electricity', amount: 1_200_000, currency: 'LAK', expenseDate: '2026-09-05', categoryId: id(32) }],
+  largest: [
+    {
+      id: id(42),
+      title: 'Electricity',
+      amount: 1_200_000,
+      currency: 'LAK',
+      expenseDate: '2026-09-05',
+      categoryId: id(32),
+    },
+  ],
 };
 
 const pnl: ProfitLossView = {
@@ -306,7 +609,10 @@ const pnl: ProfitLossView = {
   cogs: 2_000_000,
   grossProfit: 17_500_000,
   labour: { commissionAndBonus: 3_000_000, otherPayroll: 0, total: 3_000_000 },
-  operating: { total: 1_200_000, byCategory: [{ code: 'UTILITIES', nameLo: 'ໄຟ/ນ້ຳ', nameEn: 'Utilities', amount: 1_200_000 }] },
+  operating: {
+    total: 1_200_000,
+    byCategory: [{ code: 'UTILITIES', nameLo: 'ໄຟ/ນ້ຳ', nameEn: 'Utilities', amount: 1_200_000 }],
+  },
   inventoryPurchasesMemo: 0,
   netProfit: 13_300_000,
   netMargin: 0.682,
@@ -331,14 +637,107 @@ const rowBase = {
   unmatchedLines: 0,
   locked: false,
 };
-const bcelAcct = { bankAccountId: id(11), accountName: 'Aura Clinic Main', accountNumber: '010120000123456', bankCode: 'BCEL' };
-const ldbAcct = { bankAccountId: id(12), accountName: 'Aura Clinic LDB', accountNumber: '2200998877', bankCode: 'LDB' };
+const bcelAcct = {
+  bankAccountId: id(11),
+  accountName: 'Aura Clinic Main',
+  accountNumber: '010120000123456',
+  bankCode: 'BCEL',
+};
+const ldbAcct = {
+  bankAccountId: id(12),
+  accountName: 'Aura Clinic LDB',
+  accountNumber: '2200998877',
+  bankCode: 'LDB',
+};
 
 const reconRows: ReconciliationRow[] = [
-  { ...rowBase, ...bcelAcct, date: '2026-09-20', systemCredit: 1_000_000, expectedCredit: 1_000_000, systemCreditCount: 2, systemDebit: 0, systemDebitCount: 0, statementId: null, statementCredit: null, statementDebit: null, note: null, creditVariance: null, debitVariance: null, status: 'UNRECONCILED', enteredByName: null, enteredAt: null },
-  { ...rowBase, ...bcelAcct, date: '2026-09-19', systemCredit: 800_000, expectedCredit: 800_000, systemCreditCount: 1, systemDebit: 0, systemDebitCount: 0, statementId: id(51), statementCredit: 850_000, statementDebit: 0, note: null, creditVariance: 50_000, debitVariance: 0, status: 'VARIANCE', enteredByName: 'Owner', enteredAt: '2026-09-20T02:00:00.000Z', source: 'IMPORT', openingBalance: 1_000_000, closingBalance: 1_850_000, balanceGap: 0, lineCount: 2, unmatchedLines: 1 },
-  { ...rowBase, ...ldbAcct, date: '2026-09-18', systemCredit: 500_000, expectedCredit: 500_000, systemCreditCount: 1, systemDebit: 100_000, systemDebitCount: 1, statementId: id(52), statementCredit: 500_000, statementDebit: 100_000, note: null, creditVariance: 0, debitVariance: 0, status: 'MATCHED', enteredByName: 'Owner', enteredAt: '2026-09-19T02:00:00.000Z' },
-  { ...rowBase, ...ldbAcct, date: '2026-09-17', systemCredit: 300_000, expectedCredit: 297_000, systemFee: 3_000, systemCreditCount: 1, systemDebit: 0, systemDebitCount: 0, statementId: id(53), statementCredit: 292_000, statementDebit: 0, note: 'fee', creditVariance: -5_000, debitVariance: 0, status: 'RESOLVED', enteredByName: 'Manager', enteredAt: '2026-09-18T02:00:00.000Z', resolution: 'BANK_FEE', resolutionNote: 'Monthly SMS fee', resolvedByName: 'Owner', resolvedAt: '2026-09-18T03:00:00.000Z' },
+  {
+    ...rowBase,
+    ...bcelAcct,
+    date: '2026-09-20',
+    systemCredit: 1_000_000,
+    expectedCredit: 1_000_000,
+    systemCreditCount: 2,
+    systemDebit: 0,
+    systemDebitCount: 0,
+    statementId: null,
+    statementCredit: null,
+    statementDebit: null,
+    note: null,
+    creditVariance: null,
+    debitVariance: null,
+    status: 'UNRECONCILED',
+    enteredByName: null,
+    enteredAt: null,
+  },
+  {
+    ...rowBase,
+    ...bcelAcct,
+    date: '2026-09-19',
+    systemCredit: 800_000,
+    expectedCredit: 800_000,
+    systemCreditCount: 1,
+    systemDebit: 0,
+    systemDebitCount: 0,
+    statementId: id(51),
+    statementCredit: 850_000,
+    statementDebit: 0,
+    note: null,
+    creditVariance: 50_000,
+    debitVariance: 0,
+    status: 'VARIANCE',
+    enteredByName: 'Owner',
+    enteredAt: '2026-09-20T02:00:00.000Z',
+    source: 'IMPORT',
+    openingBalance: 1_000_000,
+    closingBalance: 1_850_000,
+    balanceGap: 0,
+    lineCount: 2,
+    unmatchedLines: 1,
+  },
+  {
+    ...rowBase,
+    ...ldbAcct,
+    date: '2026-09-18',
+    systemCredit: 500_000,
+    expectedCredit: 500_000,
+    systemCreditCount: 1,
+    systemDebit: 100_000,
+    systemDebitCount: 1,
+    statementId: id(52),
+    statementCredit: 500_000,
+    statementDebit: 100_000,
+    note: null,
+    creditVariance: 0,
+    debitVariance: 0,
+    status: 'MATCHED',
+    enteredByName: 'Owner',
+    enteredAt: '2026-09-19T02:00:00.000Z',
+  },
+  {
+    ...rowBase,
+    ...ldbAcct,
+    date: '2026-09-17',
+    systemCredit: 300_000,
+    expectedCredit: 297_000,
+    systemFee: 3_000,
+    systemCreditCount: 1,
+    systemDebit: 0,
+    systemDebitCount: 0,
+    statementId: id(53),
+    statementCredit: 292_000,
+    statementDebit: 0,
+    note: 'fee',
+    creditVariance: -5_000,
+    debitVariance: 0,
+    status: 'RESOLVED',
+    enteredByName: 'Manager',
+    enteredAt: '2026-09-18T02:00:00.000Z',
+    resolution: 'BANK_FEE',
+    resolutionNote: 'Monthly SMS fee',
+    resolvedByName: 'Owner',
+    resolvedAt: '2026-09-18T03:00:00.000Z',
+  },
 ];
 const totals = (rows: ReconciliationRow[]) => ({
   systemCredit: rows.reduce((n, r) => n + r.systemCredit, 0),
@@ -360,10 +759,36 @@ const recon: ReconciliationView = {
   totalsByCurrency: { LAK: totals(reconRows) },
   periods: [],
   openSlips: 2,
-  issues: [{ id: id(61), providerCode: 'MOCK_BCEL', eventId: 'evt-1', result: 'AMOUNT_MISMATCH', amount: 90_000, reference: 'MOCK_BCEL_x', createdAt: new Date().toISOString() }],
+  issues: [
+    {
+      id: id(61),
+      providerCode: 'MOCK_BCEL',
+      eventId: 'evt-1',
+      result: 'AMOUNT_MISMATCH',
+      amount: 90_000,
+      reference: 'MOCK_BCEL_x',
+      createdAt: new Date().toISOString(),
+    },
+  ],
   accounts: [
-    { ...bcelAcct, branchId: BRANCH, branchName: 'Vientiane Main', currency: 'LAK', isActive: true, isDefault: true, lastStatementDate: '2026-09-19' },
-    { ...ldbAcct, branchId: BRANCH, branchName: 'Vientiane Main', currency: 'LAK', isActive: true, isDefault: false, lastStatementDate: '2026-09-18' },
+    {
+      ...bcelAcct,
+      branchId: BRANCH,
+      branchName: 'Vientiane Main',
+      currency: 'LAK',
+      isActive: true,
+      isDefault: true,
+      lastStatementDate: '2026-09-19',
+    },
+    {
+      ...ldbAcct,
+      branchId: BRANCH,
+      branchName: 'Vientiane Main',
+      currency: 'LAK',
+      isActive: true,
+      isDefault: false,
+      lastStatementDate: '2026-09-18',
+    },
   ],
 };
 
@@ -412,17 +837,69 @@ function reconDay(bankAccountId: string, date: string): ReconciliationDayDetail 
     row,
     credits,
     debits: row.systemDebitCount
-      ? [{ id: id(760), kind: 'EXPENSE' as const, matchedLineId: null, at: `${date}T06:00:00.000Z`, amount: row.systemDebit, title: 'Laundry service', categoryLo: 'ບໍລິການ', categoryEn: 'Services', supplierName: 'Clean Co.', reference: 'EXP-1' }]
+      ? [
+          {
+            id: id(760),
+            kind: 'EXPENSE' as const,
+            matchedLineId: null,
+            at: `${date}T06:00:00.000Z`,
+            amount: row.systemDebit,
+            title: 'Laundry service',
+            categoryLo: 'ບໍລິການ',
+            categoryEn: 'Services',
+            supplierName: 'Clean Co.',
+            reference: 'EXP-1',
+          },
+        ]
       : [],
     lines: row.lineCount
       ? [
-          { id: id(950), seq: 1, postedAt: `${date}T03:16:00.000Z`, direction: 'CREDIT' as const, amount: 800_000, balance: 1_800_000, description: 'Transfer Somchai', reference: `TXN-${date.replace(/-/g, '')}-1`, matchStatus: 'MATCHED' as const, matchedKind: 'TX' as const, matchedId: id(700), autoMatched: true },
-          { id: id(951), seq: 2, postedAt: `${date}T08:00:00.000Z`, direction: 'CREDIT' as const, amount: 50_000, balance: 1_850_000, description: 'Transfer Kham S.', reference: 'BCEL123', matchStatus: 'UNMATCHED' as const, matchedKind: null, matchedId: null, autoMatched: false },
+          {
+            id: id(950),
+            seq: 1,
+            postedAt: `${date}T03:16:00.000Z`,
+            direction: 'CREDIT' as const,
+            amount: 800_000,
+            balance: 1_800_000,
+            description: 'Transfer Somchai',
+            reference: `TXN-${date.replace(/-/g, '')}-1`,
+            matchStatus: 'MATCHED' as const,
+            matchedKind: 'TX' as const,
+            matchedId: id(700),
+            autoMatched: true,
+          },
+          {
+            id: id(951),
+            seq: 2,
+            postedAt: `${date}T08:00:00.000Z`,
+            direction: 'CREDIT' as const,
+            amount: 50_000,
+            balance: 1_850_000,
+            description: 'Transfer Kham S.',
+            reference: 'BCEL123',
+            matchStatus: 'UNMATCHED' as const,
+            matchedKind: null,
+            matchedId: null,
+            autoMatched: false,
+          },
         ]
       : [],
-    slips: base?.status === 'VARIANCE'
-      ? [{ id: id(32), verdict: 'NEEDS_REVIEW', amount: 50_000, declaredAmount: null, txnRef: 'BCEL123', senderName: 'Kham S.', transferredAt: `${date}T08:00:00.000Z`, createdAt: `${date}T08:05:00.000Z`, paymentId: id(801) }]
-      : [],
+    slips:
+      base?.status === 'VARIANCE'
+        ? [
+            {
+              id: id(32),
+              verdict: 'NEEDS_REVIEW',
+              amount: 50_000,
+              declaredAmount: null,
+              txnRef: 'BCEL123',
+              senderName: 'Kham S.',
+              transferredAt: `${date}T08:00:00.000Z`,
+              createdAt: `${date}T08:05:00.000Z`,
+              paymentId: id(801),
+            },
+          ]
+        : [],
   };
 }
 
@@ -455,7 +932,16 @@ const openDrawer: CashDrawerSessionView = {
   expectedAmount: 700_000,
   countedAmount: null,
   variance: null,
-  movements: [{ id: id(1111), type: 'DROP', amount: 1_000_000, note: 'Bank deposit', createdByName: 'Manager', createdAt: '2026-09-21T06:00:00.000Z' }],
+  movements: [
+    {
+      id: id(1111),
+      type: 'DROP',
+      amount: 1_000_000,
+      note: 'Bank deposit',
+      createdByName: 'Manager',
+      createdAt: '2026-09-21T06:00:00.000Z',
+    },
+  ],
 };
 const closedDrawer: CashDrawerSessionView = {
   ...drawerBase,
@@ -478,16 +964,25 @@ const closedDrawer: CashDrawerSessionView = {
   closingNote: 'Change given twice',
 };
 
-
 export const paymentsTreasuryHandlers = [
-  http.get(api('/payments-treasury/banks'), () => ok([{ ...bcel, logoUrl: null, isActive: true }, { ...ldb, logoUrl: null, isActive: true }])),
+  http.get(api('/payments-treasury/banks'), () =>
+    ok([
+      { ...bcel, logoUrl: null, isActive: true },
+      { ...ldb, logoUrl: null, isActive: true },
+    ]),
+  ),
   http.get(api('/payments-treasury/bank-accounts/insights'), ({ request }) =>
     ok(mockInsights(Number(new URL(request.url).searchParams.get('days')) || 30)),
   ),
   http.get(api('/payments-treasury/bank-accounts'), () => ok(mockBankAccounts)),
   http.get(api('/payments-treasury/bank-account-changes'), () => ok(mockChanges)),
   http.post(api('/payments-treasury/bank-account-changes/:id/approve'), ({ params }) =>
-    ok({ ...mockChanges.find((c) => c.id === params.id)!, status: 'APPROVED', reviewedByName: 'Admin', reviewedAt: new Date().toISOString() }),
+    ok({
+      ...mockChanges.find((c) => c.id === params.id)!,
+      status: 'APPROVED',
+      reviewedByName: 'Admin',
+      reviewedAt: new Date().toISOString(),
+    }),
   ),
   http.post(api('/payments-treasury/bank-account-changes/:id/reject'), ({ params }) =>
     ok({ ...mockChanges.find((c) => c.id === params.id)!, status: 'REJECTED' }),
@@ -496,16 +991,52 @@ export const paymentsTreasuryHandlers = [
     ok({ ...mockChanges.find((c) => c.id === params.id)!, status: 'CANCELLED' }),
   ),
   http.get(api('/payments-treasury/unassigned-transfers'), () => ok(mockUnassigned)),
-  http.patch(api('/payments-treasury/transactions/:id/bank-account'), () => new Response(null, { status: 204 })),
-  http.get(api('/payments-treasury/payments/:id/bank-accounts'), () =>
-    ok(mockBankAccounts.map(({ id: aid, accountName, accountNumber, currency, isDefault, qrImageUrl, bank }) => ({ id: aid, accountName, accountNumber, currency, isDefault, qrImageUrl, bank }))),
+  http.patch(
+    api('/payments-treasury/transactions/:id/bank-account'),
+    () => new Response(null, { status: 204 }),
   ),
-  http.post(api('/payments-treasury/bank-accounts'), async ({ request }) => ok({ ...mockBankAccounts[0], ...((await request.json()) as object), id: crypto.randomUUID() }, { status: 201 })),
-  http.patch(api('/payments-treasury/bank-accounts/:id'), async ({ params, request }) => ok({ ...mockBankAccounts[0], ...((await request.json()) as object), id: params.id })),
-  http.delete(api('/payments-treasury/bank-accounts/:id'), () => new Response(null, { status: 204 })),
-  http.post(api('/payments-treasury/bank-accounts/:id/qr'), ({ params }) => ok({ ...mockBankAccounts[0], id: params.id, qrImageUrl: 'http://localhost/uploads/bank-qr/new.jpg' })),
+  http.get(api('/payments-treasury/payments/:id/bank-accounts'), () =>
+    ok(
+      mockBankAccounts.map(
+        ({ id: aid, accountName, accountNumber, currency, isDefault, qrImageUrl, bank }) => ({
+          id: aid,
+          accountName,
+          accountNumber,
+          currency,
+          isDefault,
+          qrImageUrl,
+          bank,
+        }),
+      ),
+    ),
+  ),
+  http.post(api('/payments-treasury/bank-accounts'), async ({ request }) =>
+    ok(
+      { ...mockBankAccounts[0], ...((await request.json()) as object), id: crypto.randomUUID() },
+      { status: 201 },
+    ),
+  ),
+  http.patch(api('/payments-treasury/bank-accounts/:id'), async ({ params, request }) =>
+    ok({ ...mockBankAccounts[0], ...((await request.json()) as object), id: params.id }),
+  ),
+  http.delete(
+    api('/payments-treasury/bank-accounts/:id'),
+    () => new Response(null, { status: 204 }),
+  ),
+  http.post(api('/payments-treasury/bank-accounts/:id/qr'), ({ params }) =>
+    ok({
+      ...mockBankAccounts[0],
+      id: params.id,
+      qrImageUrl: 'http://localhost/uploads/bank-qr/new.jpg',
+    }),
+  ),
   http.get(api('/payments-treasury/providers'), () => ok(providers)),
-  http.patch(api('/payments-treasury/providers/:code'), async ({ params, request }) => ok({ ...providers.find((p) => p.code === params.code)!, ...((await request.json()) as object) })),
+  http.patch(api('/payments-treasury/providers/:code'), async ({ params, request }) =>
+    ok({
+      ...providers.find((p) => p.code === params.code)!,
+      ...((await request.json()) as object),
+    }),
+  ),
   http.get(api('/payments-treasury/settings'), () => ok(settings)),
   http.put(api('/payments-treasury/settings'), async ({ request }) => {
     settings = { ...settings, ...((await request.json()) as Partial<SlipSettings>) };
@@ -513,8 +1044,73 @@ export const paymentsTreasuryHandlers = [
   }),
   http.get(api('/payments-treasury/slips'), ({ request }) => {
     const u = new URL(request.url);
-    return paginated(mockSlips.filter((s) => slipMatches(s, u.searchParams.get('view'), u.searchParams.get('flag'))), 1, 100);
+    return paginated(
+      mockSlips.filter((s) =>
+        slipMatches(s, u.searchParams.get('view'), u.searchParams.get('flag')),
+      ),
+      1,
+      100,
+    );
   }),
+  // Open bills for the slip upload dialog (S12) — the finance list endpoint, minimal.
+  http.get(api('/payments'), () =>
+    paginated(
+      [
+        {
+          id: id(71),
+          branchId: BRANCH,
+          branchName: 'Vientiane Main',
+          appointmentId: null,
+          bookingGroupId: null,
+          customerName: 'Lamphone S',
+          totalAmount: 300000,
+          depositAmount: 0,
+          paidAmount: 0,
+          balanceAmount: 300000 - 0,
+          currency: 'LAK',
+          paymentStatus: 'PENDING' as const,
+          paidAt: null,
+          createdAt: new Date(Date.now() - 7_200_000).toISOString(),
+          transactions: [],
+          invoiceNo: null,
+          vatRate: null,
+          vatMode: null,
+          taxAmount: null,
+          netAmount: null,
+          refundedAmount: 0,
+          voidedAt: null,
+          voidReason: null,
+        },
+        {
+          id: id(72),
+          branchId: BRANCH,
+          branchName: 'Vientiane Main',
+          appointmentId: null,
+          bookingGroupId: null,
+          customerName: 'Vilay K',
+          totalAmount: 850000,
+          depositAmount: 0,
+          paidAmount: 200000,
+          balanceAmount: 850000 - 200000,
+          currency: 'LAK',
+          paymentStatus: 'DEPOSIT_PAID' as const,
+          paidAt: null,
+          createdAt: new Date(Date.now() - 7_200_000).toISOString(),
+          transactions: [],
+          invoiceNo: null,
+          vatRate: null,
+          vatMode: null,
+          taxAmount: null,
+          netAmount: null,
+          refundedAmount: 0,
+          voidedAt: null,
+          voidReason: null,
+        },
+      ],
+      1,
+      20,
+    ),
+  ),
   http.get(api('/payments-treasury/slips/summary'), () => ok(slipSummary)),
   http.post(api('/payments-treasury/slips/bulk-approve'), async ({ request }) => {
     const { ids } = (await request.json()) as { ids: string[] };
@@ -522,20 +1118,38 @@ export const paymentsTreasuryHandlers = [
   }),
   http.post(api('/payments-treasury/slips/:id/reprocess'), ({ params }) => {
     const slip = mockSlips.find((s) => s.id === params.id) ?? mockSlips[0]!;
-    return ok({ ...slip, verdict: 'PENDING', ocrStatus: 'PENDING', mismatchFields: [], matchScore: 0 });
+    return ok({
+      ...slip,
+      verdict: 'PENDING',
+      ocrStatus: 'PENDING',
+      mismatchFields: [],
+      matchScore: 0,
+    });
   }),
-  http.get(api('/payments-treasury/slips/export'), () =>
-    new HttpResponse('\uFEFFuploaded_at,txn_ref\n', { headers: { 'Content-Type': 'text/csv' } }),
+  http.get(
+    api('/payments-treasury/slips/export'),
+    () =>
+      new HttpResponse('\uFEFFuploaded_at,txn_ref\n', { headers: { 'Content-Type': 'text/csv' } }),
   ),
   http.get(api('/payments-treasury/slips/:id'), ({ params }) => {
     const slip = mockSlips.find((s) => s.id === params.id) ?? mockSlips[0]!;
-    const near = slip.nearDuplicateOfId ? mockSlips.find((s) => s.id === slip.nearDuplicateOfId) : undefined;
+    const near = slip.nearDuplicateOfId
+      ? mockSlips.find((s) => s.id === slip.nearDuplicateOfId)
+      : undefined;
     return ok({
       ...slip,
       ocrText: 'BCEL One\nTransfer Successful',
       duplicateOf: null,
       nearDuplicateOf: near
-        ? { id: near.id, verdict: near.verdict, amount: near.amount, txnRef: near.txnRef, customerName: near.customerName, paymentId: near.paymentId, createdAt: near.createdAt }
+        ? {
+            id: near.id,
+            verdict: near.verdict,
+            amount: near.amount,
+            txnRef: near.txnRef,
+            customerName: near.customerName,
+            paymentId: near.paymentId,
+            createdAt: near.createdAt,
+          }
         : null,
       siblings: [],
     });
@@ -544,24 +1158,50 @@ export const paymentsTreasuryHandlers = [
     const slip = mockSlips.find((s) => s.id === params.id) ?? mockSlips[0]!;
     return ok(slip);
   }),
-  http.delete(api('/payments-treasury/slips/:id/claim'), () => new HttpResponse(null, { status: 204 })),
+  http.delete(
+    api('/payments-treasury/slips/:id/claim'),
+    () => new HttpResponse(null, { status: 204 }),
+  ),
   http.post(api('/payments-treasury/slips/:id/request-info'), async ({ params, request }) => {
     const { message } = (await request.json()) as { message: string };
     const slip = mockSlips.find((s) => s.id === params.id) ?? mockSlips[0]!;
-    return ok({ slip: { ...slip, infoRequestedAt: new Date().toISOString(), infoRequestNote: message }, viaChat: false });
+    return ok({
+      slip: { ...slip, infoRequestedAt: new Date().toISOString(), infoRequestNote: message },
+      viaChat: false,
+    });
   }),
   http.post(api('/payments-treasury/slips/:id/reverse'), async ({ params, request }) => {
     const { reason } = (await request.json()) as { reason: string };
     const slip = mockSlips.find((s) => s.id === params.id) ?? mockSlips[0]!;
-    return ok({ ...slip, verdict: 'REVERSED', reverseReason: reason, reversedByName: 'Admin', reversedAt: new Date().toISOString() });
+    return ok({
+      ...slip,
+      verdict: 'REVERSED',
+      reverseReason: reason,
+      reversedByName: 'Admin',
+      reversedAt: new Date().toISOString(),
+    });
   }),
   http.post(api('/payments-treasury/payments/:id/slips'), ({ params }) =>
-    ok({ ...mockSlips[1]!, id: id(29), paymentId: String(params.id), verdict: 'PENDING', ocrStatus: 'PENDING', uploadedByRole: 'BRANCH_ADMIN' }, { status: 201 }),
+    ok(
+      {
+        ...mockSlips[1]!,
+        id: id(29),
+        paymentId: String(params.id),
+        verdict: 'PENDING',
+        ocrStatus: 'PENDING',
+        uploadedByRole: 'BRANCH_ADMIN',
+      },
+      { status: 201 },
+    ),
   ),
   http.post(api('/payments-treasury/slips/:id/review'), async ({ params, request }) => {
     const body = (await request.json()) as { action: 'APPROVE' | 'REJECT'; note?: string };
     const slip = mockSlips.find((s) => s.id === params.id) ?? mockSlips[0]!;
-    return ok({ ...slip, verdict: body.action === 'APPROVE' ? 'APPROVED' : 'REJECTED', rejectReason: body.note ?? null });
+    return ok({
+      ...slip,
+      verdict: body.action === 'APPROVE' ? 'APPROVED' : 'REJECTED',
+      rejectReason: body.note ?? null,
+    });
   }),
   http.get(api('/payments-treasury/cash-drawer/current'), () => ok(openDrawer)),
   http.get(api('/payments-treasury/cash-drawer/sessions'), () => ok([openDrawer, closedDrawer])),
@@ -569,12 +1209,26 @@ export const paymentsTreasuryHandlers = [
   http.post(api('/payments-treasury/cash-drawer/sessions/:id/movements'), () => ok(openDrawer)),
   http.post(api('/payments-treasury/cash-drawer/sessions/:id/close'), async ({ request }) => {
     const b = (await request.json()) as { denominations?: Record<string, number>; note?: string };
-    const counted = Object.entries(b.denominations ?? {}).reduce((n, [k, q]) => n + Number(k) * q, 0);
-    return ok({ ...openDrawer, status: 'CLOSED', countedAmount: counted, variance: counted - openDrawer.expectedAmount, closingNote: b.note ?? null });
+    const counted = Object.entries(b.denominations ?? {}).reduce(
+      (n, [k, q]) => n + Number(k) * q,
+      0,
+    );
+    return ok({
+      ...openDrawer,
+      status: 'CLOSED',
+      countedAmount: counted,
+      variance: counted - openDrawer.expectedAmount,
+      closingNote: b.note ?? null,
+    });
   }),
   http.get(api('/payments-treasury/reconciliation/day'), ({ request }) => {
     const u = new URL(request.url);
-    return ok(reconDay(u.searchParams.get('bankAccountId') ?? id(11), u.searchParams.get('date') ?? '2026-09-20'));
+    return ok(
+      reconDay(
+        u.searchParams.get('bankAccountId') ?? id(11),
+        u.searchParams.get('date') ?? '2026-09-20',
+      ),
+    );
   }),
   http.get(api('/payments-treasury/reconciliation/settings'), () => ok(reconSettings)),
   http.put(api('/payments-treasury/reconciliation/settings'), async ({ request }) => {
@@ -583,23 +1237,81 @@ export const paymentsTreasuryHandlers = [
   }),
   http.get(api('/payments-treasury/reconciliation/periods/readiness'), ({ request }) => {
     const u = new URL(request.url);
-    return ok({ branchId: u.searchParams.get('branchId'), month: u.searchParams.get('month'), closed: false, unreconciled: 1, unresolvedVariance: 1, unmatchedLines: 1, balanceBreaks: 0, canClose: false, monthOpen: false });
+    return ok({
+      branchId: u.searchParams.get('branchId'),
+      month: u.searchParams.get('month'),
+      closed: false,
+      unreconciled: 1,
+      unresolvedVariance: 1,
+      unmatchedLines: 1,
+      balanceBreaks: 0,
+      canClose: false,
+      monthOpen: false,
+    });
   }),
   http.get(api('/payments-treasury/reconciliation/periods'), () =>
-    ok([{ id: id(990), branchId: BRANCH, branchName: 'Vientiane Main', month: '2026-08', closedAt: '2026-09-02T03:00:00.000Z', closedByName: 'Owner', note: null, summary: { days: 22 } }]),
+    ok([
+      {
+        id: id(990),
+        branchId: BRANCH,
+        branchName: 'Vientiane Main',
+        month: '2026-08',
+        closedAt: '2026-09-02T03:00:00.000Z',
+        closedByName: 'Owner',
+        note: null,
+        summary: { days: 22 },
+      },
+    ]),
   ),
-  http.post(api('/payments-treasury/reconciliation/periods'), () => new Response(JSON.stringify({ error: { message: 'not ready' } }), { status: 409 })),
-  http.delete(api('/payments-treasury/reconciliation/periods/:id'), () => new Response(null, { status: 204 })),
+  http.post(
+    api('/payments-treasury/reconciliation/periods'),
+    () => new Response(JSON.stringify({ error: { message: 'not ready' } }), { status: 409 }),
+  ),
+  http.delete(
+    api('/payments-treasury/reconciliation/periods/:id'),
+    () => new Response(null, { status: 204 }),
+  ),
   http.get(api('/payments-treasury/reconciliation/imports'), () => ok([])),
   http.post(api('/payments-treasury/reconciliation/imports'), async ({ request }) => {
     const b = (await request.json()) as { dryRun?: boolean };
-    if (b.dryRun === false) return ok({ importId: id(980), inserted: 2, duplicates: 0, days: 1, matched: 1, unmatched: 1 });
+    if (b.dryRun === false)
+      return ok({
+        importId: id(980),
+        inserted: 2,
+        duplicates: 0,
+        days: 1,
+        matched: 1,
+        unmatched: 1,
+      });
     return ok({
-      mapping: { date: 0, time: null, description: 1, reference: 2, credit: 3, debit: null, amount: null, balance: 4, dateFormat: 'DMY', hasHeader: true, headerRow: 0 },
+      mapping: {
+        date: 0,
+        time: null,
+        description: 1,
+        reference: 2,
+        credit: 3,
+        debit: null,
+        amount: null,
+        balance: 4,
+        dateFormat: 'DMY',
+        hasHeader: true,
+        headerRow: 0,
+      },
       detected: true,
       headers: ['Date', 'Description', 'Reference', 'Credit', 'Balance'],
       sampleRows: [['19/09/2026', 'Transfer', 'BCEL123', '50,000', '1,850,000']],
-      lines: [{ row: 2, date: '2026-09-19', postedAt: null, direction: 'CREDIT', amount: 50_000, balance: 1_850_000, description: 'Transfer', reference: 'BCEL123' }],
+      lines: [
+        {
+          row: 2,
+          date: '2026-09-19',
+          postedAt: null,
+          direction: 'CREDIT',
+          amount: 50_000,
+          balance: 1_850_000,
+          description: 'Transfer',
+          reference: 'BCEL123',
+        },
+      ],
       count: 2,
       creditTotal: 850_000,
       debitTotal: 0,
@@ -611,80 +1323,283 @@ export const paymentsTreasuryHandlers = [
     });
   }),
   http.get(api('/payments-treasury/reconciliation/lines/:id/candidates'), () =>
-    ok([{ kind: 'TX', id: id(701), amount: 50_000, netAmount: 50_000, at: '2026-09-19T08:00:00.000Z', date: '2026-09-19', reference: 'BCEL123', amountDiff: 0, sameDay: true }]),
+    ok([
+      {
+        kind: 'TX',
+        id: id(701),
+        amount: 50_000,
+        netAmount: 50_000,
+        at: '2026-09-19T08:00:00.000Z',
+        date: '2026-09-19',
+        reference: 'BCEL123',
+        amountDiff: 0,
+        sameDay: true,
+      },
+    ]),
   ),
-  http.post(api('/payments-treasury/reconciliation/lines/:id/:action'), () => new Response(null, { status: 204 })),
+  http.post(
+    api('/payments-treasury/reconciliation/lines/:id/:action'),
+    () => new Response(null, { status: 204 }),
+  ),
   http.post(api('/payments-treasury/reconciliation/rematch'), () => ok({ matched: 0 })),
-  http.post(api('/payments-treasury/reconciliation/statements/resolve-bulk'), () => ok({ resolved: 2 })),
-  http.post(api('/payments-treasury/reconciliation/statements/:id/resolve'), async ({ request }) => {
-    const b = (await request.json()) as { resolution: string; note?: string };
-    return ok({ ...reconRows[1]!, status: 'RESOLVED', resolution: b.resolution, resolutionNote: b.note ?? null, resolvedByName: 'Owner' });
-  }),
-  http.delete(api('/payments-treasury/reconciliation/statements/:id/resolve'), () => ok(reconRows[3]!)),
+  http.post(api('/payments-treasury/reconciliation/statements/resolve-bulk'), () =>
+    ok({ resolved: 2 }),
+  ),
+  http.post(
+    api('/payments-treasury/reconciliation/statements/:id/resolve'),
+    async ({ request }) => {
+      const b = (await request.json()) as { resolution: string; note?: string };
+      return ok({
+        ...reconRows[1]!,
+        status: 'RESOLVED',
+        resolution: b.resolution,
+        resolutionNote: b.note ?? null,
+        resolvedByName: 'Owner',
+      });
+    },
+  ),
+  http.delete(api('/payments-treasury/reconciliation/statements/:id/resolve'), () =>
+    ok(reconRows[3]!),
+  ),
   http.get(api('/payments-treasury/reconciliation/statements/:id/history'), () =>
     ok([
-      { id: id(970), action: 'UPDATE', at: '2026-09-20T02:00:00.000Z', userName: 'Owner', oldValue: { credit: 800_000, debit: 0 }, newValue: { credit: 850_000, debit: 0 } },
-      { id: id(971), action: 'CREATE', at: '2026-09-19T02:00:00.000Z', userName: 'Owner', oldValue: null, newValue: { credit: 800_000, debit: 0 } },
+      {
+        id: id(970),
+        action: 'UPDATE',
+        at: '2026-09-20T02:00:00.000Z',
+        userName: 'Owner',
+        oldValue: { credit: 800_000, debit: 0 },
+        newValue: { credit: 850_000, debit: 0 },
+      },
+      {
+        id: id(971),
+        action: 'CREATE',
+        at: '2026-09-19T02:00:00.000Z',
+        userName: 'Owner',
+        oldValue: null,
+        newValue: { credit: 800_000, debit: 0 },
+      },
     ]),
   ),
   http.get(api('/payments-treasury/reconciliation'), () => ok(recon)),
   http.put(api('/payments-treasury/reconciliation/statements'), async ({ request }) => {
     const b = (await request.json()) as { statementCredit: number; statementDebit: number };
-    return ok({ ...recon.rows[0]!, statementCredit: b.statementCredit, statementDebit: b.statementDebit, status: 'VARIANCE' });
+    return ok({
+      ...recon.rows[0]!,
+      statementCredit: b.statementCredit,
+      statementDebit: b.statementDebit,
+      status: 'VARIANCE',
+    });
   }),
-  http.delete(api('/payments-treasury/reconciliation/statements/:id'), () => new Response(null, { status: 204 })),
+  http.delete(
+    api('/payments-treasury/reconciliation/statements/:id'),
+    () => new Response(null, { status: 204 }),
+  ),
 
   // ---- expenses (specific paths before /:id) ----
   http.get(api('/expenses/cash-funds'), () =>
     ok([
-      { id: id(61), branchId: BRANCH, branchName: 'Vientiane Main', name: 'Front desk', currency: 'LAK', floatAmount: 2_000_000, isActive: true, balance: 350_000, spent30d: 1_650_000, lastCount: { at: new Date(Date.now() - 3 * 86_400_000).toISOString(), counted: 500_000, difference: -20_000, by: 'Manager' } },
+      {
+        id: id(61),
+        branchId: BRANCH,
+        branchName: 'Vientiane Main',
+        name: 'Front desk',
+        currency: 'LAK',
+        floatAmount: 2_000_000,
+        isActive: true,
+        balance: 350_000,
+        spent30d: 1_650_000,
+        lastCount: {
+          at: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+          counted: 500_000,
+          difference: -20_000,
+          by: 'Manager',
+        },
+      },
     ]),
   ),
   http.get(api('/expenses/cash-funds/:id/entries'), () =>
     ok([
-      { id: id(71), type: 'EXPENSE', amount: -150_000, countedAmount: null, balanceAfter: 350_000, expense: { id: id(43), title: 'Water bill' }, note: null, createdBy: 'Manager', createdAt: new Date().toISOString() },
-      { id: id(72), type: 'TOPUP', amount: 2_000_000, countedAmount: null, balanceAfter: 500_000, expense: null, note: 'Opening', createdBy: 'Admin', createdAt: new Date(Date.now() - 86_400_000).toISOString() },
+      {
+        id: id(71),
+        type: 'EXPENSE',
+        amount: -150_000,
+        countedAmount: null,
+        balanceAfter: 350_000,
+        expense: { id: id(43), title: 'Water bill' },
+        note: null,
+        createdBy: 'Manager',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: id(72),
+        type: 'TOPUP',
+        amount: 2_000_000,
+        countedAmount: null,
+        balanceAfter: 500_000,
+        expense: null,
+        note: 'Opening',
+        createdBy: 'Admin',
+        createdAt: new Date(Date.now() - 86_400_000).toISOString(),
+      },
     ]),
   ),
-  http.post(api('/expenses/cash-funds/:id/movements'), () => ok({ id: id(61), branchId: BRANCH, branchName: 'Vientiane Main', name: 'Front desk', currency: 'LAK', floatAmount: 2_000_000, isActive: true, balance: 2_000_000, spent30d: 0, lastCount: null })),
-  http.post(api('/expenses/cash-funds/:id/count'), () => ok({ id: id(61), branchId: BRANCH, branchName: 'Vientiane Main', name: 'Front desk', currency: 'LAK', floatAmount: 2_000_000, isActive: true, balance: 340_000, spent30d: 0, lastCount: { at: new Date().toISOString(), counted: 340_000, difference: -10_000, by: 'Admin' } })),
-  http.post(api('/expenses/receipt-scan'), () =>
-    ok({ total: 150_000, taxAmount: 13_636, currency: 'LAK', date: '2026-09-12', invoiceNumber: 'INV-20488', vendor: 'SAKURA SUPPLY CO', confidence: 88, engine: 'tesseract.js', ms: 900, preview: [], duplicateOf: null }),
+  http.post(api('/expenses/cash-funds/:id/movements'), () =>
+    ok({
+      id: id(61),
+      branchId: BRANCH,
+      branchName: 'Vientiane Main',
+      name: 'Front desk',
+      currency: 'LAK',
+      floatAmount: 2_000_000,
+      isActive: true,
+      balance: 2_000_000,
+      spent30d: 0,
+      lastCount: null,
+    }),
   ),
-  http.get(api('/expenses/settings'), () => ok({ approvalLimit: 5_000_000, rates: [{ currency: 'THB', rate: 600, updatedAt: new Date().toISOString() }, { currency: 'USD', rate: 21_500, updatedAt: new Date().toISOString() }] })),
-  http.put(api('/expenses/settings'), async ({ request }) => ok({ approvalLimit: null, rates: [], ...((await request.json()) as object) })),
+  http.post(api('/expenses/cash-funds/:id/count'), () =>
+    ok({
+      id: id(61),
+      branchId: BRANCH,
+      branchName: 'Vientiane Main',
+      name: 'Front desk',
+      currency: 'LAK',
+      floatAmount: 2_000_000,
+      isActive: true,
+      balance: 340_000,
+      spent30d: 0,
+      lastCount: {
+        at: new Date().toISOString(),
+        counted: 340_000,
+        difference: -10_000,
+        by: 'Admin',
+      },
+    }),
+  ),
+  http.post(api('/expenses/receipt-scan'), () =>
+    ok({
+      total: 150_000,
+      taxAmount: 13_636,
+      currency: 'LAK',
+      date: '2026-09-12',
+      invoiceNumber: 'INV-20488',
+      vendor: 'SAKURA SUPPLY CO',
+      confidence: 88,
+      engine: 'tesseract.js',
+      ms: 900,
+      preview: [],
+      duplicateOf: null,
+    }),
+  ),
+  http.get(api('/expenses/settings'), () =>
+    ok({
+      approvalLimit: 5_000_000,
+      rates: [
+        { currency: 'THB', rate: 600, updatedAt: new Date().toISOString() },
+        { currency: 'USD', rate: 21_500, updatedAt: new Date().toISOString() },
+      ],
+    }),
+  ),
+  http.put(api('/expenses/settings'), async ({ request }) =>
+    ok({ approvalLimit: null, rates: [], ...((await request.json()) as object) }),
+  ),
   http.get(api('/expenses/budgets'), ({ request }) => {
     const u = new URL(request.url);
-    return ok({ branchId: u.searchParams.get('branchId'), month: u.searchParams.get('month'), items: [{ categoryId: id(32), amount: 1_000_000 }], actual: [{ categoryId: id(32), amount: 1_200_000 }], previousActual: [{ categoryId: id(32), amount: 900_000 }] });
+    return ok({
+      branchId: u.searchParams.get('branchId'),
+      month: u.searchParams.get('month'),
+      items: [{ categoryId: id(32), amount: 1_000_000 }],
+      actual: [{ categoryId: id(32), amount: 1_200_000 }],
+      previousActual: [{ categoryId: id(32), amount: 900_000 }],
+    });
   }),
   http.put(api('/expenses/budgets'), async ({ request }) => {
-    const b = (await request.json()) as { branchId: string; month: string; items: { categoryId: string; amount: number }[] };
-    return ok({ branchId: b.branchId, month: b.month, items: b.items.filter((i) => i.amount > 0), actual: [], previousActual: [] });
+    const b = (await request.json()) as {
+      branchId: string;
+      month: string;
+      items: { categoryId: string; amount: number }[];
+    };
+    return ok({
+      branchId: b.branchId,
+      month: b.month,
+      items: b.items.filter((i) => i.amount > 0),
+      actual: [],
+      previousActual: [],
+    });
   }),
-  http.get(api('/expenses/status-counts'), () => ok({ DRAFT: 1, SUBMITTED: 1, APPROVED: 0, REJECTED: 0, PAID: 1, VOIDED: 0 })),
+  http.get(api('/expenses/status-counts'), () =>
+    ok({ DRAFT: 1, SUBMITTED: 1, APPROVED: 0, REJECTED: 0, PAID: 1, VOIDED: 0 }),
+  ),
   http.get(api('/expenses/:id/history'), () =>
     ok([
-      { id: id(90), action: 'CREATE', at: new Date(Date.now() - 86_400_000).toISOString(), user: { id: id(5), name: 'Manager' }, changes: [], note: null },
-      { id: id(91), action: 'UPDATE', at: new Date(Date.now() - 80_000_000).toISOString(), user: { id: id(5), name: 'Manager' }, changes: [{ field: 'amount', from: 7_500_000, to: 8_000_000 }], note: null },
-      { id: id(92), action: 'SUBMIT', at: new Date().toISOString(), user: { id: id(5), name: 'Manager' }, changes: [], note: null },
+      {
+        id: id(90),
+        action: 'CREATE',
+        at: new Date(Date.now() - 86_400_000).toISOString(),
+        user: { id: id(5), name: 'Manager' },
+        changes: [],
+        note: null,
+      },
+      {
+        id: id(91),
+        action: 'UPDATE',
+        at: new Date(Date.now() - 80_000_000).toISOString(),
+        user: { id: id(5), name: 'Manager' },
+        changes: [{ field: 'amount', from: 7_500_000, to: 8_000_000 }],
+        note: null,
+      },
+      {
+        id: id(92),
+        action: 'SUBMIT',
+        at: new Date().toISOString(),
+        user: { id: id(5), name: 'Manager' },
+        changes: [],
+        note: null,
+      },
     ]),
   ),
   http.get(api('/expenses/categories'), () => ok(categories)),
-  http.post(api('/expenses/categories'), async ({ request }) => ok({ ...categories[0]!, ...((await request.json()) as object), id: crypto.randomUUID() }, { status: 201 })),
-  http.patch(api('/expenses/categories/:id'), async ({ params, request }) => ok({ ...categories[0]!, ...((await request.json()) as object), id: params.id })),
+  http.post(api('/expenses/categories'), async ({ request }) =>
+    ok(
+      { ...categories[0]!, ...((await request.json()) as object), id: crypto.randomUUID() },
+      { status: 201 },
+    ),
+  ),
+  http.patch(api('/expenses/categories/:id'), async ({ params, request }) =>
+    ok({ ...categories[0]!, ...((await request.json()) as object), id: params.id }),
+  ),
   http.get(api('/expenses/summary'), () => ok(summary)),
   http.get(api('/expenses/profit-loss'), () => ok(pnl)),
   http.get(api('/expenses/recurring'), () => ok([])),
-  http.post(api('/expenses/recurring'), async ({ request }) => ok({ id: crypto.randomUUID(), ...((await request.json()) as object) }, { status: 201 })),
-  http.patch(api('/expenses/recurring/:id'), async ({ params, request }) => ok({ id: params.id, ...((await request.json()) as object) })),
+  http.post(api('/expenses/recurring'), async ({ request }) =>
+    ok({ id: crypto.randomUUID(), ...((await request.json()) as object) }, { status: 201 }),
+  ),
+  http.patch(api('/expenses/recurring/:id'), async ({ params, request }) =>
+    ok({ id: params.id, ...((await request.json()) as object) }),
+  ),
   http.get(api('/expenses'), () => paginated(mockExpenses, 1, 20)),
-  http.post(api('/expenses'), async ({ request }) => ok({ ...mockExpenses[2]!, ...((await request.json()) as object), id: crypto.randomUUID() }, { status: 201 })),
-  http.get(api('/expenses/:id'), ({ params }) => ok(mockExpenses.find((e) => e.id === params.id) ?? mockExpenses[0]!)),
-  http.patch(api('/expenses/:id'), async ({ params, request }) => ok({ ...(mockExpenses.find((e) => e.id === params.id) ?? mockExpenses[0]!), ...((await request.json()) as object) })),
+  http.post(api('/expenses'), async ({ request }) =>
+    ok(
+      { ...mockExpenses[2]!, ...((await request.json()) as object), id: crypto.randomUUID() },
+      { status: 201 },
+    ),
+  ),
+  http.get(api('/expenses/:id'), ({ params }) =>
+    ok(mockExpenses.find((e) => e.id === params.id) ?? mockExpenses[0]!),
+  ),
+  http.patch(api('/expenses/:id'), async ({ params, request }) =>
+    ok({
+      ...(mockExpenses.find((e) => e.id === params.id) ?? mockExpenses[0]!),
+      ...((await request.json()) as object),
+    }),
+  ),
   http.delete(api('/expenses/:id'), () => new Response(null, { status: 204 })),
   http.post(api('/expenses/bulk'), async ({ request }) => {
     const body = (await request.json()) as { ids: string[] };
     return ok({ succeeded: body.ids, failed: [] });
   }),
-  http.post(api('/expenses/:id/:action'), ({ params }) => ok(mockExpenses.find((e) => e.id === params.id) ?? mockExpenses[0]!)),
+  http.post(api('/expenses/:id/:action'), ({ params }) =>
+    ok(mockExpenses.find((e) => e.id === params.id) ?? mockExpenses[0]!),
+  ),
 ];

@@ -1,6 +1,9 @@
 import { randomBytes } from 'node:crypto';
 import type {
+  CogsSummaryQuery,
+  CogsSummaryView,
   InventoryStatsView,
+  LotUsageView,
   Paginated,
   ProductCreateInput,
   ProductListQuery,
@@ -8,9 +11,13 @@ import type {
   ProductView,
   PurchaseOrderCreateInput,
   PurchaseOrderListQuery,
+  PurchaseOrderReceiveInput,
   PurchaseOrderUpdateInput,
   PurchaseOrderView,
   StockAdjustInput,
+  StockLotListQuery,
+  StockLotStatusValue,
+  StockLotView,
   StockMovementListQuery,
   StockMovementStatsQuery,
   StockMovementStatsView,
@@ -26,6 +33,7 @@ import type {
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import { ApiError } from '../../utils/ApiError.js';
+import { vientianeDateKey } from '../../utils/dateHelpers.js';
 
 type Tx = Prisma.TransactionClient;
 
@@ -56,6 +64,37 @@ function money(v: Prisma.Decimal | number | null | undefined): number {
 }
 
 /**
+ * C4 — `Product.costPrice` ຕອນນີ້ເປັນ WAC ທີ່ອັບເດດທຸກຄັ້ງທີ່ຮັບເຄື່ອງ (ດູ `wacAfterReceipt`).
+ * ເກັບ 4dp (ບໍ່ແມ່ນ 2dp ຄືກັບ `money()`) ເພື່ອບໍ່ໃຫ້ຄ່າສະເລ່ຍຄາດເຄື່ອນສະສົມເມື່ອຮັບເຄື່ອງຫຼາຍຄັ້ງ —
+ * ໜ້າ UI ຍັງສະແດງດ້ວຍ `money()`/`CurrencyText` ຕາມປົກກະຕິ (2dp), ນີ້ຄືແຕ່ຄ່າ *ເກັບ/ຄິດໄລ່* ເທົ່ານັ້ນ.
+ */
+function costDec(n: number): Prisma.Decimal {
+  return new Prisma.Decimal(Number(n).toFixed(4));
+}
+/** Decimal(4dp) → number ແບບບໍ່ຕັດເຫຼືອ 2dp — ໃຊ້ຕອນອ່ານ costPrice ມາຄິດ WAC ໃໝ່ຕໍ່. */
+function costNum(v: Prisma.Decimal | number | null | undefined): number {
+  if (v == null) return 0;
+  const n = typeof v === 'number' ? v : v.toNumber();
+  return Math.round((n + Number.EPSILON) * 10000) / 10000 || 0;
+}
+
+/**
+ * C4 — Weighted Average Cost. ໃຊ້ຕອນຮັບເຄື່ອງເຂົ້າ (PURCHASE_IN/TRANSFER_IN) ເທົ່ານັ້ນ — ການຕັດ
+ * ອອກ (SERVICE_CONSUMED/TRANSFER_OUT/ADJUSTMENT) ບໍ່ປ່ຽນ WAC (ມາດຕະຖານ moving-average costing).
+ */
+function wacAfterReceipt(
+  onHandBefore: number,
+  avgCostBefore: number,
+  qtyReceived: number,
+  unitCostReceived: number,
+): number {
+  const totalQty = onHandBefore + qtyReceived;
+  // ກັນ divide-by-zero ແລະ ກໍລະນີ edge (ສະຕັອກຕິດລົບກ່ອນຮັບ, ດູ C2) — ໃຊ້ຕົ້ນທຶນທີ່ຮັບເຂົ້າຄັ້ງນີ້ລ້ວນໆ.
+  if (totalQty <= 0) return unitCostReceived;
+  return (onHandBefore * avgCostBefore + qtyReceived * unitCostReceived) / totalQty;
+}
+
+/**
  * C1 (audit ຄື້ນ 9A) — lock ແຖວ `products` ດ້ວຍ `SELECT ... FOR UPDATE` ພາຍໃນ transaction ດຽວກັນ
  * ກ່ອນອ່ານ+ຄິດໄລ່ stockQty. Postgres ຈະບລັອກ transaction ອື່ນທີ່ພະຍາຍາມ lock ແຖວດຽວກັນຈົນກວ່າ
  * transaction ນີ້ຈະ commit/rollback — ກັນ lost update ຕອນ 2 ຄົນປັບສະຕັອກສິນຄ້າດຽວກັນພ້ອມກັນ.
@@ -63,6 +102,187 @@ function money(v: Prisma.Decimal | number | null | undefined): number {
  */
 async function lockProductRow(tx: Tx, productId: string): Promise<void> {
   await tx.$queryRaw`SELECT id FROM "products" WHERE id = ${productId} FOR UPDATE`;
+}
+
+// ============================================================ Lots (C5)
+
+/** ≤ ຈຳນວນວັນນີ້ກ່ອນໝົດອາຍຸ ຖືວ່າ "ໃກ້ໝົດອາຍຸ" (ໃຊ້ທັງ UI ແລະ job ແຈ້ງເຕືອນ). */
+export const LOT_EXPIRY_WARN_DAYS = 60;
+
+/** 'YYYY-MM-DD' → Date (UTC midnight) ສຳລັບຖັນ @db.Date. */
+function toDateOnly(v: string | null | undefined): Date | null {
+  return v ? new Date(`${v}T00:00:00.000Z`) : null;
+}
+function fromDateOnly(d: Date | null | undefined): string | null {
+  return d ? d.toISOString().slice(0, 10) : null;
+}
+
+/** ຈຳນວນວັນເຫຼືອຈົນໝົດອາຍຸ ນັບຕາມວັນວຽງຈັນ (ລົບ = ໝົດແລ້ວ). */
+export function lotDaysLeft(expiry: Date | null, now: Date = new Date()): number | null {
+  if (!expiry) return null;
+  return Math.round((expiry.getTime() - vientianeDateKey(now).getTime()) / 86_400_000);
+}
+
+function lotStatusOf(daysLeft: number | null): StockLotStatusValue {
+  if (daysLeft == null) return 'NO_EXPIRY';
+  if (daysLeft < 0) return 'EXPIRED';
+  return daysLeft <= LOT_EXPIRY_WARN_DAYS ? 'EXPIRING' : 'OK';
+}
+
+const LOT_INCLUDE = {
+  product: { select: { name: true, sku: true, unit: true } },
+  branch: { select: { name: true } },
+} satisfies Prisma.StockLotInclude;
+type LotRow = Prisma.StockLotGetPayload<{ include: typeof LOT_INCLUDE }>;
+
+function toLotView(l: LotRow, now: Date = new Date()): StockLotView {
+  const daysLeft = lotDaysLeft(l.expiryDate, now);
+  return {
+    id: l.id,
+    productId: l.productId,
+    productName: l.product.name,
+    sku: l.product.sku,
+    unit: l.product.unit,
+    branchId: l.branchId,
+    branchName: l.branch.name,
+    lotNumber: l.lotNumber,
+    expiryDate: fromDateOnly(l.expiryDate),
+    mfgDate: fromDateOnly(l.mfgDate),
+    qtyOnHand: qnum(l.qtyOnHand),
+    unitCost: money(l.unitCost),
+    receivedAt: l.receivedAt.toISOString(),
+    daysLeft,
+    status: lotStatusOf(daysLeft),
+  };
+}
+
+/**
+ * C5 — ຮັບເຄື່ອງເຂົ້າ lot (upsert ຕາມ productId+branchId+lotNumber). ຕ້ອງເອີ້ນຫຼັງ lockProductRow ແລ້ວ
+ * (ການ serialize lot ອາໄສ lock ຂອງແຖວສິນຄ້າ ບໍ່ lock ແຖວ lot ແຍກ). lot ເລກດຽວກັນມາຊ້ຳ = ບວກຈຳນວນ +
+ * ສະເລ່ຍຕົ້ນທຶນຖ່ວງນ້ຳໜັກ; ແຕ່ຖ້າວັນໝົດອາຍຸຂັດກັບທີ່ບັນທຶກໄວ້ = ປະຕິເສດ (ເລກ lot ດຽວກັນຕ້ອງ
+ * ໝົດອາຍຸວັນດຽວກັນ — ຖ້າບໍ່ແມ່ນ ແປວ່າພິມເລກ lot ຜິດ ແລະ ຈະເຮັດໃຫ້ FEFO/recall ຜິດ).
+ */
+async function receiveIntoLot(
+  tx: Tx,
+  a: {
+    productId: string;
+    branchId: string;
+    lotNumber: string;
+    expiryDate: Date | null;
+    mfgDate: Date | null;
+    qty: number;
+    unitCost: number;
+    poItemId?: string | null;
+  },
+): Promise<string> {
+  const existing = await tx.stockLot.findUnique({
+    where: {
+      productId_branchId_lotNumber: { productId: a.productId, branchId: a.branchId, lotNumber: a.lotNumber },
+    },
+  });
+  if (!existing) {
+    const created = await tx.stockLot.create({
+      data: {
+        productId: a.productId,
+        branchId: a.branchId,
+        lotNumber: a.lotNumber,
+        expiryDate: a.expiryDate,
+        mfgDate: a.mfgDate,
+        qtyOnHand: qdec(a.qty),
+        unitCost: costDec(a.unitCost),
+        poItemId: a.poItemId ?? null,
+      },
+      select: { id: true },
+    });
+    return created.id;
+  }
+  if (a.expiryDate && existing.expiryDate && a.expiryDate.getTime() !== existing.expiryDate.getTime()) {
+    throw ApiError.conflict(`Lot "${a.lotNumber}" ມີຢູ່ແລ້ວດ້ວຍວັນໝົດອາຍຸທີ່ຕ່າງກັນ — ກວດເລກ lot ອີກຄັ້ງ`);
+  }
+  const oldQty = qnum(existing.qtyOnHand);
+  const base = Math.max(oldQty, 0);
+  const blended =
+    base + a.qty > 0 ? (base * costNum(existing.unitCost) + a.qty * a.unitCost) / (base + a.qty) : a.unitCost;
+  await tx.stockLot.update({
+    where: { id: existing.id },
+    data: {
+      qtyOnHand: qdec(oldQty + a.qty),
+      unitCost: costDec(blended),
+      expiryDate: existing.expiryDate ?? a.expiryDate,
+      mfgDate: existing.mfgDate ?? a.mfgDate,
+    },
+  });
+  return existing.id;
+}
+
+type MovementRow = Prisma.StockMovementGetPayload<{ include: typeof MOVEMENT_INCLUDE }>;
+
+/**
+ * C5 — ຕັດສະຕັອກ `qty` ອອກຈາກສິນຄ້າ ແລະ ຂຽນ ledger. ຜູ້ເອີ້ນເປັນຜູ້ກວດ balance<0/allowNegativeStock ແລະ
+ * update products.stockQty ເອງ (ຕ້ອງ lockProductRow ແລ້ວ).
+ *  - ບໍ່ trackLot: 1 ແຖວ ຕາມ WAC (ພຶດຕິກຳ C4 ເດີມ).
+ *  - trackLot: FEFO — ຍ່າງ lot (expiryDate ASC NULLS LAST, receivedAt ASC) ທີ່ qtyOnHand>0 ແລ້ວຕັດຈົນຄົບ,
+ *    ໜຶ່ງແຖວຕໍ່ lot ທີ່ແຕະ (unitCost = ຕົ້ນທຶນຂອງ lot ນັ້ນ). ສ່ວນທີ່ເຫຼືອຫຼັງ lot ໝົດ (ສະຕັອກເກົ່າກ່ອນເປີດ
+ *    trackLot, ຫຼື ສະຕັອກຕິດລົບທີ່ສາຂາອະນຸຍາດ) ຕັດເປັນແຖວ lotId=null ຕາມ WAC — ລວມ qty ທຸກແຖວ = qty ທີ່ຂໍ.
+ */
+async function deductStock(
+  tx: Tx,
+  a: {
+    productId: string;
+    branchId: string;
+    trackLot: boolean;
+    wac: number;
+    qty: number;
+    balanceBefore: number;
+    type: 'SERVICE_CONSUMED' | 'ADJUSTMENT_DEDUCT';
+    refId?: string;
+    notes: string;
+    createdByUserId?: string | null;
+  },
+): Promise<MovementRow[]> {
+  const slices: { lotId: string | null; qty: number; unitCost: number }[] = [];
+  let remaining = a.qty;
+  if (a.trackLot) {
+    const lots = await tx.stockLot.findMany({
+      where: { productId: a.productId, branchId: a.branchId, qtyOnHand: { gt: 0 } },
+      orderBy: [{ expiryDate: { sort: 'asc', nulls: 'last' } }, { receivedAt: 'asc' }],
+    });
+    for (const lot of lots) {
+      if (remaining <= 0) break;
+      const take = Math.min(qnum(lot.qtyOnHand), remaining);
+      if (take <= 0) continue;
+      await tx.stockLot.update({ where: { id: lot.id }, data: { qtyOnHand: qdec(qnum(lot.qtyOnHand) - take) } });
+      slices.push({ lotId: lot.id, qty: take, unitCost: costNum(lot.unitCost) });
+      remaining = qnum(remaining - take);
+    }
+  }
+  if (remaining > 0 || slices.length === 0) {
+    slices.push({ lotId: null, qty: remaining > 0 ? remaining : a.qty, unitCost: a.wac });
+  }
+  const rows: MovementRow[] = [];
+  let running = a.balanceBefore;
+  for (const sl of slices) {
+    running = qnum(running - sl.qty);
+    rows.push(
+      await tx.stockMovement.create({
+        data: {
+          branchId: a.branchId,
+          productId: a.productId,
+          type: a.type,
+          qty: qdec(sl.qty),
+          balanceAfter: qdec(running),
+          unitCost: costDec(sl.unitCost),
+          valueChange: money(-(sl.qty * sl.unitCost)),
+          lotId: sl.lotId,
+          refId: a.refId ?? null,
+          notes: a.notes,
+          createdByUserId: a.createdByUserId ?? null,
+        },
+        include: MOVEMENT_INCLUDE,
+      }),
+    );
+  }
+  return rows;
 }
 
 // ============================================================ Suppliers
@@ -216,6 +436,7 @@ function toProductView(p: ProductRow): ProductView {
     stockValue: money(Math.max(stockQty, 0) * costPrice),
     outOfStock: stockQty <= 0,
     lowStock: stockQty > 0 && stockQty <= minStockQty,
+    trackLot: p.trackLot,
     isActive: p.isActive,
     createdAt: p.createdAt.toISOString(),
     updatedAt: p.updatedAt.toISOString(),
@@ -287,6 +508,9 @@ export async function createProduct(
     where: { branchId_sku: { branchId: input.branchId, sku: input.sku } },
   });
   if (dup) throw ApiError.conflict('SKU ນີ້ມີຢູ່ແລ້ວໃນສາຂານີ້');
+  if (input.trackLot && input.openingStock > 0 && !input.openingLot) {
+    throw ApiError.badRequest('ສິນຄ້າທີ່ຕິດຕາມ lot ຕ້ອງລະບຸເລກ lot ຂອງຍອດເປີດ');
+  }
 
   const created = await prisma.$transaction(async (tx) => {
     const p = await tx.product.create({
@@ -295,14 +519,27 @@ export async function createProduct(
         name: input.name,
         sku: input.sku,
         unit: input.unit,
-        costPrice: new Prisma.Decimal(Number(input.costPrice).toFixed(2)),
+        costPrice: costDec(input.costPrice),
         stockQty: qdec(input.openingStock),
         minStockQty: qdec(input.minStockQty),
         isActive: input.isActive,
+        trackLot: input.trackLot,
       },
       include: PRODUCT_INCLUDE,
     });
     if (input.openingStock > 0) {
+      const lotId =
+        input.trackLot && input.openingLot
+          ? await receiveIntoLot(tx, {
+              productId: p.id,
+              branchId: p.branchId,
+              lotNumber: input.openingLot.lotNumber,
+              expiryDate: toDateOnly(input.openingLot.expiryDate),
+              mfgDate: toDateOnly(input.openingLot.mfgDate),
+              qty: input.openingStock,
+              unitCost: input.costPrice,
+            })
+          : null;
       await tx.stockMovement.create({
         data: {
           branchId: p.branchId,
@@ -310,6 +547,7 @@ export async function createProduct(
           type: 'ADJUSTMENT_ADD',
           qty: qdec(input.openingStock),
           balanceAfter: qdec(input.openingStock),
+          lotId,
           notes: 'ຍອດເປີດ',
           createdByUserId: createdByUserId ?? null,
         },
@@ -335,15 +573,19 @@ export async function updateProduct(
     });
     if (dup) throw ApiError.conflict('SKU ນີ້ມີຢູ່ແລ້ວໃນສາຂານີ້');
   }
+  if (input.trackLot === false && existing.trackLot) {
+    // ປິດ trackLot ຕອນທີ່ lot ຍັງມີຂອງ → qtyOnHand ຂອງ lot ຈະຄ້າງ/ບໍ່ກົງກັບ stockQty ເມື່ອເປີດຄືນ.
+    const live = await prisma.stockLot.count({ where: { productId: id, qtyOnHand: { gt: 0 } } });
+    if (live > 0) throw ApiError.conflict('ປິດການຕິດຕາມ lot ບໍ່ໄດ້ — ຍັງມີ lot ທີ່ມີສະຕັອກຄົງເຫຼືອ');
+  }
   const p = await prisma.product.update({
     where: { id },
     data: {
+      ...(input.trackLot !== undefined ? { trackLot: input.trackLot } : {}),
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(input.sku !== undefined ? { sku: input.sku } : {}),
       ...(input.unit !== undefined ? { unit: input.unit } : {}),
-      ...(input.costPrice !== undefined
-        ? { costPrice: new Prisma.Decimal(Number(input.costPrice).toFixed(2)) }
-        : {}),
+      ...(input.costPrice !== undefined ? { costPrice: costDec(input.costPrice) } : {}),
       ...(input.minStockQty !== undefined ? { minStockQty: qdec(input.minStockQty) } : {}),
       ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
     },
@@ -398,6 +640,7 @@ const MOVEMENT_INCLUDE = {
   product: { select: { name: true } },
   branch: { select: { name: true } },
   createdByUser: { select: { name: true } },
+  lot: { select: { lotNumber: true } },
 } satisfies Prisma.StockMovementInclude;
 
 function toMovementView(m: Prisma.StockMovementGetPayload<{ include: typeof MOVEMENT_INCLUDE }>): StockMovementView {
@@ -410,6 +653,12 @@ function toMovementView(m: Prisma.StockMovementGetPayload<{ include: typeof MOVE
     type: m.type,
     qty: qnum(m.qty),
     balanceAfter: qnum(m.balanceAfter),
+    // C4 — null ສຳລັບແຖວເກົ່າກ່ອນ migration ນີ້ (ບໍ່ backfill ຍ້ອນຫຼັງ). ສະແດງດ້ວຍ money() (2dp)
+    // ຄືກັບຄ່າເງິນອື່ນໆ — ຄວາມລະອຽດ 4dp ຂອງ WAC ໃຊ້ສະເພາະຕອນ *ຄິດໄລ່* ພາຍໃນ (ດູ wacAfterReceipt).
+    unitCost: m.unitCost != null ? money(m.unitCost) : null,
+    valueChange: m.valueChange != null ? money(m.valueChange) : null,
+    lotId: m.lotId,
+    lotNumber: m.lot?.lotNumber ?? null,
     refId: m.refId,
     notes: m.notes,
     createdByUserId: m.createdByUserId,
@@ -497,6 +746,17 @@ export async function getStockMovementStats(q: StockMovementStatsQuery): Promise
   return { total, byType };
 }
 
+/**
+ * C4 — ຕົ້ນທຶນສິນຄ້າທີ່ຖືກໃຊ້ໄປ (COGS) ໃນຊ່ວງເວລາ/ສາຂາທີ່ກຳນົດ — sum(valueChange) ຂອງ
+ * SERVICE_CONSUMED (ເກັບເປັນລົບໃນ ledger). ໃຫ້ Finance/Dashboard ເອົາໄປທຽບກັບລາຍຮັບ = ກຳໄລຕໍ່ບໍລິການ.
+ * ແຖວເກົ່າກ່ອນ migration ນີ້ມີ valueChange = null → ບໍ່ນັບ (ບໍ່ແມ່ນສູນ, ພຽງແຕ່ບໍ່ຮູ້ຄ່າ).
+ */
+export async function getCogsSummary(q: CogsSummaryQuery): Promise<CogsSummaryView> {
+  const where = movementWhere({ ...q, type: 'SERVICE_CONSUMED' });
+  const agg = await prisma.stockMovement.aggregate({ where, _sum: { valueChange: true } });
+  return { totalCogs: money(Math.abs(qnum(agg._sum.valueChange))) };
+}
+
 export async function adjustStock(
   input: StockAdjustInput,
   authBranchId?: string | null,
@@ -507,20 +767,57 @@ export async function adjustStock(
     await lockProductRow(tx, input.productId);
     const product = await tx.product.findFirst({
       where: { id: input.productId, deletedAt: null },
-      select: { id: true, branchId: true, stockQty: true },
+      select: { id: true, branchId: true, stockQty: true, costPrice: true, trackLot: true },
     });
     if (!product) throw ApiError.notFound('ບໍ່ພົບສິນຄ້າ');
     assertBranchScope(authBranchId, product.branchId);
     const balance = qnum(product.stockQty) + input.delta;
     if (balance < 0) throw ApiError.conflict('ປັບບໍ່ໄດ້ — ສະຕັອກຈະຕິດລົບ');
+    // C5 — ເພີ່ມເຂົ້າສິນຄ້າ trackLot ຕ້ອງບອກ lot (ຫຼັກດຽວກັບການຮັບ PO); ຫັກອອກໃຊ້ FEFO ອັດຕະໂນມັດ.
+    if (input.delta > 0 && product.trackLot && !input.lot) {
+      throw ApiError.badRequest('ສິນຄ້ານີ້ຕິດຕາມ lot — ຕ້ອງລະບຸເລກ lot ເມື່ອປັບເພີ່ມສະຕັອກ');
+    }
     await tx.product.update({ where: { id: product.id }, data: { stockQty: qdec(balance) } });
+    // C4 — ການປັບດ້ວຍມືບໍ່ແມ່ນການຊື້, ຈຶ່ງບໍ່ປ່ຽນ WAC (costPrice) — ແຕ່ບັນທຶກ unitCost/valueChange
+    // ໄວ້ໃນ ledger ນຳ ໂດຍໃຊ້ WAC ປັດຈຸບັນ ເພື່ອໃຫ້ valued ledger ຄົບຖ້ວນ.
+    const currentCost = costNum(product.costPrice);
+    if (input.delta < 0) {
+      const rows = await deductStock(tx, {
+        productId: product.id,
+        branchId: product.branchId,
+        trackLot: product.trackLot,
+        wac: currentCost,
+        qty: Math.abs(input.delta),
+        balanceBefore: qnum(product.stockQty),
+        type: 'ADJUSTMENT_DEDUCT',
+        notes: input.notes ?? 'ປັບສະຕັອກດ້ວຍມື',
+        createdByUserId,
+      });
+      // ຕັດຂ້າມຫຼາຍ lot ໄດ້ຫຼາຍແຖວ — ຄືນແຖວທຳອິດ (lot ທີ່ໃກ້ໝົດອາຍຸສຸດ) ເປັນຕົວແທນ.
+      return toMovementView(rows[0]!);
+    }
+    const lotId =
+      product.trackLot && input.lot
+        ? await receiveIntoLot(tx, {
+            productId: product.id,
+            branchId: product.branchId,
+            lotNumber: input.lot.lotNumber,
+            expiryDate: toDateOnly(input.lot.expiryDate),
+            mfgDate: toDateOnly(input.lot.mfgDate),
+            qty: input.delta,
+            unitCost: currentCost,
+          })
+        : null;
     const m = await tx.stockMovement.create({
       data: {
         branchId: product.branchId,
         productId: product.id,
-        type: input.delta > 0 ? 'ADJUSTMENT_ADD' : 'ADJUSTMENT_DEDUCT',
-        qty: qdec(Math.abs(input.delta)),
+        type: 'ADJUSTMENT_ADD',
+        qty: qdec(input.delta),
         balanceAfter: qdec(balance),
+        unitCost: costDec(currentCost),
+        valueChange: money(input.delta * currentCost),
+        lotId,
         notes: input.notes ?? 'ປັບສະຕັອກດ້ວຍມື',
         createdByUserId: createdByUserId ?? null,
       },
@@ -554,6 +851,8 @@ export async function consumeServiceStock(
           name: true,
           branchId: true,
           stockQty: true,
+          costPrice: true,
+          trackLot: true,
           deletedAt: true,
           branch: { select: { allowNegativeStock: true } },
         },
@@ -571,25 +870,33 @@ export async function consumeServiceStock(
     if (use <= 0) continue;
     // C1 — lock ແຖວສິນຄ້າກ່ອນອ່ານ/ຄິດໄລ່ (ຄືກັນກັບ adjustStock).
     await lockProductRow(tx, c.productId);
-    const fresh = await tx.product.findFirst({ where: { id: c.productId }, select: { stockQty: true } });
-    const balance = qnum(fresh?.stockQty ?? c.product.stockQty) - use;
+    const fresh = await tx.product.findFirst({
+      where: { id: c.productId },
+      select: { stockQty: true, costPrice: true, trackLot: true },
+    });
+    const balanceBefore = qnum(fresh?.stockQty ?? c.product.stockQty);
+    const balance = balanceBefore - use;
     if (balance < 0 && !c.product.branch.allowNegativeStock) {
       throw ApiError.conflict(`ສະຕັອກສິນຄ້າ "${c.product.name}" ບໍ່ພຽງພໍສຳລັບຕັດ BOM ຂອງບໍລິການນີ້`);
     }
+    // C4 — COGS = qty × WAC *ກ່ອນ* ຕັດ (ບໍ່ແມ່ນ WAC ໃໝ່) — ການບໍລິໂພກບໍ່ປ່ຽນ WAC ເລີຍ.
+    const avgCostBefore = costNum(fresh?.costPrice ?? c.product.costPrice);
     await tx.product.update({ where: { id: c.productId }, data: { stockQty: qdec(balance) } });
-    await tx.stockMovement.create({
-      data: {
-        branchId: c.product.branchId,
-        productId: c.productId,
-        type: 'SERVICE_CONSUMED',
-        qty: qdec(use),
-        balanceAfter: qdec(balance),
-        refId,
-        notes:
-          balance < 0
-            ? 'ຕັດສະຕັອກຈາກ BOM ບໍລິການ — ⚠️ ຕິດລົບ (ອະນຸຍາດຕາມການຕັ້ງຄ່າສາຂາ)'
-            : 'ຕັດສະຕັອກຈາກ BOM ບໍລິການ',
-      },
+    // C5 — trackLot: FEFO ຂ້າມຫຼາຍ lot (ໜຶ່ງແຖວ ledger ຕໍ່ lot, ຕົ້ນທຶນຂອງ lot ນັ້ນ) — ດູ deductStock.
+    // idempotency ຂ້າງເທິງກວດຕາມ (productId, refId) ບໍ່ແມ່ນ lot ຈຶ່ງບໍ່ຕັດຊ້ຳເມື່ອມີຫຼາຍແຖວ.
+    await deductStock(tx, {
+      productId: c.productId,
+      branchId: c.product.branchId,
+      trackLot: fresh?.trackLot ?? c.product.trackLot,
+      wac: avgCostBefore,
+      qty: use,
+      balanceBefore,
+      type: 'SERVICE_CONSUMED',
+      refId,
+      notes:
+        balance < 0
+          ? 'ຕັດສະຕັອກຈາກ BOM ບໍລິການ — ⚠️ ຕິດລົບ (ອະນຸຍາດຕາມການຕັ້ງຄ່າສາຂາ)'
+          : 'ຕັດສະຕັອກຈາກ BOM ບໍລິການ',
     });
   }
 }
@@ -603,7 +910,7 @@ function genPoNumber(): string {
 const PO_INCLUDE = {
   branch: { select: { name: true } },
   supplier: { select: { name: true } },
-  items: { include: { product: { select: { name: true, sku: true, unit: true } } } },
+  items: { include: { product: { select: { name: true, sku: true, unit: true, trackLot: true } } } },
   _count: { select: { items: true } },
 } satisfies Prisma.PurchaseOrderInclude;
 type PoRow = Prisma.PurchaseOrderGetPayload<{ include: typeof PO_INCLUDE }>;
@@ -634,6 +941,10 @@ function toPoView(po: PoRow, withItems: boolean): PurchaseOrderView {
             quantity: qnum(it.quantity),
             unitCost: money(it.unitCost),
             lineTotal: money(qnum(it.quantity) * money(it.unitCost)),
+            trackLot: it.product.trackLot,
+            lotNumber: it.lotNumber,
+            expiryDate: fromDateOnly(it.expiryDate),
+            mfgDate: fromDateOnly(it.mfgDate),
           })),
         }
       : {}),
@@ -718,6 +1029,9 @@ export async function createPurchaseOrder(
             productId: it.productId,
             quantity: qdec(it.quantity),
             unitCost: new Prisma.Decimal(Number(it.unitCost).toFixed(2)),
+            lotNumber: it.lotNumber ?? null,
+            expiryDate: toDateOnly(it.expiryDate),
+            mfgDate: toDateOnly(it.mfgDate),
           })),
         },
       },
@@ -755,6 +1069,9 @@ export async function updatePurchaseOrder(
           productId: it.productId,
           quantity: qdec(it.quantity),
           unitCost: new Prisma.Decimal(Number(it.unitCost).toFixed(2)),
+          lotNumber: it.lotNumber ?? null,
+          expiryDate: toDateOnly(it.expiryDate),
+          mfgDate: toDateOnly(it.mfgDate),
         })),
       });
     }
@@ -775,6 +1092,7 @@ export async function receivePurchaseOrder(
   id: string,
   authBranchId?: string | null,
   createdByUserId?: string | null,
+  input: PurchaseOrderReceiveInput = {},
 ): Promise<PurchaseOrderView> {
   const po = await prisma.$transaction(async (tx) => {
     // C1 — lock ແຖວ PO ນີ້ກ່ອນ ເພື່ອກັນ 2 request "ຮັບເຄື່ອງ" ພ້ອມກັນ (ຖ້າບໍ່ lock, ທັງສອງອາດ
@@ -782,30 +1100,74 @@ export async function receivePurchaseOrder(
     await tx.$queryRaw`SELECT id FROM "purchase_orders" WHERE id = ${id} FOR UPDATE`;
     const existing = await tx.purchaseOrder.findUnique({
       where: { id },
-      include: { items: { select: { productId: true, quantity: true } } },
+      include: {
+        items: {
+          select: { id: true, productId: true, quantity: true, unitCost: true, lotNumber: true, expiryDate: true, mfgDate: true },
+        },
+      },
     });
     if (!existing) throw ApiError.notFound('ບໍ່ພົບໃບສັ່ງຊື້');
     assertBranchScope(authBranchId, existing.branchId);
     if (existing.status === 'RECEIVED') throw ApiError.conflict('ໃບສັ່ງຊື້ນີ້ຮັບເຄື່ອງແລ້ວ');
     if (existing.status === 'CANCELLED') throw ApiError.conflict('ໃບສັ່ງຊື້ນີ້ຖືກຍົກເລີກ');
 
+    // C5 — ຂໍ້ມູນ lot ທີ່ສົ່ງມາຕອນຮັບເຄື່ອງ (ຕາມ productId) ທັບຄ່າທີ່ບັນທຶກໃນ PO item.
+    const lotByProduct = new Map((input.lots ?? []).map((l) => [l.productId, l]));
+    for (const pid of lotByProduct.keys()) {
+      if (!existing.items.some((it) => it.productId === pid)) {
+        throw ApiError.badRequest('ມີ lot ທີ່ບໍ່ຢູ່ໃນລາຍການຂອງ PO ນີ້');
+      }
+    }
+
     for (const it of existing.items) {
       // C1 — lock ແຖວສິນຄ້າກ່ອນອ່ານ/ບວກສະຕັອກ (ຄືກັນກັບ adjustStock/consumeServiceStock).
       await lockProductRow(tx, it.productId);
       const product = await tx.product.findUnique({
         where: { id: it.productId },
-        select: { id: true, branchId: true, stockQty: true },
+        select: { id: true, name: true, branchId: true, stockQty: true, costPrice: true, trackLot: true },
       });
       if (!product) continue;
-      const balance = qnum(product.stockQty) + qnum(it.quantity);
-      await tx.product.update({ where: { id: product.id }, data: { stockQty: qdec(balance) } });
+      const onHandBefore = qnum(product.stockQty);
+      const qtyReceived = qnum(it.quantity);
+      const unitCostReceived = costNum(it.unitCost);
+      const balance = onHandBefore + qtyReceived;
+      // C5 — ສິນຄ້າ trackLot ຮັບໂດຍບໍ່ມີເລກ lot ບໍ່ໄດ້ (ຈະເຮັດໃຫ້ FEFO/recall ໃຊ້ບໍ່ໄດ້).
+      let lotId: string | null = null;
+      if (product.trackLot) {
+        const supplied = lotByProduct.get(it.productId);
+        const lotNumber = supplied?.lotNumber ?? it.lotNumber;
+        if (!lotNumber) throw ApiError.badRequest(`ສິນຄ້າ "${product.name}" ຕິດຕາມ lot — ຕ້ອງລະບຸເລກ lot ຕອນຮັບເຄື່ອງ`);
+        const expiryDate = supplied ? toDateOnly(supplied.expiryDate) : it.expiryDate;
+        const mfgDate = supplied ? toDateOnly(supplied.mfgDate) : it.mfgDate;
+        lotId = await receiveIntoLot(tx, {
+          productId: product.id,
+          branchId: product.branchId,
+          lotNumber,
+          expiryDate,
+          mfgDate,
+          qty: qtyReceived,
+          unitCost: unitCostReceived,
+          poItemId: it.id,
+        });
+        // ບັນທຶກ lot ທີ່ຮັບຈິງໄວ້ໃນ PO item ເປັນຫຼັກຖານ
+        await tx.purchaseOrderItem.update({ where: { id: it.id }, data: { lotNumber, expiryDate, mfgDate } });
+      }
+      // C4 — WAC ໃໝ່ຈາກຍອດເກົ່າ + ລາຍການທີ່ຮັບເຂົ້າ ຄັ້ງນີ້ (ຕາມ unitCost ຂອງແຕ່ລະລາຍການ PO).
+      const newWac = wacAfterReceipt(onHandBefore, costNum(product.costPrice), qtyReceived, unitCostReceived);
+      await tx.product.update({
+        where: { id: product.id },
+        data: { stockQty: qdec(balance), costPrice: costDec(newWac) },
+      });
       await tx.stockMovement.create({
         data: {
           branchId: product.branchId,
           productId: product.id,
           type: 'PURCHASE_IN',
-          qty: qdec(qnum(it.quantity)),
+          qty: qdec(qtyReceived),
           balanceAfter: qdec(balance),
+          unitCost: costDec(unitCostReceived),
+          valueChange: money(qtyReceived * unitCostReceived),
+          lotId,
           refId: `po:${id}`,
           notes: `ຮັບເຄື່ອງຈາກ ${existing.poNumber}`,
           createdByUserId: createdByUserId ?? null,
@@ -876,6 +1238,8 @@ function toTransferView(row: TransferRow, withItems: boolean): StockTransferView
             unitCost: money(it.unitCost),
             lineValue: money(qnum(it.quantity) * money(it.unitCost)),
             receivedProductId: it.receivedProductId,
+            lotNumber: it.lotNumber,
+            expiryDate: fromDateOnly(it.expiryDate),
           })),
         }
       : {}),
@@ -932,9 +1296,21 @@ export async function createStockTransfer(
     await assertProductsForBranch(tx, input.fromBranchId, input.items.map((i) => i.productId));
     const products = await tx.product.findMany({
       where: { id: { in: input.items.map((i) => i.productId) } },
-      select: { id: true, name: true, sku: true, unit: true, costPrice: true },
+      select: { id: true, name: true, sku: true, unit: true, costPrice: true, trackLot: true },
     });
     const byId = new Map(products.map((p) => [p.id, p]));
+    // C5 — ສິນຄ້າ trackLot ຕ້ອງເລືອກ lot ຕົ້ນທາງ (snapshot ເລກ lot/ວັນໝົດອາຍຸ ໄປປາຍທາງ).
+    const lotOf = new Map<string, Awaited<ReturnType<typeof tx.stockLot.findMany>>[number]>();
+    for (const it of input.items) {
+      const p = byId.get(it.productId)!;
+      if (!p.trackLot) continue;
+      if (!it.lotId) throw ApiError.badRequest(`ສິນຄ້າ "${p.name}" ຕິດຕາມ lot — ຕ້ອງເລືອກ lot ທີ່ຈະໂອນ`);
+      const lot = await tx.stockLot.findUnique({ where: { id: it.lotId } });
+      if (!lot || lot.productId !== it.productId || lot.branchId !== input.fromBranchId) {
+        throw ApiError.badRequest(`Lot ຂອງ "${p.name}" ບໍ່ຖືກຕ້ອງ`);
+      }
+      lotOf.set(it.productId, lot);
+    }
     return tx.stockTransfer.create({
       data: {
         transferNumber: genTransferNumber(),
@@ -945,13 +1321,18 @@ export async function createStockTransfer(
         items: {
           create: input.items.map((it) => {
             const p = byId.get(it.productId)!;
+            const lot = lotOf.get(it.productId);
             return {
               productId: it.productId,
               productName: p.name,
               sku: p.sku,
               unit: p.unit,
               quantity: qdec(it.quantity),
-              unitCost: p.costPrice,
+              // ມີ lot → ຕົ້ນທຶນຂອງ lot ຕິດຕາມໄປກັບເຄື່ອງ (ບໍ່ແມ່ນ WAC ລວມຂອງສິນຄ້າ).
+              unitCost: lot ? lot.unitCost : p.costPrice,
+              lotNumber: lot?.lotNumber ?? null,
+              expiryDate: lot?.expiryDate ?? null,
+              mfgDate: lot?.mfgDate ?? null,
             };
           }),
         },
@@ -990,13 +1371,56 @@ export async function sendStockTransfer(
       await lockProductRow(tx, it.productId);
       const product = await tx.product.findFirst({
         where: { id: it.productId, deletedAt: null },
-        select: { id: true, branchId: true, stockQty: true },
+        select: { id: true, branchId: true, stockQty: true, costPrice: true, trackLot: true },
       });
       if (!product) throw ApiError.conflict(`ສິນຄ້າ "${it.productName}" ຖືກລຶບໄປແລ້ວ — ໂອນບໍ່ໄດ້`);
       const balance = qnum(product.stockQty) - qnum(it.quantity);
       if (balance < 0 && !fromBranch?.allowNegativeStock) {
         throw ApiError.conflict(`ສະຕັອກ "${it.productName}" ບໍ່ພຽງພໍສຳລັບການໂອນນີ້`);
       }
+      // C5 — ໂອນສິນຄ້າ trackLot ຕັດຈາກ lot ທີ່ເລືອກໄວ້ຕອນສ້າງລາຍການ (ບໍ່ FEFO — ຜູ້ໃຊ້ເລືອກ lot ເອງ).
+      // lot ບໍ່ຕິດລົບໄດ້ ຈຶ່ງຕ້ອງພຽງພໍສະເໝີ ແມ່ນສາຂາຈະເປີດ allowNegativeStock.
+      if (product.trackLot && !it.lotNumber) {
+        throw ApiError.conflict(`ສິນຄ້າ "${it.productName}" ເປີດຕິດຕາມ lot ຫຼັງສ້າງລາຍການ — ສ້າງລາຍການໃໝ່ ແລະ ເລືອກ lot`);
+      }
+      if (it.lotNumber) {
+        const lot = await tx.stockLot.findUnique({
+          where: {
+            productId_branchId_lotNumber: {
+              productId: product.id,
+              branchId: product.branchId,
+              lotNumber: it.lotNumber,
+            },
+          },
+        });
+        if (!lot || qnum(lot.qtyOnHand) < qnum(it.quantity)) {
+          throw ApiError.conflict(`Lot ${it.lotNumber} ຂອງ "${it.productName}" ມີສະຕັອກບໍ່ພຽງພໍສຳລັບການໂອນນີ້`);
+        }
+        await tx.stockLot.update({
+          where: { id: lot.id },
+          data: { qtyOnHand: qdec(qnum(lot.qtyOnHand) - qnum(it.quantity)) },
+        });
+        await tx.product.update({ where: { id: product.id }, data: { stockQty: qdec(balance) } });
+        await tx.stockMovement.create({
+          data: {
+            branchId: product.branchId,
+            productId: product.id,
+            type: 'TRANSFER_OUT',
+            qty: qdec(qnum(it.quantity)),
+            balanceAfter: qdec(balance),
+            unitCost: costDec(costNum(lot.unitCost)),
+            valueChange: money(-(qnum(it.quantity) * costNum(lot.unitCost))),
+            lotId: lot.id,
+            refId: `transfer:${id}`,
+            notes: `ໂອນອອກ ${existing.transferNumber}`,
+            createdByUserId: createdByUserId ?? null,
+          },
+        });
+        continue;
+      }
+      // C4 — ໂອນອອກບໍ່ແມ່ນການຊື້, ບໍ່ປ່ຽນ WAC — ຄ່າ unitCost/valueChange ໃນ ledger ໃຊ້ WAC ປັດຈຸບັນ
+      // ຂອງສາຂາຕົ້ນທາງ ณ ເວລາສົ່ງ (ນີ້ຄືມູນຄ່າທີ່ "ອອກ" ໄປຈາກສາງຕົ້ນທາງ).
+      const costAtSend = costNum(product.costPrice);
       await tx.product.update({ where: { id: product.id }, data: { stockQty: qdec(balance) } });
       await tx.stockMovement.create({
         data: {
@@ -1005,6 +1429,8 @@ export async function sendStockTransfer(
           type: 'TRANSFER_OUT',
           qty: qdec(qnum(it.quantity)),
           balanceAfter: qdec(balance),
+          unitCost: costDec(costAtSend),
+          valueChange: money(-(qnum(it.quantity) * costAtSend)),
           refId: `transfer:${id}`,
           notes: `ໂອນອອກ ${existing.transferNumber}`,
           createdByUserId: createdByUserId ?? null,
@@ -1044,34 +1470,63 @@ export async function receiveStockTransfer(
     for (const it of existing.items) {
       let dest = await tx.product.findFirst({
         where: { branchId: existing.toBranchId, sku: it.sku, deletedAt: null },
-        select: { id: true },
+        select: { id: true, trackLot: true },
       });
       if (!dest) {
+        // C4 — ສິນຄ້າໃໝ່ຢູ່ປາຍທາງ: WAC ເລີ່ມຕົ້ນ = ຕົ້ນທຶນຂອງລາຍການໂອນນີ້ (ບໍ່ມີຍອດເກົ່າໃຫ້ຖົວສະເລ່ຍ).
         dest = await tx.product.create({
           data: {
             branchId: existing.toBranchId,
             name: it.productName,
             sku: it.sku,
             unit: it.unit,
-            costPrice: it.unitCost,
+            costPrice: costDec(costNum(it.unitCost)),
             stockQty: qdec(0),
             minStockQty: qdec(5),
+            trackLot: !!it.lotNumber,
           },
-          select: { id: true },
+          select: { id: true, trackLot: true },
         });
       }
       await lockProductRow(tx, dest.id);
-      const fresh = await tx.product.findFirst({ where: { id: dest.id }, select: { stockQty: true } });
-      const balance = qnum(fresh?.stockQty ?? 0) + qnum(it.quantity);
-      await tx.product.update({ where: { id: dest.id }, data: { stockQty: qdec(balance) } });
+      // C5 — ຂອງທີ່ມາພ້ອມ lot ຕ້ອງຖືກຕິດຕາມເປັນ lot ຢູ່ປາຍທາງນຳ → ເປີດ trackLot ໃຫ້ອັດຕະໂນມັດ
+      // (ສະຕັອກເກົ່າຂອງປາຍທາງທີ່ບໍ່ມີ lot ຍັງຢູ່ໃນສ່ວນ "ບໍ່ມີ lot" ທີ່ FEFO ຕັດເປັນອັນດັບສຸດທ້າຍ).
+      if (it.lotNumber && !dest.trackLot) {
+        await tx.product.update({ where: { id: dest.id }, data: { trackLot: true } });
+      }
+      const fresh = await tx.product.findFirst({ where: { id: dest.id }, select: { stockQty: true, costPrice: true } });
+      const onHandBefore = qnum(fresh?.stockQty ?? 0);
+      const qtyReceived = qnum(it.quantity);
+      const unitCostReceived = costNum(it.unitCost);
+      const balance = onHandBefore + qtyReceived;
+      // ສິນຄ້າໃໝ່: onHandBefore = 0 ຢູ່ແລ້ວ (stockQty ເລີ່ມ 0) → wacAfterReceipt ໃຫ້ຄ່າ unitCostReceived ພໍດີ.
+      const newWac = wacAfterReceipt(onHandBefore, costNum(fresh?.costPrice), qtyReceived, unitCostReceived);
+      await tx.product.update({
+        where: { id: dest.id },
+        data: { stockQty: qdec(balance), costPrice: costDec(newWac) },
+      });
       await tx.stockTransferItem.update({ where: { id: it.id }, data: { receivedProductId: dest.id } });
+      const lotId = it.lotNumber
+        ? await receiveIntoLot(tx, {
+            productId: dest.id,
+            branchId: existing.toBranchId,
+            lotNumber: it.lotNumber,
+            expiryDate: it.expiryDate,
+            mfgDate: it.mfgDate,
+            qty: qtyReceived,
+            unitCost: unitCostReceived,
+          })
+        : null;
       await tx.stockMovement.create({
         data: {
           branchId: existing.toBranchId,
           productId: dest.id,
           type: 'TRANSFER_IN',
-          qty: qdec(qnum(it.quantity)),
+          qty: qdec(qtyReceived),
           balanceAfter: qdec(balance),
+          unitCost: costDec(unitCostReceived),
+          valueChange: money(qtyReceived * unitCostReceived),
+          lotId,
           refId: `transfer:${id}`,
           notes: `ໂອນເຂົ້າ ${existing.transferNumber}`,
           createdByUserId: createdByUserId ?? null,
@@ -1093,6 +1548,135 @@ export async function deleteStockTransfer(id: string, authBranchId?: string | nu
   assertBranchScope(authBranchId, row.fromBranchId);
   if (row.status !== 'DRAFT') throw ApiError.conflict('ລຶບໄດ້ສະເພາະລາຍການທີ່ຍັງເປັນຮ່າງ (ຍັງບໍ່ໄດ້ສົ່ງ)');
   await prisma.stockTransfer.delete({ where: { id } });
+}
+
+// ============================================================ Lots — list + recall usage (C5)
+
+export async function listStockLots(
+  q: StockLotListQuery,
+  authBranchId?: string | null,
+): Promise<Paginated<StockLotView>> {
+  const now = new Date();
+  const where: Prisma.StockLotWhereInput = {
+    product: { deletedAt: null },
+    // BRANCH_ADMIN ເຫັນສະເພາະ lot ຂອງສາຂາຕົນ
+    ...(authBranchId ? { branchId: authBranchId } : q.branchId ? { branchId: q.branchId } : {}),
+    ...(q.productId ? { productId: q.productId } : {}),
+    ...(q.includeEmpty === 'true' ? {} : { qtyOnHand: { gt: 0 } }),
+    ...(q.expiringWithinDays != null
+      ? {
+          expiryDate: {
+            not: null,
+            lte: new Date(vientianeDateKey(now).getTime() + q.expiringWithinDays * 86_400_000),
+          },
+        }
+      : {}),
+  };
+  const [rows, total] = await Promise.all([
+    prisma.stockLot.findMany({
+      where,
+      include: LOT_INCLUDE,
+      orderBy: [{ expiryDate: { sort: 'asc', nulls: 'last' } }, { receivedAt: 'asc' }],
+      skip: (q.page - 1) * q.pageSize,
+      take: q.pageSize,
+    }),
+    prisma.stockLot.count({ where }),
+  ]);
+  return {
+    items: rows.map((r) => toLotView(r, now)),
+    page: q.page,
+    pageSize: q.pageSize,
+    total,
+    totalPages: Math.max(1, Math.ceil(total / q.pageSize)),
+  };
+}
+
+/**
+ * C5 recall — lot ນີ້ຖືກໃຊ້ກັບນັດໝາຍ/ລູກຄ້າຄົນໃດ (SERVICE_CONSUMED ທີ່ refId = `appt:<id>`) ແລະ ຖືກໂອນ
+ * ໄປສາຂາໃດແດ່ (TRANSFER_OUT). lot ທີ່ຖືກໂອນຈະກາຍເປັນແຖວ StockLot ໃໝ່ຢູ່ສາຂາປາຍທາງ (ເລກ lot ດຽວກັນ)
+ * — ຜູ້ເອີ້ນຕ້ອງຕາມດູ usage ຂອງ lot ປາຍທາງນັ້ນຕໍ່ (ຜ່ານ transfersOut ເພື່ອຮູ້ວ່າໄປສາຂາໃດ).
+ */
+export async function getLotUsage(lotId: string, authBranchId?: string | null): Promise<LotUsageView> {
+  const lot = await prisma.stockLot.findUnique({ where: { id: lotId }, include: LOT_INCLUDE });
+  if (!lot) throw ApiError.notFound('ບໍ່ພົບ lot');
+  if (authBranchId && authBranchId !== lot.branchId) {
+    throw ApiError.forbidden('ເບິ່ງໄດ້ສະເພາະ lot ຂອງສາຂາຂອງທ່ານ');
+  }
+  const [consumed, sentOut] = await Promise.all([
+    prisma.stockMovement.findMany({
+      where: { lotId, type: 'SERVICE_CONSUMED' },
+      orderBy: { createdAt: 'asc' },
+      select: { refId: true, qty: true, createdAt: true },
+    }),
+    prisma.stockMovement.findMany({
+      where: { lotId, type: 'TRANSFER_OUT' },
+      orderBy: { createdAt: 'asc' },
+      select: { refId: true, qty: true, createdAt: true },
+    }),
+  ]);
+
+  const apptQty = new Map<string, { qty: number; at: Date }>();
+  for (const m of consumed) {
+    if (!m.refId?.startsWith('appt:')) continue;
+    const aid = m.refId.slice('appt:'.length);
+    const prev = apptQty.get(aid);
+    apptQty.set(aid, { qty: (prev?.qty ?? 0) + qnum(m.qty), at: prev?.at ?? m.createdAt });
+  }
+  const appts = apptQty.size
+    ? await prisma.appointment.findMany({
+        where: { id: { in: [...apptQty.keys()] } },
+        include: {
+          customer: { select: { id: true, name: true, phone: true } },
+          service: { select: { name: true } },
+        },
+      })
+    : [];
+  const appointments = appts
+    .map((a) => ({
+      appointmentId: a.id,
+      startAt: a.startAt.toISOString(),
+      status: a.status,
+      serviceName: a.service.name,
+      customerId: a.customer.id,
+      customerName: a.customer.name,
+      customerPhone: a.customer.phone ?? null,
+      qty: qnum(apptQty.get(a.id)!.qty),
+      consumedAt: apptQty.get(a.id)!.at.toISOString(),
+    }))
+    .sort((x, y) => x.consumedAt.localeCompare(y.consumedAt));
+
+  const transferIds = sentOut
+    .map((m) => (m.refId?.startsWith('transfer:') ? m.refId.slice('transfer:'.length) : null))
+    .filter((v): v is string => v != null);
+  const transfers = transferIds.length
+    ? await prisma.stockTransfer.findMany({
+        where: { id: { in: transferIds } },
+        include: { toBranch: { select: { name: true } } },
+      })
+    : [];
+  const transfersOut = sentOut.flatMap((m) => {
+    const t = transfers.find((x) => m.refId === `transfer:${x.id}`);
+    return t
+      ? [
+          {
+            transferId: t.id,
+            transferNumber: t.transferNumber,
+            toBranchId: t.toBranchId,
+            toBranchName: t.toBranch.name,
+            qty: qnum(m.qty),
+            sentAt: (t.sentAt ?? m.createdAt).toISOString(),
+          },
+        ]
+      : [];
+  });
+
+  return {
+    lot: toLotView(lot),
+    appointments,
+    customerCount: new Set(appointments.map((a) => a.customerId)).size,
+    totalConsumedQty: qnum(consumed.reduce((sum, m) => sum + qnum(m.qty), 0)),
+    transfersOut,
+  };
 }
 
 // ============================================================ Reconciliation (M19, audit ຄື້ນ 9A)

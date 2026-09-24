@@ -37,6 +37,11 @@ export type AppSettings = {
   sessionTimeoutMinutes: number;
   minPasswordLength: number;
   require2fa: boolean;
+  /** login ຜິດຕິດຕໍ່ກັນເທົ່ານີ້ຄັ້ງ → ລັອກບັນຊີ (0 = ປິດ). */
+  maxLoginAttempts: number;
+  lockoutMinutes: number;
+  /** ແຈ້ງເຕືອນເຈົ້າຂອງບັນຊີເມື່ອມີອຸປະກອນໃໝ່ເຂົ້າສູ່ລະບົບ. */
+  newDeviceAlerts: boolean;
   dataRetentionMonths: number;
 };
 
@@ -77,6 +82,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   sessionTimeoutMinutes: 60,
   minPasswordLength: 8,
   require2fa: false,
+  maxLoginAttempts: 5,
+  lockoutMinutes: 15,
+  newDeviceAlerts: true,
   dataRetentionMonths: 24,
 };
 
@@ -85,6 +93,23 @@ export async function getSettings(): Promise<AppSettings> {
   const row = await prisma.appSetting.findUnique({ where: { key: SETTINGS_KEY } });
   const stored = (row?.value as Partial<AppSettings> | undefined) ?? {};
   return { ...DEFAULT_SETTINGS, ...stored };
+}
+
+// Hot path (authGuard runs it on every request) — a 30 s in-process copy is plenty.
+let cached: { at: number; value: AppSettings } | null = null;
+const CACHE_MS = 30_000;
+
+/** Drops the in-process copy (updateSettings does this; tests that stub settings call it). */
+export function clearSettingsCache(): void {
+  cached = null;
+}
+
+/** getSettings() with a short in-process cache; busted locally by updateSettings. */
+export async function getCachedSettings(): Promise<AppSettings> {
+  if (cached && Date.now() - cached.at < CACHE_MS) return cached.value;
+  const value = await getSettings();
+  cached = { at: Date.now(), value };
+  return value;
 }
 
 /** PUT /settings — shallow-merge the patch and persist. */
@@ -101,6 +126,7 @@ export async function updateSettings(patch: Record<string, unknown>): Promise<Ap
     create: { key: SETTINGS_KEY, value: next },
     update: { value: next },
   });
+  cached = null;
   return next;
 }
 

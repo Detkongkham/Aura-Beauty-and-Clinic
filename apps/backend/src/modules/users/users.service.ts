@@ -13,6 +13,7 @@ import { prisma } from '../../config/database.js';
 import { assertCanGrant, type Actor } from '../../middlewares/permissionGuard.js';
 import { ApiError } from '../../utils/ApiError.js';
 import { hashPassword } from '../../utils/password.js';
+import { revokeAllSessions } from '../auth/security.js';
 
 const ADMIN_ROLES = ['SUPER_ADMIN', 'BRANCH_ADMIN'] as const;
 
@@ -153,6 +154,8 @@ export async function updateUser(
     },
     include: WITH_RELATIONS,
   });
+  // Deactivated = signed out everywhere, not just unable to sign in again.
+  if (input.isActive === false && target.isActive) await revokeAllSessions(id, 'DEACTIVATED');
   return toAdminUser(user);
 }
 

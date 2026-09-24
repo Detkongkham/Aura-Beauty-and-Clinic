@@ -1,14 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  CogsSummaryView,
   InventoryStatsView,
+  LotUsageView,
   Paginated,
   ProductCreateInput,
   ProductUpdateInput,
   ProductView,
   PurchaseOrderCreateInput,
+  PurchaseOrderReceiveInput,
   PurchaseOrderUpdateInput,
   PurchaseOrderView,
   StockAdjustInput,
+  StockLotView,
   StockMovementStatsView,
   StockMovementTypeValue,
   StockMovementView,
@@ -132,6 +136,7 @@ export function useSaveProduct() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['products'] });
       void qc.invalidateQueries({ queryKey: ['stock-movements'] });
+      void qc.invalidateQueries({ queryKey: ['stock-lots'] });
     },
   });
 }
@@ -154,6 +159,7 @@ export function useAdjustStock() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['products'] });
       void qc.invalidateQueries({ queryKey: ['stock-movements'] });
+      void qc.invalidateQueries({ queryKey: ['stock-lots'] });
     },
   });
 }
@@ -190,6 +196,20 @@ export function useStockMovementStats(f: MovementStatsFilters) {
   });
 }
 
+/** C4 — total COGS (positive LAK) for a branch/date range, sourced from valued SERVICE_CONSUMED rows. */
+export function useCogsSummary(f: MovementStatsFilters) {
+  return useQuery({
+    queryKey: ['stock-movements', 'cogs-summary', f],
+    queryFn: async () => {
+      const { data } = await http.get<Envelope<CogsSummaryView>>('/stock-movements/cogs-summary', {
+        params: clean({ branchId: f.branchId, from: f.from, to: f.to }),
+      });
+      return data.data;
+    },
+    placeholderData: (prev) => prev,
+  });
+}
+
 export function useStockMovements(f: MovementFilters) {
   return useQuery({
     queryKey: ['stock-movements', f],
@@ -208,6 +228,50 @@ export function useStockMovements(f: MovementFilters) {
       return data.data;
     },
     placeholderData: (prev) => prev,
+  });
+}
+
+// ---- lots (C5) ------------------------------------------------
+
+export interface LotFilters {
+  productId?: string;
+  branchId?: string;
+  expiringWithinDays?: number;
+  includeEmpty?: boolean;
+  page: number;
+  pageSize: number;
+}
+
+export function useStockLots(f: LotFilters, enabled = true) {
+  return useQuery({
+    queryKey: ['stock-lots', f],
+    queryFn: async () => {
+      const { data } = await http.get<Envelope<Paginated<StockLotView>>>('/stock-lots', {
+        params: clean({
+          productId: f.productId,
+          branchId: f.branchId,
+          expiringWithinDays: f.expiringWithinDays,
+          includeEmpty: f.includeEmpty ? 'true' : undefined,
+          page: f.page,
+          pageSize: f.pageSize,
+        }),
+      });
+      return data.data;
+    },
+    enabled,
+    placeholderData: (prev) => prev,
+  });
+}
+
+/** Recall report — which appointments/customers a lot was used on. */
+export function useLotUsage(lotId: string | null) {
+  return useQuery({
+    queryKey: ['stock-lots', 'usage', lotId],
+    queryFn: async () => {
+      const { data } = await http.get<Envelope<LotUsageView>>(`/stock-lots/${lotId}/usage`);
+      return data.data;
+    },
+    enabled: Boolean(lotId),
   });
 }
 
@@ -278,14 +342,15 @@ export function useUpdatePurchaseOrder() {
 export function useReceivePurchaseOrder() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      const { data } = await http.post<Envelope<PurchaseOrderView>>(`/purchase-orders/${id}/receive`);
+    mutationFn: async ({ id, input }: { id: string; input?: PurchaseOrderReceiveInput }) => {
+      const { data } = await http.post<Envelope<PurchaseOrderView>>(`/purchase-orders/${id}/receive`, input ?? {});
       return data.data;
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['purchase-orders'] });
       void qc.invalidateQueries({ queryKey: ['products'] });
       void qc.invalidateQueries({ queryKey: ['stock-movements'] });
+      void qc.invalidateQueries({ queryKey: ['stock-lots'] });
     },
   });
 }

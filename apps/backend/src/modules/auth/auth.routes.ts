@@ -3,6 +3,14 @@ import { z } from 'zod';
 import {
   accountActivityQuerySchema,
   changePasswordSchema,
+  disableTwoFactorSchema,
+  enableTwoFactorSchema,
+  forgotPasswordSchema,
+  mfaTokenSchema,
+  mfaVerifySchema,
+  resetPasswordSchema,
+  startTwoFactorSchema,
+  userPreferencesSchema,
   loginSchema,
   quickLoginInputSchema,
   refreshSchema,
@@ -17,6 +25,17 @@ import {
   activityHandler,
   changePasswordHandler,
   disableOwnPinHandler,
+  forgotPasswordHandler,
+  getPreferencesHandler,
+  mfaActivateHandler,
+  mfaSetupHandler,
+  mfaVerifyHandler,
+  resetPasswordHandler,
+  twoFactorDisableHandler,
+  twoFactorEnableHandler,
+  twoFactorRecoveryHandler,
+  twoFactorStartHandler,
+  updatePreferencesHandler,
   listSessionsHandler,
   loginHandler,
   logoutHandler,
@@ -82,3 +101,28 @@ authRouter.put(
   setOwnPinHandler,
 );
 authRouter.delete('/me/quick-login-pin', authGuard, disableOwnPinHandler);
+
+// --- Second login step (2FA) — public, authorised by the 5-minute mfaToken ---
+authRouter.post('/2fa/verify', authLimiter, validateRequest({ body: mfaVerifySchema }), mfaVerifyHandler);
+authRouter.post('/2fa/setup', authLimiter, validateRequest({ body: mfaTokenSchema }), mfaSetupHandler);
+authRouter.post('/2fa/activate', authLimiter, validateRequest({ body: mfaVerifySchema }), mfaActivateHandler);
+
+// --- Forgot / reset password — public ---
+authRouter.post('/password/forgot', authLimiter, validateRequest({ body: forgotPasswordSchema }), forgotPasswordHandler);
+authRouter.post('/password/reset', authLimiter, validateRequest({ body: resetPasswordSchema }), resetPasswordHandler);
+
+// --- Own 2FA ---
+authRouter.post('/me/2fa/setup', authGuard, authLimiter, validateRequest({ body: startTwoFactorSchema }), twoFactorStartHandler);
+authRouter.post('/me/2fa/enable', authGuard, authLimiter, validateRequest({ body: enableTwoFactorSchema }), twoFactorEnableHandler);
+authRouter.post('/me/2fa/disable', authGuard, authLimiter, validateRequest({ body: disableTwoFactorSchema }), twoFactorDisableHandler);
+authRouter.post(
+  '/me/2fa/recovery-codes',
+  authGuard,
+  authLimiter,
+  validateRequest({ body: disableTwoFactorSchema }),
+  twoFactorRecoveryHandler,
+);
+
+// --- Personal preferences (synced across devices) ---
+authRouter.get('/me/preferences', authGuard, getPreferencesHandler);
+authRouter.patch('/me/preferences', authGuard, validateRequest({ body: userPreferencesSchema }), updatePreferencesHandler);

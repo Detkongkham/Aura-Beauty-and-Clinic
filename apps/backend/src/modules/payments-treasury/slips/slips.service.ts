@@ -1528,7 +1528,7 @@ export async function exportSlipsCsv(actor: Actor, query: SlipExportQuery): Prom
   }
   const stamp = new Date().toISOString().slice(0, 10);
   // BOM ໃຫ້ Excel ອ່ານພາສາລາວເປັນ UTF-8
-  return { filename: `slips-${stamp}.csv`, csv: `﻿${lines.join('\n')}` };
+  return { filename: `slips-${stamp}.csv`, csv: `\uFEFF${lines.join('\n')}` };
 }
 
 // ---- S4 SLA alerts ---------------------------------------------

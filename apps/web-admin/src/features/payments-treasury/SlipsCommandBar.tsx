@@ -1,5 +1,15 @@
 import type { SlipFlag } from '@abcp/shared-types';
-import { CheckCheck, Eye, EyeOff, Keyboard, Search, X } from 'lucide-react';
+import {
+  CheckCheck,
+  Download,
+  Eye,
+  EyeOff,
+  Keyboard,
+  Loader2,
+  Search,
+  Upload,
+  X,
+} from 'lucide-react';
 import { forwardRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -42,6 +52,11 @@ interface Props {
   focus: boolean;
   onFocus: () => void;
   onShortcuts: () => void;
+  /** S10 — download the current filter as CSV. */
+  onExport: () => void;
+  exporting: boolean;
+  /** S12 — staff upload; null when the user can't review. */
+  onUpload: (() => void) | null;
   /** Bulk confirm of ready slips — null when the user can't review. */
   bulk: {
     selected: number;
@@ -126,6 +141,21 @@ export const SlipsCommandBar = forwardRef<HTMLInputElement, Props>(
                 ?
               </Kbd>
             </Button>
+            <Button variant="ghost" size="sm" onClick={p.onExport} disabled={p.exporting}>
+              {p.exporting ? (
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Download className="mr-1 h-4 w-4" aria-hidden="true" />
+              )}
+              <span className="hidden sm:inline">{t('payTreasury.slips.export')}</span>
+              <span className="sr-only sm:hidden">{t('payTreasury.slips.export')}</span>
+            </Button>
+            {p.onUpload ? (
+              <Button variant="secondary" size="sm" onClick={p.onUpload}>
+                <Upload className="mr-1 h-4 w-4" aria-hidden="true" />
+                {t('payTreasury.slips.upload.open')}
+              </Button>
+            ) : null}
             {p.bulk ? (
               p.bulk.selected > 0 ? (
                 <Button size="sm" onClick={p.bulk.onConfirm} disabled={p.bulk.pending}>

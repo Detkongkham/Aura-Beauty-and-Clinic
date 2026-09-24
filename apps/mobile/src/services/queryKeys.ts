@@ -66,4 +66,5 @@ export const qk = {
   // ---- Phase 7C: AI Skin & Hair Camera (Module 30) ----
   skinAnalyses: ['skin-analysis', 'me'] as const,
   consent: ['consent', 'me'] as const,
+  preferences: ['auth', 'me', 'preferences'] as const,
 };

@@ -4,8 +4,12 @@ import type {
   AccountSession,
   AuthUser,
   ChangePasswordInput,
+  DisableTwoFactorInput,
   SetOwnQuickLoginPinInput,
+  TwoFactorSetup,
   UpdateProfileInput,
+  UserPreferences,
+  UserPreferencesResponse,
 } from '@abcp/shared-types';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
@@ -21,6 +25,7 @@ const KEYS = {
   overview: ['account', 'overview'] as const,
   sessions: ['account', 'sessions'] as const,
   activity: ['account', 'activity'] as const,
+  preferences: ['account', 'preferences'] as const,
 };
 
 export function useAccountOverview() {
@@ -121,5 +126,62 @@ export function useDisableQuickLoginPin() {
   return useMutation({
     mutationFn: async () => (await http.delete('/auth/me/quick-login-pin')).data,
     onSuccess: () => void invalidate(),
+  });
+}
+
+// --- 2FA (authenticator app) ---
+
+export function useStartTwoFactor() {
+  return useMutation({
+    mutationFn: async (currentPassword: string) =>
+      (await http.post<Envelope<TwoFactorSetup>>('/auth/me/2fa/setup', { currentPassword })).data.data,
+  });
+}
+
+export function useEnableTwoFactor() {
+  const invalidate = useInvalidateAccount();
+  return useMutation({
+    mutationFn: async (code: string) =>
+      (await http.post<Envelope<{ recoveryCodes: string[] }>>('/auth/me/2fa/enable', { code })).data.data,
+    onSuccess: () => void invalidate(),
+  });
+}
+
+export function useDisableTwoFactor() {
+  const invalidate = useInvalidateAccount();
+  return useMutation({
+    mutationFn: async (input: DisableTwoFactorInput) => (await http.post('/auth/me/2fa/disable', input)).data,
+    onSuccess: () => void invalidate(),
+  });
+}
+
+export function useRegenerateRecoveryCodes() {
+  const invalidate = useInvalidateAccount();
+  return useMutation({
+    mutationFn: async (input: DisableTwoFactorInput) =>
+      (await http.post<Envelope<{ recoveryCodes: string[] }>>('/auth/me/2fa/recovery-codes', input)).data
+        .data,
+    onSuccess: () => void invalidate(),
+  });
+}
+
+// --- Personal preferences (server-synced) ---
+
+export function useMyPreferences(enabled = true) {
+  return useQuery({
+    queryKey: KEYS.preferences,
+    enabled,
+    staleTime: 5 * 60_000,
+    queryFn: async () =>
+      (await http.get<Envelope<UserPreferencesResponse>>('/auth/me/preferences')).data.data,
+  });
+}
+
+export function useUpdatePreferences() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (patch: UserPreferences) =>
+      (await http.patch<Envelope<UserPreferencesResponse>>('/auth/me/preferences', patch)).data.data,
+    onSuccess: (data) => qc.setQueryData(KEYS.preferences, data),
   });
 }

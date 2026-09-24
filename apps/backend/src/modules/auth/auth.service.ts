@@ -6,6 +6,8 @@ import {
   type AuthUser,
   type ChangePasswordInput,
   type LoginInput,
+  type LoginResult,
+  type MfaChallenge,
   type RegisterInput,
   type UpdateProfileInput,
 } from '@abcp/shared-types';
@@ -17,8 +19,30 @@ import { ErrorCode } from '../../constants/errorCodes.js';
 import { hashPassword, verifyPassword } from '../../utils/password.js';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../../utils/token.js';
 import { parseDeviceLabel } from '../../utils/userAgent.js';
-import { getSettings } from '../settings/settings.service.js';
-import { openSession, sessionExpiry, writeAccountAudit, type SessionContext } from './sessions.js';
+import { getCachedSettings, getSettings, type AppSettings } from '../settings/settings.service.js';
+import {
+  alertIfNewDevice,
+  assertNotLocked,
+  auditLoginFailed,
+  clearFailures,
+  forgetSession,
+  idleError,
+  isIdle,
+  registerFailure,
+  revokeAllSessions,
+  securityAlert,
+  signMfaTicket,
+  twoFactorRequired,
+  writeSecurityAudit,
+} from './security.js';
+import {
+  openSession,
+  revokeSessionById,
+  sessionExpiry,
+  writeAccountAudit,
+  type SessionContext,
+  type SessionMethod,
+} from './sessions.js';
 
 export async function toAuthUser(user: User): Promise<AuthUser> {
   const [overrides, roleRef] = await Promise.all([
@@ -93,18 +117,60 @@ export async function register(
   return { user: await toAuthUser(user), tokens: issueTokens(user, sid) };
 }
 
-export async function login(input: LoginInput, ctx: SessionContext = {}): Promise<AuthResponse> {
+const invalidCredentials = () =>
+  ApiError.unauthorized('ເບີໂທ ຫຼື ລະຫັດຜ່ານບໍ່ຖືກຕ້ອງ', ErrorCode.INVALID_CREDENTIALS);
+
+/**
+ * Last step of every successful sign-in (password, PIN, 2FA): clears the failure counter, alerts on
+ * an unseen device, opens the session and writes an `auth.login` audit row.
+ */
+export async function completeLogin(
+  user: User,
+  method: SessionMethod,
+  ctx: SessionContext,
+  mfa: boolean,
+): Promise<AuthResponse> {
+  const settings = await getCachedSettings();
+  await clearFailures(user);
+  recordLogin(user.id, ctx.userAgent ?? undefined);
+  await alertIfNewDevice(user, ctx, settings).catch(() => {});
+  const sid = await openSession(user.id, method, ctx, prisma, mfa);
+  writeSecurityAudit({
+    action: 'auth.login',
+    actorId: user.id,
+    targetId: user.id,
+    branchId: user.branchId,
+    newValue: { method, mfa, device: parseDeviceLabel(ctx.userAgent), sessionId: sid },
+    ipAddress: ctx.ipAddress,
+  });
+  return { user: await toAuthUser(user), tokens: issueTokens(user, sid) };
+}
+
+/** The second step a password login still owes, if any. */
+function mfaChallengeFor(user: User, settings: AppSettings): MfaChallenge | null {
+  const mode = user.twoFactorEnabledAt && user.twoFactorSecret
+    ? 'verify'
+    : twoFactorRequired(user.role, settings)
+      ? 'setup'
+      : null;
+  if (!mode) return null;
+  return { mfaRequired: true, mode, ...signMfaTicket({ sub: user.id, mode, method: 'PASSWORD' }) };
+}
+
+export async function login(input: LoginInput, ctx: SessionContext = {}): Promise<LoginResult> {
   const user = await prisma.user.findUnique({ where: { phone: input.phone } });
   if (!user || !user.password || user.deletedAt || !user.isActive) {
-    throw ApiError.unauthorized('ເບີໂທ ຫຼື ລະຫັດຜ່ານບໍ່ຖືກຕ້ອງ', ErrorCode.INVALID_CREDENTIALS);
+    const known = user && !user.deletedAt ? user : null;
+    auditLoginFailed(known, known ? 'inactive' : 'unknown_user', 'PASSWORD', ctx, input.phone);
+    throw invalidCredentials();
   }
+  assertNotLocked(user, 'PASSWORD', ctx);
+  const settings = await getCachedSettings();
   const ok = await verifyPassword(input.password, user.password);
   if (!ok) {
-    throw ApiError.unauthorized('ເບີໂທ ຫຼື ລະຫັດຜ່ານບໍ່ຖືກຕ້ອງ', ErrorCode.INVALID_CREDENTIALS);
+    throw (await registerFailure(user, settings, 'bad_password', 'PASSWORD', ctx)) ?? invalidCredentials();
   }
-  recordLogin(user.id, ctx.userAgent ?? undefined);
-  const sid = await openSession(user.id, 'PASSWORD', ctx);
-  return { user: await toAuthUser(user), tokens: issueTokens(user, sid) };
+  return mfaChallengeFor(user, settings) ?? completeLogin(user, 'PASSWORD', ctx, false);
 }
 
 /**
@@ -123,8 +189,22 @@ export async function refresh(refreshToken: string, ctx: SessionContext = {}): P
   if (sid) {
     const now = new Date();
     const session = await prisma.userSession.findUnique({ where: { id: sid } });
-    if (!session || session.userId !== user.id || session.revokedAt || session.expiresAt <= now) {
+    if (!session || session.userId !== user.id || session.expiresAt <= now) {
       throw ApiError.unauthorized('ເຊດຊັນນີ້ຖືກອອກຈາກລະບົບແລ້ວ', ErrorCode.TOKEN_INVALID);
+    }
+    if (session.revokedAt) {
+      if (session.revokedReason === 'IDLE') throw idleError();
+      throw ApiError.unauthorized('ເຊດຊັນນີ້ຖືກອອກຈາກລະບົບແລ້ວ', ErrorCode.TOKEN_INVALID);
+    }
+    const settings = await getCachedSettings();
+    if (isIdle(session.lastSeenAt, user.role, settings, now.getTime())) {
+      await revokeSessionById(sid, 'IDLE');
+      throw idleError();
+    }
+    // Settings ▸ require2fa switched on after this session began: sign in again (and enrol).
+    if (twoFactorRequired(user.role, settings) && !user.twoFactorEnabledAt) {
+      await revokeSessionById(sid, 'MFA_REQUIRED');
+      throw ApiError.unauthorized('ຕ້ອງເປີດການຢືນຢັນ 2 ຂັ້ນຕອນ — ກະລຸນາເຂົ້າສູ່ລະບົບໃໝ່', ErrorCode.MFA_REQUIRED);
     }
     await prisma.userSession.update({
       where: { id: sid },
@@ -134,6 +214,7 @@ export async function refresh(refreshToken: string, ctx: SessionContext = {}): P
         ...(ctx.ipAddress ? { ipAddress: ctx.ipAddress } : {}),
       },
     });
+    forgetSession(sid);
   } else {
     sid = await openSession(user.id, 'LEGACY', ctx);
   }
@@ -144,12 +225,7 @@ export async function refresh(refreshToken: string, ctx: SessionContext = {}): P
 export async function logout(refreshToken: string): Promise<{ success: true }> {
   try {
     const payload = verifyRefreshToken(refreshToken);
-    if (payload.sid) {
-      await prisma.userSession.updateMany({
-        where: { id: payload.sid, userId: payload.sub, revokedAt: null },
-        data: { revokedAt: new Date() },
-      });
-    }
+    if (payload.sid) await revokeSessionById(payload.sid, 'LOGOUT', payload.sub);
   } catch {
     // Expired / malformed token: nothing left to revoke.
   }
@@ -226,17 +302,21 @@ export async function changePassword(
       data: { password: await hashPassword(input.newPassword), passwordChangedAt: now },
     });
     if (!input.signOutOthers) return 0;
-    const res = await tx.userSession.updateMany({
-      where: { userId, revokedAt: null, ...(currentSid ? { id: { not: currentSid } } : {}) },
-      data: { revokedAt: now },
-    });
-    return res.count;
+    return revokeAllSessions(userId, 'PASSWORD_CHANGED', currentSid, tx);
   });
   writeAccountAudit(user, 'auth.password_changed', { revokedSessions }, ipAddress);
+  void securityAlert(userId, 'SECURITY_PASSWORD_CHANGED', {
+    title: 'ລະຫັດຜ່ານຖືກປ່ຽນແລ້ວ',
+    body: 'ລະຫັດຜ່ານບັນຊີຂອງທ່ານຫາກໍຖືກປ່ຽນ. ຖ້າບໍ່ແມ່ນທ່ານ ກະລຸນາຕິດຕໍ່ຄລີນິກທັນທີ.',
+  });
   return { success: true, revokedSessions };
 }
 
-/** PIN-based login for admin/staff terminals — set up via Settings ▸ Quick Login. */
+/**
+ * PIN-based login for admin/staff terminals — set up via Settings ▸ Quick Login. Shares the lockout
+ * counter with password logins (a 4-digit PIN is otherwise trivially guessable). The PIN skips the
+ * authenticator prompt, but when Settings ▸ require2fa applies the account must already be enrolled.
+ */
 export async function quickLogin(userId: string, pin: string, ctx: SessionContext = {}): Promise<AuthResponse> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (
@@ -246,13 +326,24 @@ export async function quickLogin(userId: string, pin: string, ctx: SessionContex
     user.deletedAt ||
     !user.isActive
   ) {
+    auditLoginFailed(user && !user.deletedAt ? user : null, 'inactive', 'PIN', ctx);
     throw ApiError.unauthorized('Quick Login ບໍ່ຖືກເປີດໃຊ້ ຫຼື ບໍ່ພົບຜູ້ໃຊ້', ErrorCode.INVALID_CREDENTIALS);
   }
+  assertNotLocked(user, 'PIN', ctx);
+  const settings = await getCachedSettings();
   const ok = await verifyPassword(pin, user.quickLoginPin);
   if (!ok) {
-    throw ApiError.unauthorized('ລະຫັດ PIN ບໍ່ຖືກຕ້ອງ', ErrorCode.INVALID_CREDENTIALS);
+    throw (
+      (await registerFailure(user, settings, 'bad_pin', 'PIN', ctx)) ??
+      ApiError.unauthorized('ລະຫັດ PIN ບໍ່ຖືກຕ້ອງ', ErrorCode.INVALID_CREDENTIALS)
+    );
   }
-  recordLogin(user.id, ctx.userAgent ?? undefined);
-  const sid = await openSession(user.id, 'PIN', ctx);
-  return { user: await toAuthUser(user), tokens: issueTokens(user, sid) };
+  if (twoFactorRequired(user.role, settings) && !user.twoFactorEnabledAt) {
+    throw new ApiError(
+      403,
+      ErrorCode.MFA_REQUIRED,
+      'ຕ້ອງເປີດການຢືນຢັນ 2 ຂັ້ນຕອນກ່ອນ — ເຂົ້າສູ່ລະບົບດ້ວຍລະຫັດຜ່ານເພື່ອຕັ້ງຄ່າ',
+    );
+  }
+  return completeLogin(user, 'PIN', ctx, false);
 }

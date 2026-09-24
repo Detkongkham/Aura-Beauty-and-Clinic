@@ -92,11 +92,15 @@ export function SlipUploadDialog({
     }
   }, [bill]);
 
-  const list = usePayments({ branchId: 'all', q: debounced || undefined, page: 1, pageSize: 20 });
+  const list = usePayments(
+    { branchId: 'all', q: debounced || undefined, page: 1, pageSize: 20 },
+    open,
+  );
   const bills = useMemo(
     () =>
       (list.data?.items ?? []).filter(
-        (p) => p.balanceAmount > 0 && p.paymentStatus !== 'VOIDED' && p.paymentStatus !== 'REFUNDED',
+        (p) =>
+          p.balanceAmount > 0 && p.paymentStatus !== 'VOIDED' && p.paymentStatus !== 'REFUNDED',
       ),
     [list.data],
   );
@@ -118,7 +122,10 @@ export function SlipUploadDialog({
   }
 
   const amountNum = Number(amount);
-  const amountOk = Number.isFinite(amountNum) && amountNum > 0 && (!bill || amountNum <= bill.balanceAmount + 0.01);
+  const amountOk =
+    Number.isFinite(amountNum) &&
+    amountNum > 0 &&
+    (!bill || amountNum <= bill.balanceAmount + 0.01);
 
   async function submit() {
     if (!bill || !file || !amountOk) return;
@@ -140,7 +147,8 @@ export function SlipUploadDialog({
             onUploaded(slip);
             onOpenChange(false);
           },
-          onError: (err) => toast.error(err instanceof NormalizedApiError ? err.message : t('common.saveError')),
+          onError: (err) =>
+            toast.error(err instanceof NormalizedApiError ? err.message : t('common.saveError')),
         },
       );
     } catch {
@@ -167,7 +175,10 @@ export function SlipUploadDialog({
         {!bill ? (
           <div className="grid gap-2">
             <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+              <Search
+                className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                aria-hidden="true"
+              />
               <Input
                 autoFocus
                 className="h-9 pl-8"
@@ -177,13 +188,18 @@ export function SlipUploadDialog({
                 aria-label={t('payTreasury.slips.upload.search')}
               />
             </div>
-            <ul className="max-h-[320px] overflow-y-auto rounded-lg border border-border" aria-label={t('payTreasury.slips.upload.bills')}>
+            <ul
+              className="max-h-[320px] overflow-y-auto rounded-lg border border-border"
+              aria-label={t('payTreasury.slips.upload.bills')}
+            >
               {list.isLoading ? (
                 <li className="flex items-center justify-center gap-2 p-6 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                 </li>
               ) : bills.length === 0 ? (
-                <li className="p-6 text-center text-sm text-muted-foreground">{t('payTreasury.slips.upload.noBills')}</li>
+                <li className="p-6 text-center text-sm text-muted-foreground">
+                  {t('payTreasury.slips.upload.noBills')}
+                </li>
               ) : (
                 bills.map((p) => (
                   <li key={p.id} className="border-b border-border/70 last:border-0">
@@ -192,17 +208,29 @@ export function SlipUploadDialog({
                       onClick={() => setBill(p)}
                       className="flex w-full items-center gap-3 px-3 py-2.5 text-left outline-none hover:bg-muted/50 focus-visible:bg-muted/60"
                     >
-                      <ReceiptText className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                      <ReceiptText
+                        className="h-4 w-4 shrink-0 text-muted-foreground"
+                        aria-hidden="true"
+                      />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium">{p.customerName ?? '—'}</span>
+                        <span className="block truncate text-sm font-medium">
+                          {p.customerName ?? '—'}
+                        </span>
                         <span className="block truncate text-2xs text-muted-foreground">
-                          {p.branchName} · {formatDate(p.createdAt)} · {t(`payTreasury.slips.upload.status.${p.paymentStatus}`)}
+                          {p.branchName} · {formatDate(p.createdAt)} ·{' '}
+                          {t(`payTreasury.slips.upload.status.${p.paymentStatus}`)}
                         </span>
                       </span>
                       <span className="shrink-0 text-right">
-                        <CurrencyText amount={p.balanceAmount} currency={p.currency as 'LAK'} className="block text-sm font-semibold tabular-nums" />
+                        <CurrencyText
+                          amount={p.balanceAmount}
+                          currency={p.currency as 'LAK'}
+                          className="block text-sm font-semibold tabular-nums"
+                        />
                         <span className="text-[10px] text-muted-foreground">
-                          {t('payTreasury.slips.upload.ofTotal', { total: formatCurrency(p.totalAmount, p.currency as 'LAK') })}
+                          {t('payTreasury.slips.upload.ofTotal', {
+                            total: formatCurrency(p.totalAmount, p.currency as 'LAK'),
+                          })}
                         </span>
                       </span>
                     </button>
@@ -214,7 +242,13 @@ export function SlipUploadDialog({
         ) : (
           <div className="grid gap-3">
             <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2">
-              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setBill(null)} aria-label={t('common.back')}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0"
+                onClick={() => setBill(null)}
+                aria-label={t('common.back')}
+              >
                 <ArrowLeft className="h-4 w-4" aria-hidden="true" />
               </Button>
               <div className="min-w-0 flex-1">
@@ -238,12 +272,28 @@ export function SlipUploadDialog({
                 aria-invalid={!amountOk}
               />
               <div className="flex flex-wrap gap-1.5">
-                <QuickAmount label={t('payTreasury.slips.upload.fullOwed')} value={bill.balanceAmount} currency={bill.currency} onPick={setAmount} active={amountNum === bill.balanceAmount} />
+                <QuickAmount
+                  label={t('payTreasury.slips.upload.fullOwed')}
+                  value={bill.balanceAmount}
+                  currency={bill.currency}
+                  onPick={setAmount}
+                  active={amountNum === bill.balanceAmount}
+                />
                 {depositLeft > 0 && depositLeft !== bill.balanceAmount ? (
-                  <QuickAmount label={t('payTreasury.slips.bill.deposit')} value={depositLeft} currency={bill.currency} onPick={setAmount} active={amountNum === depositLeft} />
+                  <QuickAmount
+                    label={t('payTreasury.slips.bill.deposit')}
+                    value={depositLeft}
+                    currency={bill.currency}
+                    onPick={setAmount}
+                    active={amountNum === depositLeft}
+                  />
                 ) : null}
               </div>
-              {!amountOk ? <p className="text-2xs text-destructive">{t('payTreasury.slips.upload.amountInvalid')}</p> : null}
+              {!amountOk ? (
+                <p className="text-2xs text-destructive">
+                  {t('payTreasury.slips.upload.amountInvalid')}
+                </p>
+              ) : null}
             </div>
 
             {accounts.length > 1 ? (
@@ -255,7 +305,10 @@ export function SlipUploadDialog({
                   value={accountId}
                   placeholder={t('payTreasury.slips.upload.anyAccount')}
                   onChange={(e) => setAccountId(e.target.value)}
-                  options={accounts.map((a) => ({ value: a.id, label: `${a.bank.code} · ${a.accountName} · ${maskAccount(a.accountNumber)}` }))}
+                  options={accounts.map((a) => ({
+                    value: a.id,
+                    label: `${a.bank.code} · ${a.accountName} · ${maskAccount(a.accountNumber)}`,
+                  }))}
                 />
               </div>
             ) : null}
@@ -278,7 +331,11 @@ export function SlipUploadDialog({
             >
               {preview ? (
                 <>
-                  <img src={preview} alt={t('payTreasury.slips.imageAlt')} className="max-h-[260px] object-contain" />
+                  <img
+                    src={preview}
+                    alt={t('payTreasury.slips.imageAlt')}
+                    className="max-h-[260px] object-contain"
+                  />
                   <button
                     type="button"
                     onClick={() => setFile(null)}
@@ -296,7 +353,9 @@ export function SlipUploadDialog({
                 >
                   <ImagePlus className="h-7 w-7 text-muted-foreground" aria-hidden="true" />
                   <span className="text-sm font-medium">{t('payTreasury.slips.upload.drop')}</span>
-                  <span className="text-2xs text-muted-foreground">{t('payTreasury.slips.upload.dropHint')}</span>
+                  <span className="text-2xs text-muted-foreground">
+                    {t('payTreasury.slips.upload.dropHint')}
+                  </span>
                 </button>
               )}
               <input
@@ -315,7 +374,10 @@ export function SlipUploadDialog({
           <Button variant="secondary" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
-          <Button disabled={!bill || !file || !amountOk || upload.isPending} onClick={() => void submit()}>
+          <Button
+            disabled={!bill || !file || !amountOk || upload.isPending}
+            onClick={() => void submit()}
+          >
             {upload.isPending ? (
               <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden="true" />
             ) : (

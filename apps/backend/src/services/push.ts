@@ -2,8 +2,10 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '../config/database.js';
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
+import type { UserPreferences } from '@abcp/shared-types';
 import {
   inferNotificationSeverity,
+  mapModule,
   type NotificationSeverity,
 } from '../modules/system/system.service.js';
 
@@ -71,6 +73,25 @@ export async function sendPushToTokens(
 }
 
 /**
+ * Personal notification preferences (/account, mobile ▸ Notifications): per source module,
+ * `inbox: false` drops the notification entirely and `push: false` keeps it in the inbox only.
+ * SECURITY_* alerts and `critical` items always land in the inbox.
+ */
+async function deliveryFor(
+  userId: string,
+  type: string,
+  severity: NotificationSeverity,
+): Promise<{ inbox: boolean; push: boolean }> {
+  const module = mapModule(type);
+  if (module === 'security') return { inbox: true, push: true };
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { preferences: true } });
+  const prefs = (user?.preferences as UserPreferences | null)?.notifications;
+  const pref = prefs?.[module as keyof NonNullable<UserPreferences['notifications']>];
+  const inbox = severity === 'critical' ? true : (pref?.inbox ?? true);
+  return { inbox, push: inbox && (pref?.push ?? true) };
+}
+
+/**
  * ສົ່ງ push ໃຫ້ຜູ້ໃຊ້ 1 ຄົນ (ທຸກອຸປະກອນ) + ບັນທຶກ `NotificationLog`.
  * `dedupeKey` ກັນສົ່ງຊ້ຳ (reminder 24h/1h, campaign sweep) — ຖ້າຊ້ຳ → ຂ້າມ.
  */
@@ -86,6 +107,9 @@ export async function notifyUser(params: {
 }): Promise<{ delivered: boolean; skipped: boolean }> {
   const { userId, type, title, body, data, dedupeKey } = params;
   const severity = params.severity ?? inferNotificationSeverity(type);
+
+  const delivery = await deliveryFor(userId, type, severity);
+  if (!delivery.inbox) return { delivered: false, skipped: true };
 
   if (dedupeKey) {
     const existing = await prisma.notificationLog.findUnique({
@@ -112,6 +136,8 @@ export async function notifyUser(params: {
     if ((err as { code?: string }).code === 'P2002') return { delivered: false, skipped: true };
     throw err;
   }
+
+  if (!delivery.push) return { delivered: true, skipped: false };
 
   const devices = await prisma.pushDevice.findMany({
     where: { userId },

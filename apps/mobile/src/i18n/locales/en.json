@@ -32,7 +32,12 @@
     "notCustomer": "This is not a customer account",
     "notAppUser": "This account can't use this app",
     "CANCEL_WINDOW_PASSED": "It's too late to cancel or reschedule in the app — please call the store",
-    "TENDER_NOT_ALLOWED": "This payment method must be recorded by staff at the store"
+    "TENDER_NOT_ALLOWED": "This payment method must be recorded by staff at the store",
+    "ACCOUNT_LOCKED": "Too many failed attempts — this account is locked for a while. Try again later or reset your password.",
+    "MFA_INVALID": "That code is not correct",
+    "MFA_REQUIRED": "Two-step verification is required — sign in again to set it up.",
+    "SESSION_IDLE": "You were signed out after a period of inactivity.",
+    "TOKEN_EXPIRED": "This step timed out — please sign in again."
   },
   "auth": {
     "welcomeTitle": "Welcome to Aura",
@@ -127,7 +132,23 @@
     "featureBooking": "Book 24/7 — pick your time and specialist",
     "featurePerks": "Earn points and unlock member perks",
     "featureChat": "Chat with the clinic and get reminders",
-    "welcomePerk": "New members get 15% off their first booking"
+    "welcomePerk": "New members get 15% off their first booking",
+    "forgotCodeSubtitle": "Enter your phone number — we'll send a 6-digit code by SMS or e-mail.",
+    "sendResetCode": "Send code",
+    "haveCode": "I already have a code",
+    "codeSent": "If this number is registered, a code is on its way. It works for {{minutes}} minutes.",
+    "resetTitle": "Set a new password",
+    "resetSubtitle": "Enter the code you received and choose a new password.",
+    "resetCode": "Reset code",
+    "resetCodeHint": "6 digits by SMS / e-mail, or 8 digits from the clinic",
+    "codeInvalid": "That code is wrong or has expired",
+    "newPassword": "New password",
+    "passwordMin": "At least {{count}} characters",
+    "setNewPassword": "Save new password",
+    "resendCode": "Send a new code",
+    "noCodeHelp": "No code arriving? Call the clinic — after checking your identity they can give you a code.",
+    "resetDone": "Password updated",
+    "resetDoneHint": "You were signed out on every device. Sign in with your new password."
   },
   "tabs": {
     "home": "Home",
@@ -1658,5 +1679,44 @@
     "lineLinkTitle": "Link LINE",
     "lineLinkBody": "Add our LINE Official Account as a friend, then send it this code within 15 minutes:\n\n{{code}}",
     "lineOpen": "Open LINE"
+  },
+  "twoFactor": {
+    "title": "Two-step verification",
+    "verifySubtitle": "Enter the 6-digit code from your authenticator app",
+    "setupRequiredSubtitle": "Your clinic requires two-step verification for staff. Set it up to continue.",
+    "setupHint": "Tap \"Open authenticator\" to add this account on this phone, or scan the QR from another device.",
+    "openApp": "Open authenticator",
+    "noApp": "No authenticator app found — install Google Authenticator or Microsoft Authenticator first.",
+    "manualKey": "Or enter this key (tap to copy):",
+    "copyKey": "Copy key",
+    "code": "Code from the app",
+    "codeOrRecovery": "Code from the app or a recovery code",
+    "recoveryHint": "Lost your phone? Use a recovery code, or ask an admin to reset it.",
+    "enterCode": "Enter the 6-digit code",
+    "wrongCode": "That code is not correct",
+    "verify": "Verify",
+    "activate": "Turn on",
+    "recoveryTitle": "Save your recovery codes",
+    "recoveryDesc": "Each code works once if you lose your authenticator app.",
+    "recoveryWarn": "Keep these somewhere safe — they won't be shown again.",
+    "copyAll": "Copy codes",
+    "savedContinue": "I've saved them — continue"
+  },
+  "notifPrefs": {
+    "title": "Notification types",
+    "pushOn": "Push + inbox",
+    "inboxOnly": "Inbox only",
+    "mutedOnWeb": "Turned off (change it in the web console)",
+    "module": {
+      "security": "Security alerts",
+      "appointments": "Appointments",
+      "waitlist": "Waitlist",
+      "homeService": "Home service",
+      "staff": "Schedule & time off",
+      "payments": "Payments & receipts",
+      "giftCards": "Gift cards",
+      "loyalty": "Loyalty points",
+      "system": "General"
+    }
   }
 }

@@ -272,7 +272,10 @@ export function blockingRisks(s: Pick<PaymentSlipView, 'riskSignals'>): SlipRisk
 }
 
 /** S5 — someone else holds a live claim on this slip. */
-export function claimedByOther(s: Pick<PaymentSlipView, 'claimedBy'>, meId: string | undefined): boolean {
+export function claimedByOther(
+  s: Pick<PaymentSlipView, 'claimedBy'>,
+  meId: string | undefined,
+): boolean {
   return Boolean(s.claimedBy && s.claimedBy.id !== meId);
 }
 

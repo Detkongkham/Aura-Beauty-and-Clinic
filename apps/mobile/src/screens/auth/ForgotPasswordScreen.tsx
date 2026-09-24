@@ -1,21 +1,24 @@
-import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { KeyboardAvoidingView, Linking, Platform, ScrollView, View } from 'react-native';
+import { KeyboardAvoidingView, Linking, Platform, ScrollView, View, type TextInput } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AnimatedEntrance } from '../../components/ui/AnimatedEntrance';
 import { CLINIC_PHONE } from '../../config/env';
-import { colors, shadow } from '../../theme';
+import { apiForgotPassword, apiResetPassword } from '../../features/auth/auth.api';
+import { haptics } from '../../lib/haptics';
+import { normalizeError } from '../../services/apiError';
 import type { AuthScreenProps } from '../../navigation/types';
 import {
   AuthBackdrop,
+  AuthField,
   AuthHero,
   AuthNavBar,
   Banner,
+  PasswordField,
+  PasswordStrength,
   PhoneField,
   PrimaryButton,
-  SMALL,
   SecondaryButton,
   T,
   TextLink,
@@ -24,15 +27,27 @@ import {
   normalizePhone,
 } from './auth.parts';
 
+type Step = 'phone' | 'code' | 'done';
+const MIN_PASSWORD = 8;
+
 /**
- * ຍັງບໍ່ມີ endpoint ຣີເຊັດລະຫັດຜ່ານ (ບໍ່ມີ SMS OTP) — ການກູ້ບັນຊີຜ່ານທີມຄລີນິກ.
- * ໜ້ານີ້ອະທິບາຍຂັ້ນຕອນ ແລະ ເປີດໂທ / SMS ທີ່ແນບເບີທີ່ລົງທະບຽນໄວ້ໃຫ້.
+ * Forgot password: 1) phone → a 6-digit code by SMS / e-mail, 2) code + new password.
+ * The clinic can also issue an 8-digit code (web-admin ▸ user security) for people who get
+ * neither — it's entered in the same step 2, reachable directly via "I have a code".
  */
 export function ForgotPasswordScreen({ navigation }: AuthScreenProps<'ForgotPassword'>): React.JSX.Element {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
+  const [step, setStep] = useState<Step>('phone');
   const [phone, setPhone] = useState('');
+  const [code, setCode] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
   const [touched, setTouched] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+  const passwordRef = useRef<TextInput>(null);
   const clinicDial = CLINIC_PHONE.replace(/\s/g, '');
 
   useEffect(() => {
@@ -47,21 +62,45 @@ export function ForgotPasswordScreen({ navigation }: AuthScreenProps<'ForgotPass
 
   const phoneOk = isValidPhone(phone);
 
-  const sendSms = (): void => {
-    if (!phoneOk) {
-      setTouched(true);
-      return;
+  const sendCode = async () => {
+    setTouched(true);
+    if (!phoneOk) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await apiForgotPassword(normalizePhone(phone));
+      setInfo(t('auth.codeSent', { minutes: res.expiresInMinutes }));
+      setTouched(false);
+      setStep('code');
+    } catch (err) {
+      setError(normalizeError(err).message);
+    } finally {
+      setBusy(false);
     }
-    const body = encodeURIComponent(t('auth.smsBody', { phone: normalizePhone(phone) }));
-    const sep = Platform.OS === 'ios' ? '&' : '?';
-    void Linking.openURL(`sms:${clinicDial}${sep}body=${body}`);
   };
 
-  const steps = [
-    { icon: 'call-outline', title: t('auth.forgotStep1'), body: t('auth.forgotStep1Body') },
-    { icon: 'id-card-outline', title: t('auth.forgotStep2'), body: t('auth.forgotStep2Body') },
-    { icon: 'key-outline', title: t('auth.forgotStep3'), body: t('auth.forgotStep3Body') },
-  ] as const;
+  const codeOk = /^\d{6,8}$/.test(code);
+  const passwordOk = password.length >= MIN_PASSWORD;
+  const confirmOk = confirm === password;
+
+  const reset = async () => {
+    setTouched(true);
+    if (!phoneOk || !codeOk || !passwordOk || !confirmOk) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiResetPassword({ phone: normalizePhone(phone), code, newPassword: password });
+      haptics.success();
+      setStep('done');
+    } catch (err) {
+      haptics.error();
+      const e = normalizeError(err);
+      const reason = (e.details as { reason?: string } | undefined)?.reason;
+      setError(reason === 'CODE_INVALID' ? t('auth.codeInvalid') : e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <View className="flex-1 bg-background">
@@ -69,7 +108,7 @@ export function ForgotPasswordScreen({ navigation }: AuthScreenProps<'ForgotPass
       <AuthBackdrop />
 
       <SafeAreaView className="flex-1" edges={['top']}>
-        <AuthNavBar onBack={() => navigation.goBack()} />
+        <AuthNavBar onBack={() => (step === 'code' ? setStep('phone') : navigation.goBack())} />
 
         <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <ScrollView
@@ -83,68 +122,120 @@ export function ForgotPasswordScreen({ navigation }: AuthScreenProps<'ForgotPass
             showsVerticalScrollIndicator={false}
           >
             <AnimatedEntrance index={0}>
-              <AuthHero icon="key-outline" title={t('auth.forgotTitle')} subtitle={t('auth.forgotSubtitle')} />
-            </AnimatedEntrance>
-
-            <AnimatedEntrance index={1} style={{ marginTop: 22 }}>
-              <PhoneField
-                label={t('auth.forgotPhoneLabel')}
-                placeholder={t('auth.phonePlaceholder')}
-                hint={t('auth.forgotPhoneHint')}
-                returnKeyType="done"
-                value={phone}
-                onChangeText={setPhone}
-                onBlur={() => setTouched(true)}
-                valid={phoneOk}
-                error={touched && !phoneOk ? t('auth.phoneInvalid') : undefined}
+              <AuthHero
+                icon={step === 'done' ? 'checkmark-circle-outline' : 'key-outline'}
+                title={step === 'done' ? t('auth.resetDone') : step === 'code' ? t('auth.resetTitle') : t('auth.forgotTitle')}
+                subtitle={
+                  step === 'done'
+                    ? t('auth.resetDoneHint')
+                    : step === 'code'
+                      ? t('auth.resetSubtitle')
+                      : t('auth.forgotCodeSubtitle')
+                }
               />
             </AnimatedEntrance>
 
-            {/* ຂັ້ນຕອນ — timeline 3 ຂັ້ນ */}
-            <AnimatedEntrance index={2} style={{ marginTop: 20 }}>
-              <View className="rounded-2xl bg-card" style={shadow.card}>
-                <View className="gap-3 rounded-2xl border border-border p-3.5">
-                  <T className="font-lao-semibold">{t('auth.forgotStepsTitle')}</T>
-                  {steps.map((s, i) => (
-                    <View key={s.icon} className="flex-row gap-3">
+            {step === 'done' ? (
+              <AnimatedEntrance index={1} style={{ marginTop: 22 }}>
+                <PrimaryButton label={t('auth.backToLogin')} icon="arrow-forward" onPress={() => navigation.navigate('Login')} />
+              </AnimatedEntrance>
+            ) : (
+              <AnimatedEntrance index={1} style={{ marginTop: 22 }}>
+                <View className="gap-3.5">
+                  <PhoneField
+                    label={t('auth.forgotPhoneLabel')}
+                    placeholder={t('auth.phonePlaceholder')}
+                    returnKeyType={step === 'phone' ? 'send' : 'next'}
+                    value={phone}
+                    editable={step === 'phone'}
+                    onChangeText={setPhone}
+                    onSubmitEditing={() => step === 'phone' && void sendCode()}
+                    valid={phoneOk}
+                    error={touched && !phoneOk ? t('auth.phoneInvalid') : undefined}
+                  />
+
+                  {step === 'code' ? (
+                    <>
+                      {info ? <Banner tone="success" icon="chatbubble-ellipses-outline" message={info} /> : null}
+                      <AuthField
+                        label={t('auth.resetCode')}
+                        icon="keypad-outline"
+                        keyboardType="number-pad"
+                        autoComplete="one-time-code"
+                        textContentType="oneTimeCode"
+                        maxLength={8}
+                        value={code}
+                        onChangeText={(v) => setCode(v.replace(/\D/g, ''))}
+                        onSubmitEditing={() => passwordRef.current?.focus()}
+                        hint={t('auth.resetCodeHint')}
+                        error={touched && !codeOk ? t('auth.codeInvalid') : undefined}
+                      />
+                      <PasswordField
+                        ref={passwordRef}
+                        label={t('auth.newPassword')}
+                        textContentType="newPassword"
+                        autoComplete="password-new"
+                        value={password}
+                        onChangeText={setPassword}
+                        error={touched && !passwordOk ? t('auth.passwordMin', { count: MIN_PASSWORD }) : undefined}
+                      />
+                      <PasswordStrength value={password} />
+                      <PasswordField
+                        label={t('auth.confirmPassword')}
+                        textContentType="newPassword"
+                        value={confirm}
+                        onChangeText={setConfirm}
+                        returnKeyType="go"
+                        onSubmitEditing={() => void reset()}
+                        error={touched && !confirmOk ? t('auth.passwordMismatch') : undefined}
+                      />
+                    </>
+                  ) : null}
+
+                  {error ? <Banner tone="error" message={error} /> : null}
+
+                  {step === 'phone' ? (
+                    <>
+                      <PrimaryButton label={t('auth.sendResetCode')} icon="send" loading={busy} onPress={() => void sendCode()} />
+                      <SecondaryButton
+                        label={t('auth.haveCode')}
+                        icon="keypad-outline"
+                        onPress={() => {
+                          setTouched(true);
+                          if (phoneOk) {
+                            setInfo(null);
+                            setTouched(false);
+                            setStep('code');
+                          }
+                        }}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <PrimaryButton label={t('auth.setNewPassword')} icon="checkmark" loading={busy} onPress={() => void reset()} />
                       <View className="items-center">
-                        <View className="h-8 w-8 items-center justify-center rounded-full bg-primary-subtle">
-                          <Ionicons name={s.icon} size={14} color={colors.primary} />
-                        </View>
-                        {i < steps.length - 1 ? <View className="mt-1 w-px flex-1 bg-aura-200" /> : null}
+                        <TextLink label={t('auth.resendCode')} onPress={() => void sendCode()} />
                       </View>
-                      <View className={i < steps.length - 1 ? 'flex-1 pb-3' : 'flex-1'}>
-                        <T className="font-lao-medium">
-                          {i + 1}. {s.title}
-                        </T>
-                        <T style={SMALL} className="mt-0.5 text-muted-foreground">
-                          {s.body}
-                        </T>
-                      </View>
-                    </View>
-                  ))}
+                    </>
+                  )}
                 </View>
-              </View>
-            </AnimatedEntrance>
+              </AnimatedEntrance>
+            )}
 
-            <AnimatedEntrance index={3} style={{ marginTop: 20 }}>
-              <View className="gap-2.5">
-                <PrimaryButton
-                  label={`${t('auth.callClinic')} · ${CLINIC_PHONE}`}
-                  icon="call"
-                  onPress={() => void Linking.openURL(`tel:${clinicDial}`)}
+            {step !== 'done' ? (
+              <AnimatedEntrance index={2} style={{ marginTop: 20 }}>
+                <Banner
+                  tone="info"
+                  icon="call-outline"
+                  message={t('auth.noCodeHelp')}
+                  action={{ label: `${t('auth.callClinic')} · ${CLINIC_PHONE}`, onPress: () => void Linking.openURL(`tel:${clinicDial}`) }}
                 />
-                <SecondaryButton label={t('auth.sendSms')} icon="chatbubble-ellipses-outline" onPress={sendSms} />
-              </View>
-            </AnimatedEntrance>
-
-            <AnimatedEntrance index={4} style={{ marginTop: 16 }}>
-              <Banner tone="info" icon="shield-checkmark-outline" message={t('auth.securityTip')} />
-            </AnimatedEntrance>
+              </AnimatedEntrance>
+            ) : null}
 
             <View className="mt-6 flex-row items-center justify-center gap-1">
               <T className="text-muted-foreground">{t('auth.rememberedIt')}</T>
-              <TextLink label={t('auth.backToLogin')} onPress={() => navigation.goBack()} />
+              <TextLink label={t('auth.backToLogin')} onPress={() => navigation.navigate('Login')} />
             </View>
           </ScrollView>
         </KeyboardAvoidingView>

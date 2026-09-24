@@ -1,4 +1,5 @@
 import {
+  BellRing,
   Grid3x3,
   History,
   KeyRound,
@@ -6,6 +7,7 @@ import {
   MonitorSmartphone,
   Palette,
   ShieldCheck,
+  Smartphone,
   UserRound,
 } from 'lucide-react';
 import { useEffect, useMemo } from 'react';
@@ -28,10 +30,12 @@ import { securityChecks, securityScore } from './accountModel';
 import { AccessSection } from './components/AccessSection';
 import { AccountHero } from './components/AccountHero';
 import { ActivitySection } from './components/ActivitySection';
+import { NotificationPrefsSection } from './components/NotificationPrefsSection';
 import { PasswordSection } from './components/PasswordSection';
 import { ProfileSection } from './components/ProfileSection';
 import { QuickPinSection } from './components/QuickPinSection';
 import { SessionsSection } from './components/SessionsSection';
+import { TwoFactorSection } from './components/TwoFactorSection';
 
 function jump(id: string) {
   const el = document.getElementById(id);
@@ -60,9 +64,11 @@ export function AccountPage() {
   const navItems: SettingsNavItem[] = [
     { id: 'acc-profile', icon: UserRound, label: t('account.profile.title') },
     { id: 'acc-security', icon: KeyRound, label: t('account.password.title') },
+    { id: 'acc-2fa', icon: Smartphone, label: t('twoFactor.title') },
     { id: 'acc-sessions', icon: MonitorSmartphone, label: t('account.sessions.title') },
     ...(showPin ? [{ id: 'acc-pin', icon: Grid3x3, label: t('account.pin.title') }] : []),
     { id: 'acc-preferences', icon: Palette, label: t('account.preferences') },
+    { id: 'acc-notifications', icon: BellRing, label: t('account.notifPrefs.title') },
     { id: 'acc-access', icon: ShieldCheck, label: t('account.access.title') },
     { id: 'acc-activity', icon: History, label: t('account.activity.title') },
   ];
@@ -153,6 +159,7 @@ export function AccountPage() {
         <div className="space-y-4 pb-6 lg:min-w-0">
           <ProfileSection data={data} index={i++} />
           <PasswordSection data={data} index={i++} lang={lang} />
+          <TwoFactorSection data={data} index={i++} />
           <SessionsSection index={i++} lang={lang} />
           {showPin ? <QuickPinSection data={data} index={i++} /> : null}
 
@@ -168,6 +175,8 @@ export function AccountPage() {
             </SettingsRow>
             <AppearanceControls />
           </SettingsSection>
+
+          <NotificationPrefsSection index={i++} />
 
           <AccessSection data={data} index={i++} />
           <ActivitySection index={i++} />

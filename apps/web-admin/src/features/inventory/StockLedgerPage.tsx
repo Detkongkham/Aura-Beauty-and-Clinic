@@ -6,7 +6,7 @@ import type { StockMovementTypeValue, StockMovementView } from '@abcp/shared-typ
 
 import { StickyPageHeader } from '@/components/layout/StickyPageHeader';
 import { DateField } from '@/components/shared/DateField';
-import { DataTable, DateTimeText, FilterBar, Pagination, StatusPill } from '@/components/shared';
+import { CurrencyText, DataTable, DateTimeText, FilterBar, Pagination, StatusPill } from '@/components/shared';
 import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
@@ -117,6 +117,48 @@ export function StockLedgerPage() {
             <span className={cn('tabular-nums', v < 0 && 'font-medium text-destructive')}>
               {v.toLocaleString()}
             </span>
+          );
+        },
+      },
+      {
+        // C5 — lot ທີ່ຖືກເໜັງຕີງ (ສິນຄ້າ trackLot); ຕັດຂ້າມຫຼາຍ lot = ຫຼາຍແຖວ. ໃຊ້ຕອນ recall.
+        header: t('inventory.lot.title'),
+        accessorKey: 'lotNumber',
+        cell: ({ row }) =>
+          row.original.lotNumber ? (
+            <span className="font-mono text-xs">{row.original.lotNumber}</span>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          ),
+      },
+      {
+        // C4 — WAC ຢູ່ ณ ເວລານັ້ນ. null = ແຖວເກົ່າກ່ອນ costing wave (ບໍ່ backfill).
+        header: t('inventory.ledger.unitCost'),
+        accessorKey: 'unitCost',
+        meta: { align: 'right' },
+        cell: ({ getValue }) => {
+          const v = getValue() as number | null;
+          return v == null ? (
+            <span className="text-muted-foreground">—</span>
+          ) : (
+            <CurrencyText amount={v} className="text-muted-foreground" />
+          );
+        },
+      },
+      {
+        // C4 — ມູນຄ່າ LAK signed ຂອງລາຍການນີ້ (ບວກ = ເຂົ້າ, ລົບ = ອອກ/COGS).
+        header: t('inventory.ledger.valueChange'),
+        accessorKey: 'valueChange',
+        meta: { align: 'right' },
+        cell: ({ getValue }) => {
+          const v = getValue() as number | null;
+          return v == null ? (
+            <span className="text-muted-foreground">—</span>
+          ) : (
+            <CurrencyText
+              amount={v}
+              className={cn('font-medium', v < 0 ? 'text-destructive' : v > 0 ? 'text-success' : 'text-muted-foreground')}
+            />
           );
         },
       },

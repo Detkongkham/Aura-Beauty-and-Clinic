@@ -8,6 +8,7 @@ import {
   OctagonAlert,
   Package,
   ServerCog,
+  ShieldAlert,
   TriangleAlert,
   Truck,
   Users,
@@ -89,6 +90,7 @@ export const MODULE_ICON: Record<NotificationModule, LucideIcon> = {
   giftCards: Gift,
   loyalty: Crown,
   marketing: Megaphone,
+  security: ShieldAlert,
   system: ServerCog,
 };
 
@@ -143,6 +145,8 @@ export function relatedLink(n: AppNotification): { to: string; exact: boolean } 
       return { to: ROUTES.loyalty, exact: false };
     case 'marketing':
       return { to: ROUTES.marketing, exact: false };
+    case 'security':
+      return { to: `${ROUTES.account}#acc-sessions`, exact: false };
     default:
       return null;
   }

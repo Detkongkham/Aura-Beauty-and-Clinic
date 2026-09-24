@@ -16,6 +16,8 @@ import { logger } from '../config/logger.js';
 import { prisma } from '../config/database.js';
 import { createRedisConnection } from '../config/redis.js';
 import { verifyAccessToken } from '../utils/token.js';
+import { assertLiveSession } from '../modules/auth/sessions.js';
+import { onSessionsRevoked } from '../modules/auth/security.js';
 import { getTripViewByAppointmentId, recordLocationPing } from '../modules/home-service/home-service.service.js';
 import { authorizeThreadAccess, postMessage } from '../modules/chat/chat.service.js';
 import { markConversationRead } from '../modules/conversations/conversations.service.js';
@@ -67,6 +69,11 @@ function userRoom(userId: string): string {
   return `user:${userId}`;
 }
 
+/** ຫ້ອງຕໍ່ເຊດຊັນ — ໃຊ້ຕັດ socket ເມື່ອເຊດຊັນຖືກຖອນ. */
+function sidRoom(sid: string): string {
+  return `session:${sid}`;
+}
+
 /** ຫ້ອງກວດສະລິບ (ໂມດູນ 39 W3): SUPER_ADMIN ໄດ້ທຸກສາຂາ, ຜູ້ອື່ນສະເພາະສາຂາຕົນ. */
 function slipReviewRoom(branchId: string | 'all'): string {
   return `slip-review:${branchId}`;
@@ -99,22 +106,64 @@ export function createSocketServer(httpServer: HttpServer): typeof io {
   const subClient = createRedisConnection();
   io.adapter(createAdapter(pubClient, subClient));
 
+  // ເຊດຊັນທີ່ຖືກຖອນ / ໝົດ idle ຕ້ອງເຊື່ອມຕໍ່ບໍ່ໄດ້ — ໃຊ້ assertLiveSession ດຽວກັນກັບ authGuard.
   io.use((socket, next) => {
     const token = socket.handshake.auth?.token as string | undefined;
     if (!token) {
       next(new Error('unauthorized'));
       return;
     }
+    let auth: AccessTokenPayload;
     try {
-      socket.data.auth = verifyAccessToken(token);
-      next();
+      auth = verifyAccessToken(token);
     } catch {
       next(new Error('unauthorized'));
+      return;
+    }
+    socket.data.auth = auth;
+    if (!auth.sid) {
+      next();
+      return;
+    }
+    assertLiveSession(auth.sid, auth.sub, auth.role).then(
+      () => next(),
+      () => next(new Error('unauthorized')),
+    );
+  });
+
+  // ຖອນເຊດຊັນແລ້ວ ຕັດ socket ທີ່ເປີດຄ້າງຢູ່ທັນທີ (ທຸກ node ຜ່ານ redis adapter).
+  onSessionsRevoked(({ sid, userId, exceptSid }) => {
+    if (sid) io?.in(sidRoom(sid)).disconnectSockets(true);
+    else if (userId) {
+      void io
+        ?.in(userRoom(userId))
+        .fetchSockets()
+        .then((sockets) => {
+          for (const s of sockets) if (!exceptSid || s.data.auth.sid !== exceptSid) s.disconnect(true);
+        })
+        .catch(() => {});
     }
   });
 
   io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>) => {
     void socket.join(userRoom(socket.data.auth.sub));
+    if (socket.data.auth.sid) void socket.join(sidRoom(socket.data.auth.sid));
+
+    // Access token ໝົດອາຍຸໃນ socket ບໍ່ຖືກກວດ, ສະນັ້ນກວດເຊດຊັນທຸກ event (cache 30 ວິ) — ກັນ revoke ຂ້າມ node / ຂ້າມ cache.
+    socket.use((_packet, next) => {
+      const { sid, sub, role } = socket.data.auth;
+      if (!sid) {
+        next();
+        return;
+      }
+      assertLiveSession(sid, sub, role).then(
+        () => next(),
+        () => {
+          socket.emit('unauthorized', {});
+          socket.disconnect(true);
+        },
+      );
+    });
 
     // ໜ້າກວດສະລິບ — ສະເພາະ admin / branch-admin / staff. event ບໍ່ມີຂໍ້ມູນສ່ວນຕົວ (ມີແຕ່ id + ສະຖານະ);
     // ລາຍລະອຽດດຶງຜ່ານ REST ທີ່ກວດສິດ payments:review ແລະ ສາຂາ.

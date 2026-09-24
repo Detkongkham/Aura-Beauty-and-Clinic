@@ -50,6 +50,7 @@ import { ROUTES } from '@/router/paths';
 import { RoleIcon } from './RoleIcon';
 import { useRoles } from './roles.api';
 import { UserCell } from './UserCell';
+import { UserSecurityDialog } from './UserSecurityDialog';
 import { useCreateUser, useUpdateUser, useUsers } from './users.api';
 
 const TIERS: ManageableRole[] = ['SUPER_ADMIN', 'BRANCH_ADMIN'];
@@ -116,6 +117,7 @@ export function UsersPage() {
   const [statusTarget, setStatusTarget] = useState<AdminUser | null>(null);
 
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [securityOpen, setSecurityOpen] = useState(false);
   const selectedUser = data.find((u) => u.id === selectedUserId) ?? null;
   const [profileDraft, setProfileDraft] = useState({ name: '', email: '' });
 
@@ -645,14 +647,20 @@ export function UsersPage() {
 
                 {canManage ? (
                   <SheetSection title={t('users.accountSection')}>
-                    <Button
-                      variant={selectedUser.isActive ? 'danger' : 'primary'}
-                      size="sm"
-                      onClick={() => setStatusTarget(selectedUser)}
-                    >
-                      <UserX className="h-4 w-4" aria-hidden="true" />
-                      {selectedUser.isActive ? t('users.confirmDeactivateTitle') : t('users.confirmActivateTitle')}
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="secondary" size="sm" onClick={() => setSecurityOpen(true)}>
+                        <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+                        {t('userSecurity.open')}
+                      </Button>
+                      <Button
+                        variant={selectedUser.isActive ? 'danger' : 'primary'}
+                        size="sm"
+                        onClick={() => setStatusTarget(selectedUser)}
+                      >
+                        <UserX className="h-4 w-4" aria-hidden="true" />
+                        {selectedUser.isActive ? t('users.confirmDeactivateTitle') : t('users.confirmActivateTitle')}
+                      </Button>
+                    </div>
                   </SheetSection>
                 ) : null}
               </SheetBody>
@@ -666,6 +674,13 @@ export function UsersPage() {
           ) : null}
         </SheetContent>
       </Sheet>
+
+      <UserSecurityDialog
+        userId={selectedUser?.id ?? null}
+        name={selectedUser?.name ?? ''}
+        open={securityOpen && selectedUser != null}
+        onClose={() => setSecurityOpen(false)}
+      />
 
       <Dialog open={roleTarget != null} onOpenChange={(v) => !v && setRoleTarget(null)}>
         <DialogContent className="max-w-sm">

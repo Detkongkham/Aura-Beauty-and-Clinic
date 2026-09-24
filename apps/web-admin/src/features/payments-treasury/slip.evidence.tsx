@@ -41,13 +41,13 @@ type Lang = 'lo' | 'en';
 
 // ── S1 bank proof ─────────────────────────────────────────────────────
 
-export const PROOF_TONE: Record<SlipBankProof['status'], Tone> = {
+const PROOF_TONE: Record<SlipBankProof['status'], Tone> = {
   MATCHED: 'success',
   FOUND: 'success',
   NOT_FOUND: 'danger',
   NO_STATEMENT: 'neutral',
 };
-export const PROOF_ICON: Record<SlipBankProof['status'], LucideIcon> = {
+const PROOF_ICON: Record<SlipBankProof['status'], LucideIcon> = {
   MATCHED: CircleCheck,
   FOUND: Landmark,
   NOT_FOUND: CircleAlert,
@@ -65,15 +65,21 @@ export function BankProofCard({ proof, currency }: { proof: SlipBankProof; curre
   return (
     <section aria-labelledby="slip-proof-h" className="rounded-xl border border-border bg-card p-4">
       <div className="flex items-start gap-3">
-        <span className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', tone.chip)}>
+        <span
+          className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', tone.chip)}
+        >
           <Icon className="h-4 w-4" aria-hidden="true" />
         </span>
         <div className="min-w-0 flex-1">
           <h3 id="slip-proof-h" className="text-sm font-semibold">
             {t('payTreasury.slips.proof.title')}
           </h3>
-          <p className={cn('text-xs font-medium', tone.text)}>{t(`payTreasury.slips.proof.${proof.status}`)}</p>
-          <p className="mt-0.5 text-2xs text-muted-foreground">{t(`payTreasury.slips.proof.${proof.status}Hint`)}</p>
+          <p className={cn('text-xs font-medium', tone.text)}>
+            {t(`payTreasury.slips.proof.${proof.status}`)}
+          </p>
+          <p className="mt-0.5 text-2xs text-muted-foreground">
+            {t(`payTreasury.slips.proof.${proof.status}Hint`)}
+          </p>
         </div>
       </div>
       {proof.line ? (
@@ -81,26 +87,42 @@ export function BankProofCard({ proof, currency }: { proof: SlipBankProof; curre
           <div>
             <dt className="text-2xs text-muted-foreground">{t('payTreasury.slips.proof.date')}</dt>
             <dd className="font-medium tabular-nums">
-              {proof.line.postedAt ? formatDateTime(proof.line.postedAt) : formatDate(proof.line.statementDate)}
+              {proof.line.postedAt
+                ? formatDateTime(proof.line.postedAt)
+                : formatDate(proof.line.statementDate)}
             </dd>
           </div>
           <div>
-            <dt className="text-2xs text-muted-foreground">{t('payTreasury.slips.proof.amount')}</dt>
+            <dt className="text-2xs text-muted-foreground">
+              {t('payTreasury.slips.proof.amount')}
+            </dt>
             <dd>
-              <CurrencyText amount={proof.line.amount} currency={currency as 'LAK'} className="font-medium tabular-nums" />
+              <CurrencyText
+                amount={proof.line.amount}
+                currency={currency as 'LAK'}
+                className="font-medium tabular-nums"
+              />
             </dd>
           </div>
           <div className="col-span-2">
-            <dt className="text-2xs text-muted-foreground">{t('payTreasury.slips.proof.reference')}</dt>
+            <dt className="text-2xs text-muted-foreground">
+              {t('payTreasury.slips.proof.reference')}
+            </dt>
             <dd className="flex items-center gap-1.5 break-all font-medium">
               {proof.line.reference ?? proof.line.description ?? '—'}
               <span
                 className={cn(
                   'shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
-                  proof.refMatched ? 'bg-success-soft text-success' : 'bg-muted text-muted-foreground',
+                  proof.refMatched
+                    ? 'bg-success-soft text-success'
+                    : 'bg-muted text-muted-foreground',
                 )}
               >
-                {t(proof.refMatched ? 'payTreasury.slips.proof.refYes' : 'payTreasury.slips.proof.refNo')}
+                {t(
+                  proof.refMatched
+                    ? 'payTreasury.slips.proof.refYes'
+                    : 'payTreasury.slips.proof.refNo',
+                )}
               </span>
             </dd>
           </div>
@@ -118,7 +140,10 @@ export function BankProofDot({ proof }: { proof: SlipBankProof }) {
   const label = t(`payTreasury.slips.proof.${proof.status}`);
   return (
     <span
-      className={cn('inline-flex h-5 items-center gap-0.5 rounded-md px-1', TONE[PROOF_TONE[proof.status]].chip)}
+      className={cn(
+        'inline-flex h-5 items-center gap-0.5 rounded-md px-1',
+        TONE[PROOF_TONE[proof.status]].chip,
+      )}
       title={label}
       aria-label={label}
       role="img"
@@ -165,7 +190,10 @@ export function RiskCard({
       )}
     >
       <h3 id="slip-risk-h" className="flex items-center gap-1.5 text-sm font-semibold">
-        <FileWarning className={cn('h-4 w-4', onlyInfo ? 'text-muted-foreground' : 'text-destructive')} aria-hidden="true" />
+        <FileWarning
+          className={cn('h-4 w-4', onlyInfo ? 'text-muted-foreground' : 'text-destructive')}
+          aria-hidden="true"
+        />
         {t(onlyInfo ? 'payTreasury.slips.risk.titleInfo' : 'payTreasury.slips.risk.title')}
       </h3>
       <ul className="mt-2 space-y-2">
@@ -217,13 +245,24 @@ export function ClaimBanner({
 }) {
   const { t } = useTranslation();
   return (
-    <div className="flex items-center gap-3 border-b border-border bg-info-soft/60 px-4 py-2.5" role="status">
+    <div
+      className="flex items-center gap-3 border-b border-border bg-info-soft/60 px-4 py-2.5"
+      role="status"
+    >
       <Hand className="h-4 w-4 shrink-0 text-info" aria-hidden="true" />
       <p className="min-w-0 flex-1 text-xs">
         <span className="font-semibold">{t('payTreasury.slips.claim.byOther', { name })}</span>{' '}
-        <span className="text-muted-foreground">{t('payTreasury.slips.claim.since', { ago: formatRelative(since, lang) })}</span>
+        <span className="text-muted-foreground">
+          {t('payTreasury.slips.claim.since', { ago: formatRelative(since, lang) })}
+        </span>
       </p>
-      <Button size="sm" variant="secondary" className="h-7 shrink-0" onClick={onTakeOver} disabled={pending}>
+      <Button
+        size="sm"
+        variant="secondary"
+        className="h-7 shrink-0"
+        onClick={onTakeOver}
+        disabled={pending}
+      >
         {t('payTreasury.slips.claim.takeOver')}
       </Button>
     </div>
@@ -256,10 +295,13 @@ export function AskCustomerDialog({
       { id: slip.id, message: message.trim() },
       {
         onSuccess: (r) => {
-          toast.success(t(r.viaChat ? 'payTreasury.slips.ask.sentChat' : 'payTreasury.slips.ask.sent'));
+          toast.success(
+            t(r.viaChat ? 'payTreasury.slips.ask.sentChat' : 'payTreasury.slips.ask.sent'),
+          );
           onOpenChange(false);
         },
-        onError: (err) => toast.error(err instanceof NormalizedApiError ? err.message : t('common.saveError')),
+        onError: (err) =>
+          toast.error(err instanceof NormalizedApiError ? err.message : t('common.saveError')),
       },
     );
   }
@@ -271,10 +313,17 @@ export function AskCustomerDialog({
           <DialogTitle>{t('payTreasury.slips.ask.title')}</DialogTitle>
           <DialogDescription>{t('payTreasury.slips.ask.body')}</DialogDescription>
         </DialogHeader>
-        <div className="flex flex-wrap gap-1.5" role="group" aria-label={t('payTreasury.slips.rejectQuick')}>
+        <div
+          className="flex flex-wrap gap-1.5"
+          role="group"
+          aria-label={t('payTreasury.slips.rejectQuick')}
+        >
           {ASK_PRESETS.map((p) => {
             const text = t(`payTreasury.slips.ask.preset.${p}`, {
-              amount: formatCurrency(slip.declaredAmount ?? slip.payment.balanceAmount, slip.payment.currency as 'LAK'),
+              amount: formatCurrency(
+                slip.declaredAmount ?? slip.payment.balanceAmount,
+                slip.payment.currency as 'LAK',
+              ),
             });
             return (
               <button
@@ -284,7 +333,9 @@ export function AskCustomerDialog({
                 onClick={() => setMessage(text)}
                 className={cn(
                   'rounded-full border px-2.5 py-1 text-left text-2xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring',
-                  message === text ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:bg-muted',
+                  message === text
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-border hover:bg-muted',
                 )}
               >
                 {text}
@@ -294,7 +345,13 @@ export function AskCustomerDialog({
         </div>
         <div className="grid gap-1.5">
           <Label htmlFor="sa-msg">{t('payTreasury.slips.ask.message')}</Label>
-          <Textarea id="sa-msg" rows={3} maxLength={500} value={message} onChange={(e) => setMessage(e.target.value)} />
+          <Textarea
+            id="sa-msg"
+            rows={3}
+            maxLength={500}
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+          />
           <p className="text-2xs text-muted-foreground">{t('payTreasury.slips.ask.hint')}</p>
         </div>
         <DialogFooter>
@@ -339,7 +396,8 @@ export function ReverseDialog({
           toast.success(t('payTreasury.slips.reverse.done'));
           onOpenChange(false);
         },
-        onError: (err) => toast.error(err instanceof NormalizedApiError ? err.message : t('common.saveError')),
+        onError: (err) =>
+          toast.error(err instanceof NormalizedApiError ? err.message : t('common.saveError')),
       },
     );
   }
@@ -353,14 +411,24 @@ export function ReverseDialog({
         </DialogHeader>
         <div className="grid gap-1.5">
           <Label htmlFor="sv-reason">{t('payTreasury.slips.reverse.reason')}</Label>
-          <Textarea id="sv-reason" rows={3} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
+          <Textarea
+            id="sv-reason"
+            rows={3}
+            maxLength={500}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
           <p className="text-2xs text-muted-foreground">{t('payTreasury.slips.reverse.hint')}</p>
         </div>
         <DialogFooter>
           <Button variant="secondary" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
-          <Button variant="danger" disabled={reason.trim().length < 5 || reverse.isPending} onClick={submit}>
+          <Button
+            variant="danger"
+            disabled={reason.trim().length < 5 || reverse.isPending}
+            onClick={submit}
+          >
             <Undo2 className="mr-1 h-4 w-4" aria-hidden="true" />
             {t('payTreasury.slips.reverse.action')}
           </Button>

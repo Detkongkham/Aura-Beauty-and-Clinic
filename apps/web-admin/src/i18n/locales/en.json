@@ -94,16 +94,34 @@
     "phone": "Phone number",
     "password": "Password",
     "forgotPassword": "Forgot password?",
-    "forgotSubtitle": "We'll send you a link to reset your password",
+    "forgotSubtitle": "Enter your phone number and we'll send a reset code by SMS or e-mail.",
     "sendResetLink": "Send reset link",
     "backToSignIn": "Back to sign in",
     "resetPassword": "Reset password",
-    "resetSubtitle": "Set a new password for your account",
+    "resetSubtitle": "Enter the code you received and choose a new password.",
     "newPassword": "New password",
     "confirmPassword": "Confirm password",
     "loginFailed": "Sign in failed",
     "notAdmin": "This account cannot access the admin portal",
-    "logout": "Log out"
+    "logout": "Log out",
+    "idleWarning": "You'll be signed out in 1 minute because of inactivity — move the mouse or press a key to stay.",
+    "locked": "This account is temporarily locked after too many failed sign-ins.",
+    "lockedUntil": "Too many failed sign-ins — this account is locked until {{time}}.",
+    "reason": {
+      "idle": "You were signed out after a period of inactivity.",
+      "mfa": "Two-step verification is now required — sign in to set it up.",
+      "revoked": "This session was signed out. Please sign in again."
+    },
+    "sendResetCode": "Send reset code",
+    "haveAdminCode": "Got a code from the clinic?",
+    "enterCode": "Enter it here",
+    "resetCode": "Reset code",
+    "resetCodeHint": "6 digits by SMS / e-mail, or 8 digits issued by an admin.",
+    "codeInvalid": "That code is wrong or has expired.",
+    "passwordMismatch": "Passwords don't match.",
+    "setNewPassword": "Set new password",
+    "resetDone": "Password updated",
+    "resetDoneHint": "Every device was signed out. Sign in with your new password."
   },
   "branch": {
     "all": "All branches",
@@ -1346,13 +1364,20 @@
         "hidden": "Hidden menu items",
         "layout": "Layout"
       }
-    }
+    },
+    "sessionTimeoutHint": "Staff and admins are signed out after this many idle minutes (0 = off).",
+    "require2faHint": "Staff and admins must use an authenticator app at sign-in.",
+    "maxLoginAttempts": "Failed sign-ins before lock",
+    "maxLoginAttemptsHint": "Wrong password, PIN or 2FA code in a row (0 = never lock).",
+    "lockoutMinutes": "Lock duration (minutes)",
+    "newDeviceAlerts": "New-device sign-in alerts",
+    "newDeviceAlertsHint": "Notify the account owner when a device they have not used before signs in."
   },
   "account": {
     "subtitle": "Your identity, sign-in security, devices and activity",
     "preferences": "Preferences",
-    "prefsDesc": "Language and look — saved on this device only",
-    "languageHint": "Applies to this browser",
+    "prefsDesc": "Language and look — saved to your account, so every device you sign in on matches",
+    "languageHint": "Synced to your account",
     "currentPassword": "Current password",
     "loadError": "Couldn't load your account. Check the connection and try again.",
     "hero": {
@@ -1377,7 +1402,8 @@
         "passwordFresh": "Password changed in the last 6 months",
         "sessionsTidy": "3 or fewer signed-in devices",
         "email": "Contact email on file",
-        "photo": "Profile photo set"
+        "photo": "Profile photo set",
+        "twoFactor": "Turn on two-step verification"
       },
       "done": "done",
       "todo": "to do"
@@ -1532,7 +1558,20 @@
         "sessions_revoked": "Signed out all other devices",
         "pin_set": "Turned on quick-login PIN",
         "pin_changed": "Changed quick-login PIN",
-        "pin_removed": "Turned off quick-login PIN"
+        "pin_removed": "Turned off quick-login PIN",
+        "login": "Signed in",
+        "login_failed": "Failed sign-in attempt",
+        "account_locked": "Account locked after failed sign-ins",
+        "2fa_enabled": "Turned on two-step verification",
+        "2fa_disabled": "Turned off two-step verification",
+        "2fa_recovery_used": "Signed in with a recovery code",
+        "2fa_codes_regenerated": "Generated new recovery codes",
+        "password_reset": "Reset password with a code",
+        "admin_session_revoked": "Signed out another user's device",
+        "admin_sessions_revoked": "Signed out all of another user's devices",
+        "admin_unlocked": "Unlocked an account",
+        "admin_2fa_reset": "Reset another user's two-step verification",
+        "password_reset_issued": "Issued a password reset code"
       },
       "verb": {
         "created": "created",
@@ -1590,6 +1629,15 @@
         "expensesettings": "Expense settings",
         "slipsettings": "Slip settings"
       }
+    },
+    "notifPrefs": {
+      "title": "Notifications",
+      "desc": "Choose what reaches you — saved to your account, including the mobile app",
+      "source": "Source",
+      "inbox": "Inbox",
+      "push": "Push",
+      "alwaysOn": "Always on",
+      "criticalNote": "Critical alerts (e.g. failed reconciliation) always reach your inbox."
     }
   },
   "notifications": {
@@ -1728,7 +1776,8 @@
       "giftCards": "Gift cards",
       "loyalty": "Loyalty",
       "marketing": "Campaigns",
-      "system": "System"
+      "system": "System",
+      "security": "Security"
     },
     "viewAll": "View all notifications"
   },
@@ -3157,6 +3206,41 @@
     }
   },
   "inventory": {
+    "lot": {
+      "title": "Lot",
+      "tag": "Lot",
+      "number": "Lot number",
+      "numberHint": "As printed on the box / COA",
+      "expiry": "Expiry date",
+      "mfg": "Mfg date",
+      "clear": "Clear",
+      "trackLot": "Track lot / expiry",
+      "trackLotHint": "For cosmetics and injectables — stock is drawn FEFO (first-expired, first-out) and lots can be traced in a recall.",
+      "openingLot": "Lot of the opening stock",
+      "openingRequired": "A lot-tracked product needs a lot number for its opening stock",
+      "adjustRequired": "A lot number is required when adding stock",
+      "adjustAddInto": "Add into lot",
+      "fefoNote": "Deductions draw from the soonest-expiring lot first (FEFO).",
+      "receiveTitle": "Lot details of the goods received",
+      "receiveHint": "Lot-tracked products need a lot number (and expiry date) before they can be received.",
+      "receiveRequired": "Enter a lot number for every lot-tracked line",
+      "pickLot": "Select lot",
+      "transferPickLot": "Select a lot for every lot-tracked product",
+      "watchTitle": "Expiring soon",
+      "watchHint": "{{count}} lots within {{days}} days",
+      "watchEmpty": "No lots near expiry",
+      "expiredBanner": "{{count}} lot(s) already expired but still in stock",
+      "daysShort": "days",
+      "open": "Open recall report for lot {{lot}}",
+      "usageTitle": "Lot trace (recall)",
+      "usageSubtitle": "Customers and appointments that used this lot",
+      "usageSummary": "Used on {{customers}} customer(s) · {{qty}} {{unit}} in total",
+      "usageEmpty": "This lot has not been used on any appointment yet",
+      "customer": "Customer",
+      "service": "Service",
+      "onHand": "On hand",
+      "transfersOut": "Transferred to other branches"
+    },
     "subtitle": "Manage products, stock levels and reorder points per branch.",
     "newProduct": "New product",
     "editProduct": "Edit product",
@@ -3227,7 +3311,9 @@
       "lowHint": "At or below reorder point",
       "outHint": "Needs restocking",
       "openPoHint": "{{count}} open PO",
-      "openPoHint_other": "{{count}} open POs"
+      "openPoHint_other": "{{count}} open POs",
+      "cogs": "COGS this month",
+      "cogsHint": "Cost of goods used"
     },
     "health": {
       "title": "Stock health",
@@ -3321,7 +3407,9 @@
           "po": "Purchase order",
           "transfer": "Stock transfer",
           "other": "Reference"
-        }
+        },
+        "unitCost": "Unit cost",
+        "valueChange": "Value"
       }
     },
     "po": {
@@ -4196,7 +4284,8 @@
       "NEEDS_REVIEW": "Needs review",
       "APPROVED": "Approved",
       "REJECTED": "Rejected",
-      "DUPLICATE": "Duplicate"
+      "DUPLICATE": "Duplicate",
+      "REVERSED": "Reversed"
     },
     "banks": {
       "subtitle": "Where the money lands: receiving accounts per branch, payment channels and slip-verification policy.",
@@ -4520,7 +4609,14 @@
         "done": "Account assigned"
       },
       "settlesNet": "Bank credits net of the fee",
-      "settlesNetHint": "Turn on if the bank pays in the amount after deducting this fee. Reconciliation then expects the net figure."
+      "settlesNetHint": "Turn on if the bank pays in the amount after deducting this fee. Reconciliation then expects the net figure.",
+      "sla": {
+        "title": "Review target",
+        "hint": "Slips waiting longer show as late in the queue.",
+        "minutes": "min",
+        "alert": "Notify managers when a slip is late",
+        "perBranch": "Per-branch targets ({{count}} set)"
+      }
     },
     "slips": {
       "subtitle": "Transfer slips customers and staff upload for bills. The system reads each slip, checks it against the bill, and you confirm or reject it.",
@@ -4640,7 +4736,9 @@
         "transferredAt": "Transfer time",
         "txnRef": "No reference",
         "ocrFailed": "Couldn't read",
-        "duplicate": "Duplicate"
+        "duplicate": "Duplicate",
+        "risk": "Risk signal",
+        "infoRequested": "Waiting on customer"
       },
       "clearFilters": "Clear filters",
       "health": {
@@ -4660,7 +4758,9 @@
         "legendUploaded": "Uploaded",
         "legendApproved": "Confirmed",
         "autoRate": "Passed all checks (7 days)",
-        "medianReview": "Typical review time"
+        "medianReview": "Typical review time",
+        "risky": "Risk signals (held back)",
+        "infoRequested": "Waiting on customer"
       },
       "bulk": {
         "selectOne": "Select {{name}} for bulk confirm",
@@ -4764,7 +4864,9 @@
         "approvedBy": "Confirmed by {{name}}",
         "autoApproved": "Confirmed automatically (all checks passed)",
         "rejectedBy": "Rejected by {{name}}",
-        "booked": "Payment recorded on the bill"
+        "booked": "Payment recorded on the bill",
+        "asked": "Customer asked for more",
+        "reversedBy": "Reversed by {{name}}"
       },
       "actionHint": "Check the image against the table, then confirm or reject.",
       "duplicateHint": "This reference was already used, so it can only be rejected.",
@@ -4776,7 +4878,8 @@
         "unreadable": "The image is unclear. Please upload a clearer slip",
         "duplicate": "This slip has already been used",
         "notReceived": "The transfer hasn't reached our bank account",
-        "oldSlip": "The slip is from before this bill"
+        "oldSlip": "The slip is from before this bill",
+        "suspectedFake": "The slip appears to have been edited"
       },
       "banner": {
         "reading": "Reading the slip",
@@ -4790,7 +4893,8 @@
         "ready": "Ready to confirm",
         "readyBody": "Amount, account and time all match, and the reference is new.",
         "needsReview_one": "{{count}} check failed",
-        "needsReview_other": "{{count}} checks failed"
+        "needsReview_other": "{{count}} checks failed",
+        "reversed": "Confirmation reversed · {{amount}}"
       },
       "shortcuts": {
         "title": "Keyboard shortcuts",
@@ -4804,6 +4908,127 @@
         "select": "Select for bulk confirm",
         "search": "Search",
         "help": "Show this list"
+      },
+      "export": "Export CSV",
+      "exportFailed": "Couldn't export the list.",
+      "loadMore": "Load {{n}} more",
+      "capHint": "Showing the first 1,000 — narrow the filters or export CSV for the rest.",
+      "insights": {
+        "banks": "Read accuracy by bank (7 days)",
+        "banksHint": "Share of slips that passed every check on their own. A low bank usually means its slip layout needs parser work.",
+        "none": "No slips read yet.",
+        "unknownBank": "Unknown",
+        "ofSlips": "{{n}} slips",
+        "reasons": "Why slips were rejected (7 days)",
+        "noRejects": "No rejections this week."
+      },
+      "rejectCode": {
+        "AMOUNT_SHORT": "Amount short",
+        "WRONG_ACCOUNT": "Wrong account",
+        "UNREADABLE": "Unclear image",
+        "DUPLICATE": "Used before",
+        "NOT_RECEIVED": "Not in the bank",
+        "OLD_SLIP": "Old slip",
+        "SUSPECTED_FAKE": "Suspected fake",
+        "OTHER": "Other"
+      },
+      "risk": {
+        "title": "Held back for a closer look",
+        "titleInfo": "Worth a second look",
+        "rowLabel": "Risk signal — held back from automatic confirm",
+        "NEAR_DUPLICATE": "Looks like another slip",
+        "NEAR_DUPLICATEHint": "Same amount and sender as an earlier slip, with a near-identical image or the same transfer minute but a different reference. Compare the two before confirming.",
+        "EDITOR_SOFTWARE": "Saved by a photo-editing app",
+        "EDITOR_SOFTWAREHint": "The original file says it was saved by an editing app, not a banking app. Screenshots normally don't carry this. Check the amount and reference against the bank.",
+        "QR_TEXT_MISMATCH": "QR and printed reference differ",
+        "QR_TEXT_MISMATCHHint": "The bank's QR code carries a different reference from the one printed on the slip. Printed text is easy to edit; the QR isn't.",
+        "LOW_CONFIDENCE": "Hard to read",
+        "LOW_CONFIDENCEHint": "The reader wasn't sure about this image. Double-check the values in the table."
+      },
+      "proof": {
+        "title": "Bank statement",
+        "date": "Posted",
+        "amount": "Amount",
+        "reference": "Reference on statement",
+        "refYes": "reference matches",
+        "refNo": "no reference match",
+        "MATCHED": "Reconciled with the bank",
+        "MATCHEDHint": "This payment is matched to a credit line on the imported statement.",
+        "FOUND": "Seen in the bank",
+        "FOUNDHint": "A credit with the same amount (±1 day) is on the imported statement.",
+        "NOT_FOUND": "Not on the statement",
+        "NOT_FOUNDHint": "The statement for this day is imported, but no matching credit is on it. Check before confirming.",
+        "NO_STATEMENT": "No statement yet",
+        "NO_STATEMENTHint": "Import the bank statement on the Reconciliation page to check this against the bank."
+      },
+      "claim": {
+        "byOther": "{{name}} is reviewing this slip",
+        "since": "since {{ago}}",
+        "takeOver": "Take over",
+        "taken": "You're reviewing this slip now"
+      },
+      "ask": {
+        "action": "Ask customer",
+        "title": "Ask the customer",
+        "body": "The slip stays in the queue. The customer gets a notification (and a chat message when the bill has an appointment).",
+        "message": "Message",
+        "hint": "The customer sees this exactly as written.",
+        "send": "Send",
+        "sent": "Customer notified",
+        "sentChat": "Sent to the customer's chat and notifications",
+        "waiting": "Waiting on the customer — asked {{ago}}",
+        "rowLabel": "Waiting on the customer",
+        "preset": {
+          "clearer": "Please send a clearer photo of the slip.",
+          "fullSlip": "Please send the whole slip, including the reference number.",
+          "amount": "Please check the amount — the bill is {{amount}}.",
+          "otherAccount": "Which account did you transfer to? Please send the slip showing the receiver."
+        }
+      },
+      "reverse": {
+        "action": "Reverse confirmation",
+        "title": "Reverse {{amount}}?",
+        "body": "The {{amount}} payment is removed from the bill and the bill goes back to owing it. The customer is told why.",
+        "reason": "Reason",
+        "hint": "At least 5 characters. Kept in the audit log.",
+        "done": "Confirmation reversed",
+        "available": "Confirmed by mistake? It can still be reversed.",
+        "blocked": {
+          "NOT_APPROVED": "Only confirmed slips can be reversed.",
+          "BILL_SETTLED": "The bill is fully paid and a receipt was issued — void the bill or refund from Finance instead.",
+          "RECONCILED": "This money is matched to the bank statement — unmatch it on Reconciliation first.",
+          "PERIOD_CLOSED": "That month's reconciliation period is closed."
+        }
+      },
+      "upload": {
+        "open": "Upload slip",
+        "title": "Upload a slip for a bill",
+        "stepBill": "Find the bill this transfer pays.",
+        "stepSlip": "Say how much was sent and attach the slip. You can also paste a screenshot.",
+        "search": "Customer name or receipt no.…",
+        "bills": "Open bills",
+        "noBills": "No open bills match.",
+        "ofTotal": "of {{total}}",
+        "status": {
+          "PENDING": "Unpaid",
+          "DEPOSIT_PAID": "Deposit paid",
+          "FULLY_PAID": "Paid",
+          "REFUNDED": "Refunded",
+          "FAILED": "Failed",
+          "VOIDED": "Voided"
+        },
+        "amount": "Amount transferred",
+        "fullOwed": "Full amount owed",
+        "amountInvalid": "Enter an amount above 0 and no more than what's owed.",
+        "anyAccount": "Let the system match the account",
+        "drop": "Choose, drop or paste the slip image",
+        "dropHint": "JPEG, PNG or WebP, up to 8 MB",
+        "remove": "Remove image",
+        "submit": "Upload",
+        "done": "Slip uploaded — it's being read now",
+        "badType": "Use a JPEG, PNG or WebP image.",
+        "tooBig": "The image is larger than 8 MB.",
+        "readFailed": "Couldn't read that file."
       }
     },
     "exp": {
@@ -5681,6 +5906,112 @@
           "offShifts": "With difference"
         }
       }
+    }
+  },
+  "twoFactor": {
+    "title": "Two-step verification",
+    "desc": "A 6-digit code from an authenticator app at every sign-in",
+    "on": "On",
+    "off": "Off",
+    "requiredBadge": "Required",
+    "enabledTitle": "Authenticator app is set up",
+    "disabledTitle": "Not set up",
+    "enabledSince": "On since {{date}} · {{left}} recovery codes left",
+    "disabledHint": "Use Google Authenticator, Microsoft Authenticator, 1Password or similar.",
+    "requiredHint": "The clinic requires this for staff accounts — set it up now.",
+    "turnOn": "Set up",
+    "turnOff": "Turn off",
+    "newCodes": "New recovery codes",
+    "newCodesDesc": "Your old recovery codes stop working. Confirm with your password and a current code.",
+    "generate": "Generate",
+    "lowCodes": "Only {{left}} recovery codes left — generate a new set.",
+    "enableTitle": "Set up two-step verification",
+    "confirmPasswordDesc": "Confirm your password to continue.",
+    "scanDesc": "Scan the QR code with your authenticator app, then enter the 6-digit code it shows.",
+    "step1": "Open your authenticator app",
+    "step2": "Scan this QR code (or type the key)",
+    "step3": "Enter the 6-digit code below",
+    "manualKey": "Can't scan? Enter this key:",
+    "copyKey": "Copy key",
+    "qrAlt": "QR code for the authenticator app",
+    "code": "Authenticator code",
+    "codeOrRecovery": "Authenticator code or recovery code",
+    "enterCode": "Enter the 6-digit code.",
+    "wrongCode": "That code is not correct.",
+    "expired": "Verification timed out — please sign in again.",
+    "verifySubtitle": "Enter the code from your authenticator app",
+    "setupRequiredSubtitle": "Set up two-step verification to continue",
+    "requiredNotice": "Your clinic requires two-step verification for staff accounts.",
+    "recoveryHint": "Lost your phone? Use one of your recovery codes, or ask an admin to reset it.",
+    "verify": "Verify",
+    "activate": "Turn on",
+    "continue": "Continue",
+    "recoveryTitle": "Save your recovery codes",
+    "recoveryDesc": "Each code works once if you lose access to your authenticator app.",
+    "recoveryReplaced": "Your previous codes no longer work.",
+    "recoveryWarn": "Store these somewhere safe. They won't be shown again.",
+    "copyAll": "Copy",
+    "copied": "Copied",
+    "download": "Download",
+    "savedContinue": "I've saved them — continue",
+    "savedDone": "I've saved them",
+    "enabledToast": "Two-step verification is on",
+    "disabledToast": "Two-step verification is off",
+    "disableTitle": "Turn off two-step verification?",
+    "disableDesc": "Your account will be protected by password only. Confirm with your password and a code."
+  },
+  "userSecurity": {
+    "open": "Security & sessions",
+    "title": "Security — {{name}}",
+    "desc": "Devices, failed sign-ins and account recovery",
+    "loadError": "Couldn't load security details.",
+    "twoFactor": "Two-step",
+    "lock": "Lock",
+    "lockedUntil": "Locked until {{time}}",
+    "notLocked": "Not locked",
+    "activeSessions": "Signed-in devices",
+    "unlock": "Unlock",
+    "unlocked": "Account unlocked",
+    "issueCode": "Issue reset code",
+    "issueCodeTitle": "Issue a password reset code?",
+    "issueCodeDesc": "Give the 8-digit code to {{name}} in person or by phone. It works once, for 24 hours, on the \"Forgot password\" page.",
+    "codeIssuedHint": "Reset code — shown once:",
+    "codeExpires": "Expires {{time}}",
+    "reset2fa": "Reset two-step",
+    "reset2faTitle": "Reset two-step verification?",
+    "reset2faDesc": "Removes {{name}}'s authenticator and signs them out everywhere. Use when their phone is lost.",
+    "reset2faDone": "Two-step verification reset",
+    "revokeAll": "Sign out everywhere",
+    "revokeAllTitle": "Sign out of every device?",
+    "revokeAllDesc": "{{name}} will be signed out on all devices within 30 seconds.",
+    "revokedAll": "Signed out {{count}} device(s)",
+    "sessions": "Signed-in devices",
+    "noSessions": "No devices are signed in.",
+    "signOut": "Sign out",
+    "revoked": "Device signed out",
+    "ended": "Ended in the last 7 days ({{count}})",
+    "unknownDevice": "Unknown device",
+    "lastSeen": "active {{when}}",
+    "failures": "Recent failed sign-ins",
+    "noFailures": "None recently.",
+    "reason": {
+      "LOGOUT": "Signed out",
+      "USER": "By user",
+      "OTHERS": "By user",
+      "ADMIN": "By admin",
+      "IDLE": "Idle timeout",
+      "PASSWORD_CHANGED": "Password changed",
+      "PASSWORD_RESET": "Password reset",
+      "DEACTIVATED": "Deactivated",
+      "MFA_REQUIRED": "2FA required"
+    },
+    "failReason": {
+      "unknown_user": "Unknown account",
+      "inactive": "Inactive account",
+      "bad_password": "Wrong password",
+      "bad_pin": "Wrong PIN",
+      "bad_code": "Wrong 2FA code",
+      "locked": "While locked"
     }
   }
 }

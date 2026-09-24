@@ -16,35 +16,45 @@ enum PayoutStatus {
 }
 
 model User {
-  id                  String    @id @default(uuid())
-  branchId            String?
-  role                UserRole  @default(CUSTOMER)
-  roleRefId           String?
-  name                String
-  email               String?   @unique
-  phone               String    @unique
-  password            String?
-  avatarUrl           String?
-  dateOfBirth         DateTime?
+  id                     String    @id @default(uuid())
+  branchId               String?
+  role                   UserRole  @default(CUSTOMER)
+  roleRefId              String?
+  name                   String
+  email                  String?   @unique
+  phone                  String    @unique
+  password               String?
+  avatarUrl              String?
+  dateOfBirth            DateTime?
   /// ເພດ ('MALE' | 'FEMALE' | 'OTHER') — ໃຊ້ໃນໜ້າ CRM ຂອງ Web Admin.
-  gender              String?
+  gender                 String?
   /// ບັນທຶກພາຍໃນຂອງພະນັກງານກ່ຽວກັບລູກຄ້າ (Web Admin ▸ Customer detail).
-  notes               String?
-  expoPushToken       String?
-  isActive            Boolean   @default(true)
-  deletedAt           DateTime?
+  notes                  String?
+  expoPushToken          String?
+  isActive               Boolean   @default(true)
+  deletedAt              DateTime?
   /// opt-in ອະນຸຍາດໃຫ້ລູກຄ້າອື່ນທັກແຊັດ DIRECT ໄດ້ (Module 38 Wave 8D) — default ປິດ, ຫຼຸດຄວາມສ່ຽງ
   /// abuse ໂດຍບໍ່ຕ້ອງລໍຖ້າ report ກ່ອນ.
-  allowDirectMessages Boolean   @default(false)
-  quickLoginPin       String?
-  quickLoginEnabled   Boolean   @default(false)
-  quickLoginUpdatedAt DateTime?
-  lastLoginAt         DateTime?
-  lastLoginDevice     String?
+  allowDirectMessages    Boolean   @default(false)
+  quickLoginPin          String?
+  quickLoginEnabled      Boolean   @default(false)
+  quickLoginUpdatedAt    DateTime?
+  lastLoginAt            DateTime?
+  lastLoginDevice        String?
   /// ເວລາປ່ຽນລະຫັດຜ່ານຫຼ້າສຸດ (ໜ້າ /account ▸ Security) — null = ຍັງບໍ່ເຄີຍປ່ຽນ.
-  passwordChangedAt   DateTime?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  passwordChangedAt      DateTime?
+  /// TOTP secret (AES-256-GCM, utils/secretBox). ມີຄ່າແຕ່ twoFactorEnabledAt = null → ກຳລັງຕັ້ງຄ່າ.
+  twoFactorSecret        String?
+  twoFactorEnabledAt     DateTime?
+  /// sha256 ຂອງ recovery code ທີ່ຍັງບໍ່ໄດ້ໃຊ້ (ໃຊ້ແລ້ວ → ລຶບອອກ).
+  twoFactorRecoveryCodes String[]  @default([])
+  /// login ຜິດຕິດຕໍ່ກັນ (ລະຫັດຜ່ານ / PIN / 2FA) — ຮອດ Settings ▸ maxLoginAttempts → lockedUntil.
+  failedLoginCount       Int       @default(0)
+  lockedUntil            DateTime?
+  /// ການຕັ້ງຄ່າສ່ວນຕົວທີ່ sync ລະຫວ່າງອຸປະກອນ (ພາສາ, ໂໝດສີ, ການແຈ້ງເຕືອນ) — shared-types UserPreferences.
+  preferences            Json?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
   branch                Branch?                    @relation(fields: [branchId], references: [id])
   roleRef               Role?                      @relation(fields: [roleRefId], references: [id])
@@ -85,6 +95,8 @@ model User {
   resolvedNotifications NotificationLog[]          @relation("NotificationResolvedBy")
   pushDevices           PushDevice[]
   sessions              UserSession[]
+  passwordResets        PasswordResetToken[]       @relation("PasswordResetUser")
+  issuedPasswordResets  PasswordResetToken[]       @relation("PasswordResetIssuedBy")
   requestedRefunds      Refund[]                   @relation("RefundRequestedBy")
   approvedRefunds       Refund[]                   @relation("RefundApprovedBy")
   bankChangesRequested  BankAccountChangeRequest[] @relation("BankChangeRequestedBy")
@@ -102,22 +114,47 @@ model User {
 /// ເຊດຊັນເຂົ້າສູ່ລະບົບ 1 ແຖວຕໍ່ 1 ອຸປະກອນ — refresh token ຖື `sid` ຂອງແຖວນີ້.
 /// ຖອນ (revokedAt) ແລ້ວ → /auth/refresh ປະຕິເສດ; access token ທີ່ອອກແລ້ວຍັງໃຊ້ໄດ້ຈົນໝົດ TTL (15 ນາທີ).
 model UserSession {
-  id          String    @id @default(uuid())
-  userId      String
+  id            String    @id @default(uuid())
+  userId        String
   /// PASSWORD | PIN | REGISTER | LEGACY (token ເກົ່າທີ່ບໍ່ມີ sid, ສ້າງແຖວໃຫ້ຕອນ refresh).
-  method      String    @default("PASSWORD")
-  deviceLabel String?
-  userAgent   String?
-  ipAddress   String?
-  createdAt   DateTime  @default(now())
-  lastSeenAt  DateTime  @default(now())
-  expiresAt   DateTime
-  revokedAt   DateTime?
+  method        String    @default("PASSWORD")
+  deviceLabel   String?
+  userAgent     String?
+  ipAddress     String?
+  createdAt     DateTime  @default(now())
+  lastSeenAt    DateTime  @default(now())
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  /// LOGOUT | USER | OTHERS | ADMIN | IDLE | PASSWORD_CHANGED | PASSWORD_RESET | DEACTIVATED
+  revokedReason String?
+  /// ຜ່ານ 2FA ຕອນເປີດເຊດຊັນນີ້.
+  mfa           Boolean   @default(false)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, revokedAt])
   @@map("user_sessions")
+}
+
+/// ລະຫັດຣີເຊັດລະຫັດຜ່ານແບບໃຊ້ຄັ້ງດຽວ — ສົ່ງທາງ SMS / ອີເມວ (6 ຫຼັກ, 15 ນາທີ) ຫຼື admin ອອກໃຫ້ (8 ຫຼັກ, 24 ຊມ).
+model PasswordResetToken {
+  id          String    @id @default(uuid())
+  userId      String
+  /// sha256(userId:code) — ບໍ່ເກັບລະຫັດຈິງ.
+  codeHash    String
+  /// SMS | EMAIL | DEV | ADMIN
+  channel     String
+  attempts    Int       @default(0)
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdById String?
+  createdAt   DateTime  @default(now())
+
+  user      User  @relation("PasswordResetUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdBy User? @relation("PasswordResetIssuedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@map("password_reset_tokens")
 }
 
 /// Dynamic, admin-editable job role — carries its own permission set, icon, and colour.

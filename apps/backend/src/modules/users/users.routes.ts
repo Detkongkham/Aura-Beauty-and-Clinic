@@ -14,6 +14,12 @@ import {
   createUserHandler,
   disableQuickLoginHandler,
   getUserPermissionsHandler,
+  getUserSecurityHandler,
+  issueResetCodeHandler,
+  resetUserTwoFactorHandler,
+  revokeAllUserSessionsHandler,
+  revokeUserSessionHandler,
+  unlockUserHandler,
   listQuickLoginUsersHandler,
   listUsersHandler,
   setQuickLoginPinHandler,
@@ -22,6 +28,7 @@ import {
 } from './users.controller.js';
 
 const idParamSchema = z.object({ id: z.string().uuid() });
+const sessionParamSchema = z.object({ id: z.string().uuid(), sid: z.string().uuid() });
 
 export const usersRouter: Router = Router();
 
@@ -65,3 +72,13 @@ usersRouter.delete(
   validateRequest({ params: idParamSchema }),
   disableQuickLoginHandler,
 );
+
+// Account security of *another* user — any role (staff included, e.g. when someone leaves).
+// Scope + per-role permission (users/staff/customers:manage) is checked in admin-security.service.
+const idOnly = validateRequest({ params: idParamSchema });
+usersRouter.get('/:id/security', idOnly, getUserSecurityHandler);
+usersRouter.post('/:id/sessions/revoke-all', idOnly, revokeAllUserSessionsHandler);
+usersRouter.delete('/:id/sessions/:sid', validateRequest({ params: sessionParamSchema }), revokeUserSessionHandler);
+usersRouter.post('/:id/unlock', idOnly, unlockUserHandler);
+usersRouter.delete('/:id/2fa', idOnly, resetUserTwoFactorHandler);
+usersRouter.post('/:id/password-reset', idOnly, issueResetCodeHandler);

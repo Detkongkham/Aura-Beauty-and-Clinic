@@ -70,6 +70,9 @@ interface AppSettings {
   sessionTimeoutMinutes: number;
   minPasswordLength: number;
   require2fa: boolean;
+  maxLoginAttempts: number;
+  lockoutMinutes: number;
+  newDeviceAlerts: boolean;
   // Data
   dataRetentionMonths: number;
 }
@@ -109,6 +112,9 @@ const settings: AppSettings = {
   sessionTimeoutMinutes: 30,
   minPasswordLength: 8,
   require2fa: false,
+  maxLoginAttempts: 5,
+  lockoutMinutes: 15,
+  newDeviceAlerts: true,
   dataRetentionMonths: 24,
 };
 

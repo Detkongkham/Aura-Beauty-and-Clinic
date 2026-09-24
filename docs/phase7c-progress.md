@@ -369,6 +369,7 @@ In-App Chat + rule-based AI Camera + Telegram pilot), all shipped and verified a
 
 **Debt carried into whatever comes next** (not blockers, just not yet done):
 - Phase 7B: real `eas build`/native-compile gate for `react-native-maps` never ran (no EAS credentials
-  in this environment) + `GOOGLE_MAPS_API_KEY` unprovisioned.
+  in this environment) + `GOOGLE_MAPS_API_KEY` unprovisioned. **Update 2026-09-24:** map switched to
+  MapLibre + OSM — no Google key needed any more; the EAS dev-client rebuild is still owed.
 - Phase 7C.4: no real Telegram bot token/webhook provisioned (dev/mocked-payload only).
 - Phase 7C.1: no resource picker wired into the admin appointment-create form (CRUD + listing only).

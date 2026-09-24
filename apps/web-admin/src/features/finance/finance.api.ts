@@ -58,9 +58,10 @@ export const financeApi = {
   },
 };
 
-export function usePayments(f: FinanceFilters) {
+export function usePayments(f: FinanceFilters, enabled = true) {
   return useQuery({
     queryKey: ['payments', f],
+    enabled,
     queryFn: () => financeApi.list(f),
     placeholderData: (prev) => prev,
   });

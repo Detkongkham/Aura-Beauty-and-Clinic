@@ -285,9 +285,12 @@ export function SettingsPage() {
             title={t('settings.sec.security.title')}
             desc={t('settings.sec.security.desc')}
           >
-            {renderNumber(t, form, canManage, set, 'sessionTimeoutMinutes', 'sessionTimeout')}
+            {renderNumber(t, form, canManage, set, 'sessionTimeoutMinutes', 'sessionTimeout', t('settings.sessionTimeoutHint'))}
             {renderNumber(t, form, canManage, set, 'minPasswordLength', 'minPasswordLength')}
-            {renderToggle(t, form, canManage, set, 'require2fa', 'require2fa')}
+            {renderToggle(t, form, canManage, set, 'require2fa', 'require2fa', t('settings.require2faHint'))}
+            {renderNumber(t, form, canManage, set, 'maxLoginAttempts', 'maxLoginAttempts', t('settings.maxLoginAttemptsHint'))}
+            {renderNumber(t, form, canManage, set, 'lockoutMinutes', 'lockoutMinutes')}
+            {renderToggle(t, form, canManage, set, 'newDeviceAlerts', 'newDeviceAlerts', t('settings.newDeviceAlertsHint'))}
           </SettingsSection>
 
           <SettingsSection
@@ -359,10 +362,11 @@ function renderNumber(
   set: SetFn,
   key: keyof AppSettings & string,
   labelKey: string,
+  hint?: string,
 ) {
   const id = `set-${key}`;
   return (
-    <SettingsRow key={key} label={t(`settings.${labelKey}`)} htmlFor={id}>
+    <SettingsRow key={key} label={t(`settings.${labelKey}`)} hint={hint} htmlFor={id}>
       <Input
         id={id}
         type="number"
@@ -404,10 +408,11 @@ function renderToggle(
   set: SetFn,
   key: keyof AppSettings & string,
   labelKey: string,
+  hint?: string,
 ) {
   const id = `set-${key}`;
   return (
-    <SettingsRow key={key} label={t(`settings.${labelKey}`)} htmlFor={id} trailing>
+    <SettingsRow key={key} label={t(`settings.${labelKey}`)} hint={hint} htmlFor={id} trailing>
       <Switch
         id={id}
         checked={Boolean(form[key])}

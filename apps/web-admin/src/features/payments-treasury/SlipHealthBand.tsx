@@ -1,9 +1,13 @@
 import type { SlipFlag, SlipMismatchField, SlipSummary } from '@abcp/shared-types';
 import {
   AlarmClock,
+  Ban,
   ChevronRight,
   Copy,
+  FileWarning,
   Gauge,
+  Landmark,
+  MessageCircleQuestion,
   ScanLine,
   Timer,
   type LucideIcon,
@@ -185,6 +189,20 @@ export function SlipHealthBand({ summary: s, loading, now, onFlag, onOldest, onV
             label={t('payTreasury.slips.health.duplicates')}
             value={s.open.duplicates}
             onClick={() => onFlag('duplicate')}
+          />
+          <AttentionRow
+            icon={FileWarning}
+            tone={s.open.risky > 0 ? 'danger' : 'neutral'}
+            label={t('payTreasury.slips.health.risky')}
+            value={s.open.risky}
+            onClick={() => onFlag('risk')}
+          />
+          <AttentionRow
+            icon={MessageCircleQuestion}
+            tone={s.open.infoRequested > 0 ? 'warning' : 'neutral'}
+            label={t('payTreasury.slips.health.infoRequested')}
+            value={s.open.infoRequested}
+            onClick={() => onFlag('infoRequested')}
           />
         </ul>
         {topMismatch.length > 0 ? (
@@ -371,5 +389,108 @@ function AttentionRow({
         />
       </button>
     </li>
+  );
+}
+
+/**
+ * S8/S9 — second insight row: how well the reader does per bank (7 days) and why slips were rejected.
+ * Ranked bars with the figure printed on every row — never colour alone.
+ */
+export function SlipInsightsRow({ summary: s }: { summary: SlipSummary | undefined }) {
+  const { t } = useTranslation();
+  if (!s) return null;
+  const banks = s.week.byBank.slice(0, 5);
+  const reasons = Object.entries(s.week.rejectCodes)
+    .map(([code, n]) => ({ code, n: n ?? 0 }))
+    .filter((r) => r.n > 0)
+    .sort((a, b) => b.n - a.n);
+  const maxReason = Math.max(1, ...reasons.map((r) => r.n));
+  if (banks.length === 0 && reasons.length === 0) return null;
+
+  return (
+    <div className="grid gap-3 lg:grid-cols-2">
+      <section
+        aria-labelledby="slip-banks-h"
+        className="rounded-xl border border-border bg-card p-4 shadow-sm"
+      >
+        <p
+          id="slip-banks-h"
+          className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
+        >
+          <Landmark className="h-3.5 w-3.5" aria-hidden="true" />
+          {t('payTreasury.slips.insights.banks')}
+        </p>
+        {banks.length === 0 ? (
+          <p className="mt-3 text-xs text-muted-foreground">
+            {t('payTreasury.slips.insights.none')}
+          </p>
+        ) : (
+          <ul className="mt-3 space-y-2">
+            {banks.map((b) => (
+              <li
+                key={b.bankCode}
+                className="grid grid-cols-[64px_1fr_auto] items-center gap-2 text-xs"
+              >
+                <span className="truncate font-medium">
+                  {b.bankCode === '?' ? t('payTreasury.slips.insights.unknownBank') : b.bankCode}
+                </span>
+                <span className="h-2 overflow-hidden rounded-full bg-muted" aria-hidden="true">
+                  <span
+                    className={cn(
+                      'block h-full rounded-full',
+                      b.rate >= 80 ? 'bg-success' : b.rate >= 50 ? 'bg-warning' : 'bg-destructive',
+                    )}
+                    style={{ width: `${b.rate}%` }}
+                  />
+                </span>
+                <span className="tabular-nums text-muted-foreground">
+                  <span className="font-semibold text-foreground">{b.rate}%</span> ·{' '}
+                  {t('payTreasury.slips.insights.ofSlips', { n: b.processed })}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="mt-3 text-2xs text-muted-foreground">
+          {t('payTreasury.slips.insights.banksHint')}
+        </p>
+      </section>
+
+      <section
+        aria-labelledby="slip-reasons-h"
+        className="rounded-xl border border-border bg-card p-4 shadow-sm"
+      >
+        <p
+          id="slip-reasons-h"
+          className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
+        >
+          <Ban className="h-3.5 w-3.5" aria-hidden="true" />
+          {t('payTreasury.slips.insights.reasons')}
+        </p>
+        {reasons.length === 0 ? (
+          <p className="mt-3 text-xs text-muted-foreground">
+            {t('payTreasury.slips.insights.noRejects')}
+          </p>
+        ) : (
+          <ul className="mt-3 space-y-2">
+            {reasons.map((r) => (
+              <li
+                key={r.code}
+                className="grid grid-cols-[minmax(0,1fr)_96px_24px] items-center gap-2 text-xs"
+              >
+                <span className="truncate">{t(`payTreasury.slips.rejectCode.${r.code}`)}</span>
+                <span className="h-2 overflow-hidden rounded-full bg-muted" aria-hidden="true">
+                  <span
+                    className="block h-full rounded-full bg-destructive/70"
+                    style={{ width: `${(r.n / maxReason) * 100}%` }}
+                  />
+                </span>
+                <span className="text-right font-semibold tabular-nums">{r.n}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
   );
 }

@@ -18,9 +18,10 @@ import { formatCurrency } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 import { SlipDetail } from './SlipDetail';
-import { SlipHealthBand } from './SlipHealthBand';
+import { SlipHealthBand, SlipInsightsRow } from './SlipHealthBand';
 import { SlipRow } from './SlipRow';
 import { SlipShortcutsDialog } from './SlipShortcutsDialog';
+import { SlipUploadDialog } from './SlipUploadDialog';
 import { SlipsCommandBar } from './SlipsCommandBar';
 import { VERDICT_ICON } from './slip.lib';
 import {
@@ -28,6 +29,7 @@ import {
   SLIP_RANGES,
   SLIP_SORTS,
   SLIP_VIEWS,
+  claimedByOther,
   groupQueue,
   rangeBounds,
   slipHeadlineAmount,
@@ -37,11 +39,18 @@ import {
   type SlipView,
 } from './slipModel';
 import { todayKey } from './treasury.lib';
-import { useBulkApproveSlips, useSlip, useSlipSummary, useSlips } from './treasury.api';
+import {
+  downloadSlipsCsv,
+  useBulkApproveSlips,
+  useSlip,
+  useSlipSummary,
+  useSlips,
+} from './treasury.api';
 import { useSlipSocket } from './useSlipSocket';
 
-/** Newest rows held client-side per filter. Counts in the header come from `/slips/summary`, not these. */
-const INBOX_LIMIT = 100;
+/** Rows fetched per step (S11 "load more" adds another step, up to the cap). Header counts come from `/slips/summary`. */
+const INBOX_STEP = 100;
+const INBOX_CAP = 1000;
 const FOCUS_KEY = 'aura.slips.focus';
 /** SLA fallback until the summary arrives (the server owns the real value). */
 const DEFAULT_SLA = 30;
@@ -90,6 +99,9 @@ export function SlipReviewPage() {
     }
   });
   const [shortcuts, setShortcuts] = useState(false);
+  const [limit, setLimit] = useState(INBOX_STEP);
+  const [uploading, setUploading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [now, setNow] = useState(() => Date.now());
   const rowRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -131,7 +143,7 @@ export function SlipReviewPage() {
 
   const bounds = rangeBounds(range, todayKey());
   const { data, isLoading, isError, isFetching } = useSlips({
-    pageSize: INBOX_LIMIT,
+    pageSize: limit,
     view,
     ...(flag ? { flag } : {}),
     ...(branchId ? { branchId } : {}),
@@ -147,7 +159,31 @@ export function SlipReviewPage() {
     () => (grouped ? grouped.flatMap((g) => g.items) : items),
     [grouped, items],
   );
-  const ready = useMemo(() => items.filter((s) => s.verdict === 'AUTO_MATCHED'), [items]);
+  // Bulk confirm skips slips a colleague is holding (S5) — the server would refuse them anyway.
+  const ready = useMemo(
+    () => items.filter((s) => s.verdict === 'AUTO_MATCHED' && !claimedByOther(s, user?.id)),
+    [items, user?.id],
+  );
+
+  // A new filter starts from the first step again.
+  useEffect(() => setLimit(INBOX_STEP), [view, flag, range, branchId, debouncedQ]);
+
+  async function exportCsv() {
+    setExporting(true);
+    try {
+      await downloadSlipsCsv({
+        view,
+        ...(flag ? { flag } : {}),
+        ...(branchId ? { branchId } : {}),
+        ...(debouncedQ ? { q: debouncedQ } : {}),
+        ...rangeBounds(range, todayKey()),
+      });
+    } catch {
+      toast.error(t('payTreasury.slips.exportFailed'));
+    } finally {
+      setExporting(false);
+    }
+  }
 
   // Drop selections that left the queue (approved by a colleague, filtered out…).
   useEffect(() => {
@@ -306,7 +342,8 @@ export function SlipReviewPage() {
       onOpenSlip={(id) => select(id)}
       slaMinutes={sla}
       now={now}
-      hotkeys={!shortcuts}
+      hotkeys={!shortcuts && !uploading}
+      meId={user?.id}
     />
   ) : (
     <div className="flex h-full items-center justify-center p-8">
@@ -326,7 +363,8 @@ export function SlipReviewPage() {
       onSelect={() => select(s.id)}
       slaMinutes={sla}
       now={now}
-      selectable={canReview && s.verdict === 'AUTO_MATCHED'}
+      selectable={canReview && s.verdict === 'AUTO_MATCHED' && !claimedByOther(s, user?.id)}
+      meId={user?.id}
       selected={selected.has(s.id)}
       onToggle={() => toggle(s.id)}
       setRef={(el) => {
@@ -360,6 +398,9 @@ export function SlipReviewPage() {
         focus={focus}
         onFocus={toggleFocus}
         onShortcuts={() => setShortcuts(true)}
+        onExport={() => void exportCsv()}
+        exporting={exporting}
+        onUpload={canReview ? () => setUploading(true) : null}
         bulk={
           canReview
             ? {
@@ -385,6 +426,7 @@ export function SlipReviewPage() {
           onView={(v) => setParam({ view: v === 'action' ? null : v, s: null })}
         />
       ) : null}
+      {!focus ? <SlipInsightsRow summary={summary} /> : null}
 
       <div
         className={cn(
@@ -507,9 +549,27 @@ export function SlipReviewPage() {
               items.map(renderRow)
             )}
             {data && data.total > items.length ? (
-              <p className="px-3 py-2 text-center text-2xs text-muted-foreground">
-                {t('payTreasury.slips.truncated', { shown: items.length, total: data.total })}
-              </p>
+              <div className="flex flex-col items-center gap-1.5 px-3 py-3">
+                <p className="text-center text-2xs text-muted-foreground">
+                  {t('payTreasury.slips.truncated', { shown: items.length, total: data.total })}
+                </p>
+                {limit < INBOX_CAP ? (
+                  <button
+                    type="button"
+                    onClick={() => setLimit((l) => Math.min(INBOX_CAP, l + INBOX_STEP))}
+                    disabled={isFetching}
+                    className="rounded-md border border-border px-3 py-1.5 text-xs font-medium outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                  >
+                    {t('payTreasury.slips.loadMore', {
+                      n: Math.min(INBOX_STEP, data.total - items.length),
+                    })}
+                  </button>
+                ) : (
+                  <p className="text-center text-2xs text-muted-foreground">
+                    {t('payTreasury.slips.capHint')}
+                  </p>
+                )}
+              </div>
             ) : null}
           </div>
         </div>
@@ -527,6 +587,13 @@ export function SlipReviewPage() {
       ) : null}
 
       <SlipShortcutsDialog open={shortcuts} onOpenChange={setShortcuts} />
+      {canReview ? (
+        <SlipUploadDialog
+          open={uploading}
+          onOpenChange={setUploading}
+          onUploaded={(slip) => setParam({ view: null, flag: null, s: slip.id })}
+        />
+      ) : null}
     </div>
   );
 }

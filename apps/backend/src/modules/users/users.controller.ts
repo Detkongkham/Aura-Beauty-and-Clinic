@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { getActor } from '../../middlewares/permissionGuard.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
+import * as adminSecurity from '../auth/admin-security.service.js';
 import * as usersService from './users.service.js';
 
 export const listUsersHandler = asyncHandler(async (_req: Request, res: Response) => {
@@ -41,4 +42,30 @@ export const setQuickLoginPinHandler = asyncHandler(async (req: Request, res: Re
 export const disableQuickLoginHandler = asyncHandler(async (req: Request, res: Response) => {
   const data = await usersService.disableQuickLogin(req.params.id!, await getActor(req));
   res.json({ data });
+});
+
+// --- Another user's account security (sessions, lockout, 2FA, reset code) ---
+
+export const getUserSecurityHandler = asyncHandler(async (req: Request, res: Response) => {
+  res.json({ data: await adminSecurity.getUserSecurity(req.params.id!, await getActor(req)) });
+});
+
+export const revokeUserSessionHandler = asyncHandler(async (req: Request, res: Response) => {
+  res.json({ data: await adminSecurity.revokeUserSession(req.params.id!, req.params.sid!, await getActor(req), req.ip) });
+});
+
+export const revokeAllUserSessionsHandler = asyncHandler(async (req: Request, res: Response) => {
+  res.json({ data: await adminSecurity.revokeAllUserSessions(req.params.id!, await getActor(req), req.auth!.sid, req.ip) });
+});
+
+export const unlockUserHandler = asyncHandler(async (req: Request, res: Response) => {
+  res.json({ data: await adminSecurity.unlockUser(req.params.id!, await getActor(req), req.ip) });
+});
+
+export const resetUserTwoFactorHandler = asyncHandler(async (req: Request, res: Response) => {
+  res.json({ data: await adminSecurity.resetUserTwoFactor(req.params.id!, await getActor(req), req.ip) });
+});
+
+export const issueResetCodeHandler = asyncHandler(async (req: Request, res: Response) => {
+  res.json({ data: await adminSecurity.issueResetCode(req.params.id!, await getActor(req), req.ip) });
 });

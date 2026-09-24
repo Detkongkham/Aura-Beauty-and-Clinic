@@ -79,8 +79,7 @@ export function useBankAccountInsights(days: number, branchId?: string) {
  * the owner's approval (BRANCH_ADMIN), otherwise 200/201 with the updated account.
  */
 export type BankMutationResult =
-  | { pending: false; account: BankAccountView }
-  | { pending: true; change: BankAccountChangeView };
+  { pending: false; account: BankAccountView } | { pending: true; change: BankAccountChangeView };
 
 function toResult(res: { status: number; data: Envelope<unknown> }): BankMutationResult {
   return res.status === 202
@@ -99,7 +98,8 @@ function useInvalidateBanks() {
 export function useCreateBankAccount() {
   const invalidate = useInvalidateBanks();
   return useMutation({
-    mutationFn: async (input: CreateBankAccountInput) => toResult(await http.post(`${BASE}/bank-accounts`, input)),
+    mutationFn: async (input: CreateBankAccountInput) =>
+      toResult(await http.post(`${BASE}/bank-accounts`, input)),
     onSuccess: invalidate,
   });
 }
@@ -149,7 +149,12 @@ export function useApproveBankChange() {
   const invalidate = useInvalidateBanks();
   return useMutation({
     mutationFn: async ({ id, input }: { id: string; input: ApproveBankChangeInput }) =>
-      (await http.post<Envelope<BankAccountChangeView>>(`${BASE}/bank-account-changes/${id}/approve`, input)).data.data,
+      (
+        await http.post<Envelope<BankAccountChangeView>>(
+          `${BASE}/bank-account-changes/${id}/approve`,
+          input,
+        )
+      ).data.data,
     onSuccess: invalidate,
   });
 }
@@ -158,7 +163,12 @@ export function useRejectBankChange() {
   const invalidate = useInvalidateBanks();
   return useMutation({
     mutationFn: async ({ id, note }: { id: string; note: string }) =>
-      (await http.post<Envelope<BankAccountChangeView>>(`${BASE}/bank-account-changes/${id}/reject`, { note })).data.data,
+      (
+        await http.post<Envelope<BankAccountChangeView>>(
+          `${BASE}/bank-account-changes/${id}/reject`,
+          { note },
+        )
+      ).data.data,
     onSuccess: invalidate,
   });
 }
@@ -167,7 +177,11 @@ export function useCancelBankChange() {
   const invalidate = useInvalidateBanks();
   return useMutation({
     mutationFn: async (id: string) =>
-      (await http.post<Envelope<BankAccountChangeView>>(`${BASE}/bank-account-changes/${id}/cancel`)).data.data,
+      (
+        await http.post<Envelope<BankAccountChangeView>>(
+          `${BASE}/bank-account-changes/${id}/cancel`,
+        )
+      ).data.data,
     onSuccess: invalidate,
   });
 }
@@ -207,7 +221,11 @@ export function usePaymentBankAccounts(paymentId: string | null) {
     enabled: Boolean(paymentId),
     staleTime: 60_000,
     queryFn: async () =>
-      (await http.get<Envelope<PaymentBankAccountView[]>>(`${BASE}/payments/${paymentId}/bank-accounts`)).data.data,
+      (
+        await http.get<Envelope<PaymentBankAccountView[]>>(
+          `${BASE}/payments/${paymentId}/bank-accounts`,
+        )
+      ).data.data,
   });
 }
 
@@ -215,7 +233,8 @@ export function usePaymentBankAccounts(paymentId: string | null) {
 export function useProviders() {
   return useQuery({
     queryKey: [...TREASURY_KEY, 'providers'],
-    queryFn: async () => (await http.get<Envelope<PaymentProviderView[]>>(`${BASE}/providers`)).data.data,
+    queryFn: async () =>
+      (await http.get<Envelope<PaymentProviderView[]>>(`${BASE}/providers`)).data.data,
   });
 }
 
@@ -223,7 +242,8 @@ export function useUpdateProvider() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ code, input }: { code: string; input: UpdatePaymentProviderInput }) =>
-      (await http.patch<Envelope<PaymentProviderView>>(`${BASE}/providers/${code}`, input)).data.data,
+      (await http.patch<Envelope<PaymentProviderView>>(`${BASE}/providers/${code}`, input)).data
+        .data,
     onSuccess: () => void qc.invalidateQueries({ queryKey: [...TREASURY_KEY, 'providers'] }),
   });
 }
@@ -262,7 +282,8 @@ export function useSlip(id: string | null) {
   return useQuery({
     queryKey: [...TREASURY_KEY, 'slip', id],
     enabled: Boolean(id),
-    queryFn: async () => (await http.get<Envelope<PaymentSlipDetail>>(`${BASE}/slips/${id}`)).data.data,
+    queryFn: async () =>
+      (await http.get<Envelope<PaymentSlipDetail>>(`${BASE}/slips/${id}`)).data.data,
   });
 }
 
@@ -301,7 +322,8 @@ export function useClaimSlip() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, force }: { id: string; force?: boolean }) =>
-      (await http.post<Envelope<PaymentSlipView>>(`${BASE}/slips/${id}/claim`, { force })).data.data,
+      (await http.post<Envelope<PaymentSlipView>>(`${BASE}/slips/${id}/claim`, { force })).data
+        .data,
     onSuccess: (slip) => {
       qc.setQueryData<PaymentSlipDetail | undefined>([...TREASURY_KEY, 'slip', slip.id], (prev) =>
         prev ? { ...prev, claimedBy: slip.claimedBy } : prev,
@@ -321,9 +343,12 @@ export function useRequestSlipInfo() {
   return useMutation({
     mutationFn: async ({ id, message }: { id: string; message: string }) =>
       (
-        await http.post<Envelope<{ slip: PaymentSlipView; viaChat: boolean }>>(`${BASE}/slips/${id}/request-info`, {
-          message,
-        })
+        await http.post<Envelope<{ slip: PaymentSlipView; viaChat: boolean }>>(
+          `${BASE}/slips/${id}/request-info`,
+          {
+            message,
+          },
+        )
       ).data.data,
     onSuccess: () => void qc.invalidateQueries({ queryKey: [...TREASURY_KEY] }),
   });
@@ -407,7 +432,8 @@ export function useReconciliation(params: ReconciliationParams) {
   return useQuery({
     queryKey: [...TREASURY_KEY, 'reconciliation', params],
     queryFn: async () =>
-      (await http.get<Envelope<ReconciliationView>>(`${BASE}/reconciliation`, { params })).data.data,
+      (await http.get<Envelope<ReconciliationView>>(`${BASE}/reconciliation`, { params })).data
+        .data,
     placeholderData: (prev) => prev,
   });
 }
@@ -430,7 +456,8 @@ export function useUpsertStatement() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: UpsertBankStatementInput) =>
-      (await http.put<Envelope<ReconciliationRow>>(`${BASE}/reconciliation/statements`, input)).data.data,
+      (await http.put<Envelope<ReconciliationRow>>(`${BASE}/reconciliation/statements`, input)).data
+        .data,
     onSuccess: () => void qc.invalidateQueries({ queryKey: [...TREASURY_KEY, 'reconciliation'] }),
   });
 }

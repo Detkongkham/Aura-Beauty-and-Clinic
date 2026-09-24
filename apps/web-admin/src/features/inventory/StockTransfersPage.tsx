@@ -47,6 +47,7 @@ import {
   useCreateStockTransfer,
   useDeleteStockTransfer,
   useProducts,
+  useStockLots,
   useReceiveStockTransfer,
   useSendStockTransfer,
   useStockTransfer,
@@ -293,7 +294,38 @@ export function StockTransfersPage() {
   );
 }
 
-type DraftItem = { productId: string; quantity: string };
+type DraftItem = { productId: string; quantity: string; lotId?: string };
+
+/** C5 — ເລືອກ lot ຕົ້ນທາງຂອງສິນຄ້າ trackLot (ຕັດຈາກ lot ນີ້ຕອນສົ່ງ, ເລກ lot/ວັນໝົດອາຍຸຕິດໄປປາຍທາງ). */
+function TransferLotSelect({
+  productId,
+  branchId,
+  value,
+  onChange,
+}: {
+  productId: string;
+  branchId: string;
+  value: string | undefined;
+  onChange: (lotId: string) => void;
+}) {
+  const { t } = useTranslation();
+  const { data } = useStockLots({ productId, branchId, page: 1, pageSize: 100 });
+  return (
+    <Select
+      className="h-9 min-w-[220px]"
+      value={value ?? ''}
+      onChange={(e) => onChange(e.target.value)}
+      aria-label={t('inventory.lot.pickLot')}
+      options={[
+        { value: '', label: t('inventory.lot.pickLot') },
+        ...(data?.items ?? []).map((l) => ({
+          value: l.id,
+          label: `${l.lotNumber} · ${l.expiryDate ?? '—'} · ${l.qtyOnHand.toLocaleString()} ${l.unit}`,
+        })),
+      ]}
+    />
+  );
+}
 
 function CreateTransferDialog({
   open,
@@ -342,7 +374,12 @@ function CreateTransferDialog({
     const clean: StockTransferCreateInput['items'] = cleanItems.map((it) => ({
       productId: it.productId,
       quantity: Number(it.quantity),
+      ...(it.lotId ? { lotId: it.lotId } : {}),
     }));
+    if (cleanItems.some((it) => products?.items.find((p) => p.id === it.productId)?.trackLot && !it.lotId)) {
+      toast.error(t('inventory.lot.transferPickLot'));
+      return;
+    }
     if (!fromBranchId || !toBranchId || clean.length === 0) {
       toast.error(t('inventory.transfer.incomplete'));
       return;
@@ -488,7 +525,7 @@ function CreateTransferDialog({
                         <Combobox
                           className="h-10 min-w-0 flex-1 text-[15px]"
                           value={it.productId}
-                          onChange={(v) => updateItem(i, { productId: v })}
+                          onChange={(v) => updateItem(i, { productId: v, lotId: undefined })}
                           placeholder={t('inventory.transfer.pickProduct')}
                           options={(products?.items ?? []).map((p) => ({
                             value: p.id,
@@ -512,6 +549,17 @@ function CreateTransferDialog({
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
+
+                      {product?.trackLot ? (
+                        <div className="mt-3 flex items-center gap-2 pl-[3.25rem]">
+                          <TransferLotSelect
+                            productId={product.id}
+                            branchId={fromBranchId}
+                            value={it.lotId}
+                            onChange={(lotId) => updateItem(i, { lotId })}
+                          />
+                        </div>
+                      ) : null}
 
                       <div className="mt-3 flex flex-wrap items-center justify-between gap-3 pl-[3.25rem]">
                         <div className="flex items-center gap-2">

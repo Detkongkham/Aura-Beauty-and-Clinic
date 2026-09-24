@@ -66,8 +66,9 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>): React.JSX
   const onSubmit = handleSubmit(async (values) => {
     const normalized = normalizePhone(values.phone);
     try {
-      await login({ phone: normalized, password: values.password });
+      const challenge = await login({ phone: normalized, password: values.password });
       rememberPhone(remember ? normalized : null);
+      if (challenge) navigation.navigate('TwoFactor', { mfaToken: challenge.mfaToken, mode: challenge.mode });
     } catch {
       /* ສະແດງຜ່ານ loginError */
     }

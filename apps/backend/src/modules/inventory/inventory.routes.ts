@@ -1,13 +1,16 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import {
+  cogsSummaryQuerySchema,
   productCreateSchema,
   productListQuerySchema,
   productUpdateSchema,
   purchaseOrderCreateSchema,
   purchaseOrderListQuerySchema,
+  purchaseOrderReceiveSchema,
   purchaseOrderUpdateSchema,
   stockAdjustSchema,
+  stockLotListQuerySchema,
   stockMovementListQuerySchema,
   stockMovementStatsQuerySchema,
   stockTransferCreateSchema,
@@ -141,12 +144,42 @@ stockMovementsRouter.get(
     res.json({ data: await svc.getStockMovementStats(req.query as never) });
   }),
 );
+stockMovementsRouter.get(
+  '/cogs-summary',
+  validateRequest({ query: cogsSummaryQuerySchema }),
+  asyncHandler(async (req, res) => {
+    res.json({ data: await svc.getCogsSummary(req.query as never) });
+  }),
+);
 stockMovementsRouter.post(
   '/adjust',
   manage,
   validateRequest({ body: stockAdjustSchema }),
   asyncHandler(async (req, res) => {
     res.status(201).json({ data: await svc.adjustStock(req.body, req.auth?.branchId ?? null, req.auth?.sub ?? null) });
+  }),
+);
+
+// ---- /stock-lots (C5 — lot/expiry + recall) ----------------------
+
+export const stockLotsRouter: Router = Router();
+stockLotsRouter.use(authGuard);
+
+// ມີຊື່/ເບີໂທລູກຄ້າໃນ /usage → ຈຳກັດສະເພາະ admin ທັງ 2 endpoint (ບໍ່ເປີດໃຫ້ STAFF/CUSTOMER ອ່ານ).
+stockLotsRouter.get(
+  '/',
+  manage,
+  validateRequest({ query: stockLotListQuerySchema }),
+  asyncHandler(async (req, res) => {
+    res.json({ data: await svc.listStockLots(req.query as never, req.auth?.branchId ?? null) });
+  }),
+);
+stockLotsRouter.get(
+  '/:id/usage',
+  manage,
+  validateRequest({ params: idParamSchema }),
+  asyncHandler(async (req, res) => {
+    res.json({ data: await svc.getLotUsage(req.params.id!, req.auth?.branchId ?? null) });
   }),
 );
 
@@ -188,10 +221,10 @@ purchaseOrdersRouter.patch(
 purchaseOrdersRouter.post(
   '/:id/receive',
   manage,
-  validateRequest({ params: idParamSchema }),
+  validateRequest({ params: idParamSchema, body: purchaseOrderReceiveSchema }),
   asyncHandler(async (req, res) => {
     res.json({
-      data: await svc.receivePurchaseOrder(req.params.id!, req.auth?.branchId ?? null, req.auth?.sub ?? null),
+      data: await svc.receivePurchaseOrder(req.params.id!, req.auth?.branchId ?? null, req.auth?.sub ?? null, req.body),
     });
   }),
 );

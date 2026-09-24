@@ -45,6 +45,8 @@ import { NormalizedApiError } from '@/services/apiError';
 
 import { InventoryStatCard } from './InventoryStatCard';
 import { InventoryTabs } from './InventoryTabs';
+import { LotFields } from './LotFields';
+import { lotPayload, type LotDraft } from './lotDraft';
 import { PoStatusChart } from './PoStatusChart';
 import {
   useCreatePurchaseOrder,
@@ -646,6 +648,40 @@ function PoDetailDialog({
   const { data: po, isLoading } = usePurchaseOrder(id);
   const { data: settings } = useSettings();
   const receive = useReceivePurchaseOrder();
+  // C5 — ສິນຄ້າ trackLot ຕ້ອງລະບຸເລກ lot + ວັນໝົດອາຍຸຕອນຮັບເຄື່ອງ (ເລກ lot ມັກຮູ້ຕອນເຄື່ອງມາຮອດ).
+  const [lots, setLots] = useState<Record<string, LotDraft>>({});
+  const lotItems = (po?.items ?? []).filter((it) => it.trackLot);
+  const canReceive = po?.status === 'DRAFT' || po?.status === 'ORDERED';
+  const lotOf = (it: { productId: string; lotNumber: string | null; expiryDate: string | null; mfgDate: string | null }): LotDraft =>
+    lots[it.productId] ?? {
+      lotNumber: it.lotNumber ?? '',
+      expiryDate: it.expiryDate ?? '',
+      mfgDate: it.mfgDate ?? '',
+    };
+
+  function submitReceive() {
+    if (!po) return;
+    if (lotItems.some((it) => !lotOf(it).lotNumber.trim())) {
+      toast.error(t('inventory.lot.receiveRequired'));
+      return;
+    }
+    receive.mutate(
+      {
+        id: po.id,
+        input: lotItems.length
+          ? { lots: lotItems.map((it) => ({ productId: it.productId, ...lotPayload(lotOf(it)) })) }
+          : undefined,
+      },
+      {
+        onSuccess: () => {
+          toast.success(t('inventory.po.received'));
+          setLots({});
+        },
+        onError: (err) =>
+          toast.error(err instanceof NormalizedApiError ? err.message : t('common.saveError')),
+      },
+    );
+  }
 
   function handlePrint() {
     document.body.classList.add('printing-po');
@@ -734,6 +770,12 @@ function PoDetailDialog({
                     <tr key={it.id} className="border-t border-border">
                       <td className="p-2">
                         {it.productName} <span className="text-xs text-muted-foreground">{it.sku}</span>
+                        {po.status === 'RECEIVED' && it.lotNumber ? (
+                          <div className="text-xs text-muted-foreground">
+                            {t('inventory.lot.title')}: <span className="font-mono">{it.lotNumber}</span>
+                            {it.expiryDate ? ` · ${t('inventory.lot.expiry')} ${it.expiryDate}` : ''}
+                          </div>
+                        ) : null}
                       </td>
                       <td className="p-2 text-right tabular-nums">
                         {it.quantity.toLocaleString()} {it.unit}
@@ -749,6 +791,25 @@ function PoDetailDialog({
                 </tbody>
               </table>
             </div>
+
+            {canManage && canReceive && lotItems.length > 0 ? (
+              <div className="space-y-3 rounded-xl border border-border bg-muted/30 p-3">
+                <div>
+                  <p className="text-sm font-medium text-foreground">{t('inventory.lot.receiveTitle')}</p>
+                  <p className="text-xs text-muted-foreground">{t('inventory.lot.receiveHint')}</p>
+                </div>
+                {lotItems.map((it) => (
+                  <div key={it.id} className="space-y-1.5">
+                    <p className="text-xs font-medium text-foreground">{it.productName}</p>
+                    <LotFields
+                      idPrefix={`po-${it.id}`}
+                      value={lotOf(it)}
+                      onChange={(next) => setLots((prev) => ({ ...prev, [it.productId]: next }))}
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : null}
 
             <div className="flex items-center justify-end gap-2 text-sm">
               <Wallet className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -767,15 +828,7 @@ function PoDetailDialog({
                 {po.status === 'DRAFT' || po.status === 'ORDERED' ? (
                   <Button
                     disabled={receive.isPending}
-                    onClick={() =>
-                      receive.mutate(po.id, {
-                        onSuccess: () => toast.success(t('inventory.po.received')),
-                        onError: (err) =>
-                          toast.error(
-                            err instanceof NormalizedApiError ? err.message : t('common.saveError'),
-                          ),
-                      })
-                    }
+                    onClick={submitReceive}
                   >
                     <PackageCheck className="mr-1 h-4 w-4" />
                     {t('inventory.po.receive')}

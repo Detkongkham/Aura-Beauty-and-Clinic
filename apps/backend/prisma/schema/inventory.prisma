@@ -54,8 +54,13 @@ model Product {
   // ສະຕັອກ + ຈຸດສັ່ງຊື້ໃໝ່ ເປັນ Decimal(16,3) ເພື່ອຮອງຮັບ BOM ແບບເສດ (ເຊັ່ນ 0.03 ຕຸກ/ຄັ້ງ).
   stockQty    Decimal   @default(0) @db.Decimal(16, 3)
   minStockQty Decimal   @default(5) @db.Decimal(16, 3)
-  costPrice   Decimal   @db.Decimal(16, 2)
+  // C4 (audit ຄື້ນ 9B) — costPrice ຕອນນີ້ເຮັດໜ້າທີ່ເປັນ WAC (Weighted Average Cost) ທີ່ອັບເດດ
+  // ອັດຕະໂນມັດຕອນຮັບເຄື່ອງ (PURCHASE_IN/TRANSFER_IN), ບໍ່ແມ່ນຄ່າດຽວທີ່ແກ້ດ້ວຍມືລ້ວນໆອີກຕໍ່ໄປ.
+  // ຂະຫຍາຍເປັນ 4dp (ຈາກ 2dp) ເພື່ອບໍ່ໃຫ້ຄ່າສະເລ່ຍຄາດເຄື່ອນສະສົມເມື່ອຮັບເຄື່ອງຫຼາຍຄັ້ງ.
+  costPrice   Decimal   @db.Decimal(16, 4)
   unit        String
+  /// C5 — ຕິດຕາມ lot/ວັນໝົດອາຍຸ (ເຄື່ອງສຳອາງ/ຢາສີດ). false = ຜ້າເຊັດມື ແລະ ຂອງທົ່ວໄປ, ໃຊ້ stockQty ລ້ວນໆ.
+  trackLot    Boolean   @default(false)
   isActive    Boolean   @default(true)
   deletedAt   DateTime?
   createdAt   DateTime  @default(now())
@@ -66,10 +71,39 @@ model Product {
   purchaseOrderItems PurchaseOrderItem[]
   stockMovements     StockMovement[]
   transferItems      StockTransferItem[]
+  lots               StockLot[]
 
   @@unique([branchId, sku])
   @@index([branchId, isActive])
   @@map("products")
+}
+
+/// C5 — lot/batch ຂອງສິນຄ້າທີ່ `trackLot = true`. ທຸກການເໜັງຕີງຂອງ qtyOnHand ເກີດພາຍໃນ transaction
+/// ທີ່ lock ແຖວ `products` ຂອງສິນຄ້ານັ້ນແລ້ວ (lockProductRow) — ຈຶ່ງບໍ່ຕ້ອງ lock ແຖວ lot ແຍກ.
+/// Σ qtyOnHand ອາດ < products.stockQty ໄດ້ (ສະຕັອກເກົ່າກ່ອນເປີດ trackLot ບໍ່ມີ lot) — ບໍ່ແມ່ນ bug.
+model StockLot {
+  id         String    @id @default(uuid())
+  productId  String
+  branchId   String
+  lotNumber  String
+  expiryDate DateTime? @db.Date
+  mfgDate    DateTime? @db.Date
+  qtyOnHand  Decimal   @db.Decimal(16, 3)
+  /// ຕົ້ນທຶນ/ໜ່ວຍຂອງ lot ນີ້ (ຮັບ lot ດຽວກັນຊ້ຳ = ສະເລ່ຍຖ່ວງນ້ຳໜັກ) — ໃຊ້ເປັນ unitCost ຕອນຕັດ FEFO.
+  unitCost   Decimal   @db.Decimal(16, 4)
+  receivedAt DateTime  @default(now())
+  poItemId   String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  product   Product         @relation(fields: [productId], references: [id])
+  branch    Branch          @relation(fields: [branchId], references: [id])
+  movements StockMovement[]
+
+  @@unique([productId, branchId, lotNumber])
+  @@index([productId, expiryDate])
+  @@index([branchId, expiryDate])
+  @@map("stock_lots")
 }
 
 model StockMovement {
@@ -79,16 +113,26 @@ model StockMovement {
   type            StockMovementType
   qty             Decimal           @db.Decimal(16, 3)
   balanceAfter    Decimal           @db.Decimal(16, 3)
+  /// C4 — WAC ທີ່ໃຊ້ຢູ່ ณ ເວລານັ້ນ (null ສຳລັບແຖວເກົ່າກ່ອນ migration ນີ້ — ບໍ່ backfill ຍ້ອນຫຼັງ).
+  /// PURCHASE_IN/TRANSFER_IN = ຕົ້ນທຶນທີ່ຮັບເຂົ້າ; SERVICE_CONSUMED/TRANSFER_OUT/ADJUSTMENT_DEDUCT
+  /// = WAC ກ່ອນຕັດ (ບໍ່ແມ່ນ WAC ໃໝ່ຫຼັງຕັດ, ຮັກສາຫຼັກ "COGS = qty × cost ກ່ອນຫນ້າ").
+  unitCost        Decimal?          @db.Decimal(16, 4)
+  /// C4 — ມູນຄ່າ LAK ຂອງລາຍການເໜັງຕີງນີ້ (signed): ບວກ = ສະຕັອກເຂົ້າ, ລົບ = ສະຕັອກອອກ/COGS.
+  valueChange     Decimal?          @db.Decimal(16, 2)
+  /// C5 — lot ທີ່ຖືກເໜັງຕີງ (null = ສິນຄ້າບໍ່ trackLot, ຫຼື ສະຕັອກເກົ່າທີ່ບໍ່ມີ lot). ຕັດຂ້າມຫຼາຍ lot = ຫຼາຍແຖວ.
+  lotId           String?
   refId           String?
   notes           String?
   /// ຜູ້ເຮັດລາຍການ — null = ລະບົບອັດຕະໂນມັດ (ເຊັ່ນ BOM ຕັດຕອນ COMPLETED).
   createdByUserId String?
   createdAt       DateTime          @default(now())
 
-  branch        Branch  @relation(fields: [branchId], references: [id])
-  product       Product @relation(fields: [productId], references: [id])
-  createdByUser User?   @relation(fields: [createdByUserId], references: [id])
+  branch        Branch    @relation(fields: [branchId], references: [id])
+  product       Product   @relation(fields: [productId], references: [id])
+  createdByUser User?     @relation(fields: [createdByUserId], references: [id])
+  lot           StockLot? @relation(fields: [lotId], references: [id])
 
+  @@index([lotId])
   @@index([productId, createdAt])
   @@index([branchId, createdAt])
   @@index([refId])
@@ -117,11 +161,15 @@ model PurchaseOrder {
 }
 
 model PurchaseOrderItem {
-  id              String  @id @default(uuid())
+  id              String    @id @default(uuid())
   purchaseOrderId String
   productId       String
-  quantity        Decimal @db.Decimal(16, 3)
-  unitCost        Decimal @db.Decimal(16, 2)
+  quantity        Decimal   @db.Decimal(16, 3)
+  unitCost        Decimal   @db.Decimal(16, 2)
+  /// C5 — ຂໍ້ມູນ lot (ບໍ່ບັງຄັບຕອນສ້າງ PO; ຕອນ "ຮັບເຄື່ອງ" ສາມາດສົ່ງທັບໄດ້ ເພາະເລກ lot ມັກຮູ້ຕອນເຄື່ອງມາຮອດ).
+  lotNumber       String?
+  expiryDate      DateTime? @db.Date
+  mfgDate         DateTime? @db.Date
 
   purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
   product       Product       @relation(fields: [productId], references: [id])
@@ -154,7 +202,7 @@ model StockTransfer {
 }
 
 model StockTransferItem {
-  id                String  @id @default(uuid())
+  id                String    @id @default(uuid())
   stockTransferId   String
   /// ສິນຄ້າຕົ້ນທາງ (ສາຂາ fromBranch) — ຈຸດອ້າງອີງໃນການຕັດສະຕັອກຕອນ "ສົ່ງ".
   productId         String
@@ -163,8 +211,13 @@ model StockTransferItem {
   productName       String
   sku               String
   unit              String
-  quantity          Decimal @db.Decimal(16, 3)
-  unitCost          Decimal @db.Decimal(16, 2)
+  quantity          Decimal   @db.Decimal(16, 3)
+  unitCost          Decimal   @db.Decimal(16, 2)
+  /// C5 — snapshot lot ທີ່ເລືອກຕອນສ້າງລາຍການ (ສິນຄ້າ trackLot ເທົ່ານັ້ນ) — ຕົ້ນທາງຕັດຈາກ lot ນີ້,
+  /// ປາຍທາງສ້າງ/ເພີ່ມ StockLot ດ້ວຍເລກ lot + ວັນໝົດອາຍຸດຽວກັນ.
+  lotNumber         String?
+  expiryDate        DateTime? @db.Date
+  mfgDate           DateTime? @db.Date
   /// ສິນຄ້າປາຍທາງທີ່ຖືກ resolve (ຫາ ຫຼື ສ້າງໃໝ່) ຕອນ "ຮັບ" — null ຈົນກວ່າຈະຮັບ.
   receivedProductId String?
 

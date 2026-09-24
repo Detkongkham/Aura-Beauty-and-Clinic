@@ -43,6 +43,22 @@ export const productListQuerySchema = paginationQuerySchema.extend({
 });
 export type ProductListQuery = z.infer<typeof productListQuerySchema>;
 
+/** C5 — ວັນທີ YYYY-MM-DD (ວັນປະຕິທິນລ້ວນໆ, ບໍ່ມີເວລາ) ສຳລັບວັນໝົດອາຍຸ/ວັນຜະລິດ. */
+export const lotDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'ຮູບແບບວັນທີຕ້ອງເປັນ YYYY-MM-DD');
+
+/** C5 — ຂໍ້ມູນ lot ທີ່ລະບຸຕອນຮັບເຄື່ອງ/ຍອດເປີດ/ປັບເພີ່ມ. */
+export const lotInfoSchema = z
+  .object({
+    lotNumber: z.string().trim().min(1).max(60),
+    expiryDate: lotDateSchema.nullable().optional(),
+    mfgDate: lotDateSchema.nullable().optional(),
+  })
+  .refine((v) => !v.expiryDate || !v.mfgDate || v.mfgDate <= v.expiryDate, {
+    message: 'ວັນຜະລິດຕ້ອງບໍ່ຫຼັງວັນໝົດອາຍຸ',
+    path: ['mfgDate'],
+  });
+export type LotInfoInput = z.infer<typeof lotInfoSchema>;
+
 export const productCreateSchema = z.object({
   branchId: z.string().uuid(),
   name: z.string().trim().min(1).max(160),
@@ -52,6 +68,9 @@ export const productCreateSchema = z.object({
   openingStock: z.coerce.number().nonnegative().default(0),
   minStockQty: z.coerce.number().nonnegative().default(5),
   isActive: z.boolean().default(true),
+  /** C5 — ຕິດຕາມ lot/ວັນໝົດອາຍຸ. ຖ້າ true ແລະ openingStock > 0 ຕ້ອງລະບຸ `openingLot`. */
+  trackLot: z.boolean().default(false),
+  openingLot: lotInfoSchema.optional(),
 });
 export type ProductCreateInput = z.infer<typeof productCreateSchema>;
 
@@ -63,6 +82,8 @@ export const productUpdateSchema = z.object({
   costPrice: z.coerce.number().nonnegative().optional(),
   minStockQty: z.coerce.number().nonnegative().optional(),
   isActive: z.boolean().optional(),
+  /** C5 — ປິດບໍ່ໄດ້ ຖ້າຍັງມີ lot ທີ່ມີສະຕັອກຄົງເຫຼືອ. */
+  trackLot: z.boolean().optional(),
 });
 export type ProductUpdateInput = z.infer<typeof productUpdateSchema>;
 
@@ -81,6 +102,8 @@ export type ProductView = {
   outOfStock: boolean;
   /** 0 < stockQty <= minStockQty */
   lowStock: boolean;
+  /** C5 — ຕິດຕາມ lot/ວັນໝົດອາຍຸ */
+  trackLot: boolean;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -131,11 +154,28 @@ export type StockMovementStatsView = {
   byType: Record<StockMovementTypeValue, number>;
 };
 
+// ---- C4 costing — COGS summary -----------------------------------
+
+/** ຊ່ວງເວລາ/ສາຂາ ດຽວກັນກັບ stats — ໃຊ້ sum(valueChange) ຂອງ SERVICE_CONSUMED. */
+export const cogsSummaryQuerySchema = stockMovementListQuerySchema.pick({
+  branchId: true,
+  from: true,
+  to: true,
+});
+export type CogsSummaryQuery = z.infer<typeof cogsSummaryQuerySchema>;
+
+/** totalCogs ເປັນຄ່າບວກສະເໝີ (ຕົ້ນທຶນສິນຄ້າທີ່ຖືກໃຊ້ໄປ — ledger ເກັບເປັນ valueChange ລົບ). */
+export type CogsSummaryView = {
+  totalCogs: number;
+};
+
 /** delta ບວກ = ເພີ່ມສະຕັອກ, ລົບ = ຫຼຸດ. 0 ບໍ່ໄດ້. */
 export const stockAdjustSchema = z.object({
   productId: z.string().uuid(),
   delta: z.coerce.number().refine((n) => n !== 0, 'delta ຕ້ອງບໍ່ເປັນ 0'),
   notes: z.string().trim().max(400).optional(),
+  /** C5 — ບັງຄັບເມື່ອ delta > 0 ໃນສິນຄ້າ trackLot (ເພີ່ມເຂົ້າ lot ໃດ). delta < 0 ໃຊ້ FEFO ອັດຕະໂນມັດ. */
+  lot: lotInfoSchema.optional(),
 });
 export type StockAdjustInput = z.infer<typeof stockAdjustSchema>;
 
@@ -148,6 +188,13 @@ export type StockMovementView = {
   type: StockMovementTypeValue;
   qty: number;
   balanceAfter: number;
+  /** C4 — WAC ຢູ່ ณ ເວລານັ້ນ. null = ແຖວເກົ່າກ່ອນ migration ນີ້ (ບໍ່ backfill). */
+  unitCost: number | null;
+  /** C4 — ມູນຄ່າ LAK ຂອງລາຍການນີ້ (signed). null = ແຖວເກົ່າກ່ອນ migration ນີ້. */
+  valueChange: number | null;
+  /** C5 — lot ທີ່ເກີດການເໜັງຕີງ (null = ບໍ່ trackLot ຫຼື ສະຕັອກເກົ່າທີ່ບໍ່ມີ lot). */
+  lotId: string | null;
+  lotNumber: string | null;
   refId: string | null;
   notes: string | null;
   /** ຜູ້ເຮັດລາຍການ — null = ລະບົບອັດຕະໂນມັດ (ເຊັ່ນ BOM ຕັດຕອນນັດໝາຍ COMPLETED). */
@@ -174,6 +221,10 @@ export const purchaseOrderItemInputSchema = z.object({
   productId: z.string().uuid(),
   quantity: z.coerce.number().positive(),
   unitCost: z.coerce.number().nonnegative(),
+  /** C5 — ບໍ່ບັງຄັບຕອນສ້າງ PO (ເລກ lot ມັກຮູ້ຕອນເຄື່ອງມາຮອດ) — ສົ່ງທັບໄດ້ຕອນ receive. */
+  lotNumber: z.string().trim().min(1).max(60).nullable().optional(),
+  expiryDate: lotDateSchema.nullable().optional(),
+  mfgDate: lotDateSchema.nullable().optional(),
 });
 export type PurchaseOrderItemInput = z.infer<typeof purchaseOrderItemInputSchema>;
 
@@ -202,7 +253,30 @@ export type PurchaseOrderItemView = {
   quantity: number;
   unitCost: number;
   lineTotal: number;
+  /** C5 — ສິນຄ້ານີ້ຕ້ອງລະບຸ lot ຕອນຮັບເຄື່ອງ */
+  trackLot: boolean;
+  lotNumber: string | null;
+  expiryDate: string | null;
+  mfgDate: string | null;
 };
+
+/** C5 — body ຂອງ POST /purchase-orders/:id/receive (ທັງໝົດ optional — PO ທີ່ບໍ່ມີສິນຄ້າ trackLot ສົ່ງ {} ໄດ້). */
+export const purchaseOrderReceiveSchema = z
+  .object({
+    lots: z
+      .array(
+        z.object({
+          productId: z.string().uuid(),
+          lotNumber: z.string().trim().min(1).max(60),
+          expiryDate: lotDateSchema.nullable().optional(),
+          mfgDate: lotDateSchema.nullable().optional(),
+        }),
+      )
+      .max(100)
+      .optional(),
+  })
+  .default({});
+export type PurchaseOrderReceiveInput = z.infer<typeof purchaseOrderReceiveSchema>;
 
 export type PurchaseOrderView = {
   id: string;
@@ -242,6 +316,8 @@ export type StockTransferListQuery = z.infer<typeof stockTransferListQuerySchema
 export const stockTransferItemInputSchema = z.object({
   productId: z.string().uuid(),
   quantity: z.coerce.number().positive(),
+  /** C5 — ບັງຄັບສຳລັບສິນຄ້າ trackLot: lot ຕົ້ນທາງທີ່ຈະຕັດ (ຕ້ອງມີສະຕັອກພຽງພໍໃນ lot ດຽວ). */
+  lotId: z.string().uuid().optional(),
 });
 export type StockTransferItemInput = z.infer<typeof stockTransferItemInputSchema>;
 
@@ -268,6 +344,8 @@ export type StockTransferItemView = {
   unitCost: number;
   lineValue: number;
   receivedProductId: string | null;
+  lotNumber: string | null;
+  expiryDate: string | null;
 };
 
 export type StockTransferView = {
@@ -287,4 +365,70 @@ export type StockTransferView = {
   createdAt: string;
   updatedAt: string;
   items?: StockTransferItemView[];
+};
+
+// ---- C5 lots (batch / expiry / recall traceability) ---------------
+
+export const stockLotListQuerySchema = paginationQuerySchema.extend({
+  productId: z.string().uuid().optional(),
+  branchId: z.string().uuid().optional(),
+  /** ສະເພາະ lot ທີ່ມີວັນໝົດອາຍຸ ≤ ວັນນີ້ + N ວັນ (ລວມ lot ທີ່ໝົດອາຍຸແລ້ວ). */
+  expiringWithinDays: z.coerce.number().int().min(0).max(3650).optional(),
+  /** default false — ສະແດງສະເພາະ lot ທີ່ຍັງມີສະຕັອກ (qtyOnHand > 0). */
+  includeEmpty: z.enum(['true', 'false']).optional(),
+});
+export type StockLotListQuery = z.infer<typeof stockLotListQuerySchema>;
+
+export type StockLotStatusValue = 'EXPIRED' | 'EXPIRING' | 'OK' | 'NO_EXPIRY';
+
+export type StockLotView = {
+  id: string;
+  productId: string;
+  productName: string;
+  sku: string;
+  unit: string;
+  branchId: string;
+  branchName: string;
+  lotNumber: string;
+  /** YYYY-MM-DD */
+  expiryDate: string | null;
+  mfgDate: string | null;
+  qtyOnHand: number;
+  unitCost: number;
+  receivedAt: string;
+  /** ຈຳນວນວັນເຫຼືອ (ຕາມວັນວຽງຈັນ) — ລົບ = ໝົດອາຍຸແລ້ວ, null = ບໍ່ມີວັນໝົດອາຍຸ. */
+  daysLeft: number | null;
+  /** EXPIRING = ≤ 60 ວັນ */
+  status: StockLotStatusValue;
+};
+
+export type LotUsageAppointmentView = {
+  appointmentId: string;
+  startAt: string;
+  status: string;
+  serviceName: string;
+  customerId: string;
+  customerName: string;
+  customerPhone: string | null;
+  qty: number;
+  consumedAt: string;
+};
+
+export type LotUsageTransferView = {
+  transferId: string;
+  transferNumber: string;
+  toBranchId: string;
+  toBranchName: string;
+  qty: number;
+  sentAt: string;
+};
+
+/** ລາຍງານ recall — lot ນີ້ຖືກໃຊ້ກັບລູກຄ້າຄົນໃດ ແລະ ຖືກໂອນໄປສາຂາໃດແດ່. */
+export type LotUsageView = {
+  lot: StockLotView;
+  appointments: LotUsageAppointmentView[];
+  /** ຈຳນວນລູກຄ້າທີ່ບໍ່ຊ້ຳກັນ */
+  customerCount: number;
+  totalConsumedQty: number;
+  transfersOut: LotUsageTransferView[];
 };

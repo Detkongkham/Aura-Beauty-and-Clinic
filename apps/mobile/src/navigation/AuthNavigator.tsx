@@ -3,6 +3,7 @@ import { colors } from '../theme';
 import { ForgotPasswordScreen } from '../screens/auth/ForgotPasswordScreen';
 import { LoginScreen } from '../screens/auth/LoginScreen';
 import { RegisterScreen } from '../screens/auth/RegisterScreen';
+import { TwoFactorScreen } from '../screens/auth/TwoFactorScreen';
 import { WelcomeScreen } from '../screens/auth/WelcomeScreen';
 import type { AuthStackParamList } from './types';
 
@@ -21,6 +22,7 @@ export function AuthNavigator(): React.JSX.Element {
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="Register" component={RegisterScreen} />
       <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+      <Stack.Screen name="TwoFactor" component={TwoFactorScreen} />
     </Stack.Navigator>
   );
 }

@@ -34,7 +34,7 @@ function overview(patch: Partial<AccountOverview> = {}): AccountOverview {
     branch: null,
     role: null,
     staff: null,
-    policy: { minPasswordLength: 8, sessionTimeoutMinutes: 60 },
+    policy: { minPasswordLength: 8, sessionTimeoutMinutes: 60, require2fa: false },
     stats: { activeSessions: 1, actions30d: 0, lastActionAt: null },
     currentSessionId: null,
     ...patch,
@@ -68,9 +68,11 @@ describe('security checklist', () => {
       passwordChangedAt: '2026-09-01T00:00:00Z',
       avatarUrl: 'data:image/png;base64,x',
       user: { ...overview().user, email: 'a@b.la' },
+      twoFactor: { enabled: true, enabledAt: '2026-09-01T00:00:00Z', recoveryCodesLeft: 10, required: false },
     });
     expect(securityScore(securityChecks(good, NOW))).toBe(100);
-    expect(securityScore(securityChecks(overview(), NOW))).toBe(25);
+    expect(securityScore(securityChecks(overview(), NOW))).toBe(20);
+    expect(securityChecks(good, NOW).find((c) => c.key === 'twoFactor')?.ok).toBe(true);
   });
   it('flags too many open sessions', () => {
     const many = overview({ stats: { activeSessions: 5, actions30d: 0, lastActionAt: null } });

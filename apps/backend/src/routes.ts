@@ -19,6 +19,7 @@ import {
 import {
   productsRouter,
   purchaseOrdersRouter,
+  stockLotsRouter,
   stockMovementsRouter,
   stockTransfersRouter,
   suppliersRouter,
@@ -85,6 +86,7 @@ apiRouter.use('/queue', queueRouter);
 apiRouter.use('/suppliers', suppliersRouter);
 apiRouter.use('/products', productsRouter);
 apiRouter.use('/stock-movements', stockMovementsRouter);
+apiRouter.use('/stock-lots', stockLotsRouter);
 apiRouter.use('/purchase-orders', purchaseOrdersRouter);
 apiRouter.use('/stock-transfers', stockTransfersRouter);
 apiRouter.use('/services', servicesAdminRouter);

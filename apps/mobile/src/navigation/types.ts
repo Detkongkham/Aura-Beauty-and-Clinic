@@ -8,6 +8,7 @@ export type AuthStackParamList = {
   Login: undefined;
   Register: undefined;
   ForgotPassword: undefined;
+  TwoFactor: { mfaToken: string; mode: 'verify' | 'setup' };
 };
 
 export type TabsParamList = {
