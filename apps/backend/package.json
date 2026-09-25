@@ -18,7 +18,8 @@
     "db:reset": "prisma migrate reset --force",
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:bulk": "tsx prisma/seed-bulk.ts",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "openapi:sync": "tsx scripts/openapi-sync.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
