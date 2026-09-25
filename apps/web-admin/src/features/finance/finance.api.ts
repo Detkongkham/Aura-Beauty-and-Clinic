@@ -93,6 +93,8 @@ export function useRecordTender(paymentId: string) {
       qc.setQueryData(['payments', 'detail', paymentId], p);
       void qc.invalidateQueries({ queryKey: ['payments'] });
       void qc.invalidateQueries({ queryKey: ['appointments'] });
+      // M13 — ບິນຂາຍໜ້າຮ້ານ: ສະຖານະ/ການຕັດສະຕັອກປ່ຽນຕາມການຈ່າຍ.
+      void qc.invalidateQueries({ queryKey: ['retail-sales'] });
     },
   });
 }
@@ -112,6 +114,7 @@ function useInvalidatePayments() {
   return () => {
     void qc.invalidateQueries({ queryKey: ['payments'] });
     void qc.invalidateQueries({ queryKey: ['refunds'] });
+    void qc.invalidateQueries({ queryKey: ['retail-sales'] });
     void qc.invalidateQueries({ queryKey: ['appointments'] });
   };
 }

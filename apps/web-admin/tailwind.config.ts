@@ -96,6 +96,8 @@ const config: Config = {
         // Sans/Playfair Display's own (visually mismatched) digit glyphs mid-sentence.
         lao: ['"Noto Sans Lao"', '"Plus Jakarta Sans"', 'Inter', 'system-ui', '-apple-system', 'sans-serif'],
         'display-lao': ['"Noto Serif Lao"', '"Playfair Display"', 'Georgia', 'serif'],
+        // Noto Serif Lao for Latin too (it ships a Latin subset) — used by `.font-serif-all`.
+        'serif-lao': ['"Noto Serif Lao"', 'Georgia', 'serif'],
       },
       fontSize: {
         '2xs': ['0.6875rem', { lineHeight: '1.4' }],
@@ -123,6 +125,21 @@ const config: Config = {
           from: { height: 'var(--radix-accordion-content-height)' },
           to: { height: '0' },
         },
+        // Public site trust strip — list is rendered twice, so -50% loops seamlessly.
+        marquee: {
+          from: { transform: 'translateX(0)' },
+          to: { transform: 'translateX(-50%)' },
+        },
+        // Public site hero sparkles.
+        twinkle: {
+          '0%, 100%': { opacity: '0', transform: 'scale(0.4) rotate(0deg)' },
+          '50%': { opacity: '1', transform: 'scale(1) rotate(45deg)' },
+        },
+        // Slow drift for decorative blobs / floating chips.
+        float: {
+          '0%, 100%': { transform: 'translate3d(0, 0, 0)' },
+          '50%': { transform: 'translate3d(0, -10px, 0)' },
+        },
         // Topbar bell nudge — fires only while an unread *critical* alert exists.
         swing: {
           '0%, 100%': { transform: 'rotate(0deg)' },
@@ -136,6 +153,9 @@ const config: Config = {
         'accordion-down': 'accordion-down 0.2s ease-out',
         'accordion-up': 'accordion-up 0.2s ease-out',
         swing: 'swing 1.2s ease-in-out 2',
+        twinkle: 'twinkle 3.2s ease-in-out infinite',
+        float: 'float 6s ease-in-out infinite',
+        'float-slow': 'float 9s ease-in-out infinite',
       },
     },
   },

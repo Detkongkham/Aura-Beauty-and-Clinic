@@ -24,6 +24,7 @@ import { useStaffSchedule, useUpdateApptStatus } from '../../features/staff/staf
 import { cn } from '../../lib/cn';
 import { formatTime, isoDateInDays, slotBucket, vientiane } from '../../lib/format';
 import { haptics } from '../../lib/haptics';
+import { useInventoryAccess } from '../../features/inventory/inventory.api';
 import { normalizeError } from '../../services/apiError';
 import { colors, shadow } from '../../theme';
 import type { StaffTabScreenProps } from '../../navigation/types';
@@ -147,6 +148,7 @@ export function StaffTodayScreen({
 
   // ສະລິບໂອນເງິນທີ່ລໍກວດ (ສະເພາະຜູ້ມີສິດ payments:review) — badge ເທິງຫົວໜ້າ + socket ສົດ
   const canReviewSlips = useCanReviewSlips();
+  const canStock = useInventoryAccess().canView;
   useSlipReviewLive(canReviewSlips);
   const slipBadge = actionableCount(useSlipInbox('review', canReviewSlips).data);
 
@@ -233,6 +235,13 @@ export function StaffTodayScreen({
           subtitle={`${dayLabel} · ${t('staffPortal.today.count', { count: stats.total })}`}
           right={
             <>
+              {canStock ? (
+                <HeaderIconButton
+                  icon="cube-outline"
+                  label={t('stock.home.title')}
+                  onPress={() => navigation.navigate('StockHome')}
+                />
+              ) : null}
               {canReviewSlips ? (
                 <HeaderIconButton
                   icon="receipt-outline"

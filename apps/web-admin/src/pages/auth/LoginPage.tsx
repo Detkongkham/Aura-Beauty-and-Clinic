@@ -8,16 +8,25 @@ import {
   type TwoFactorSetup,
 } from '@abcp/shared-types';
 import { useMutation } from '@tanstack/react-query';
-import { ShieldCheck } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { ArrowRight, KeyRound, Loader2, LockKeyhole, LogIn, Phone, QrCode, ShieldCheck } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { authApi } from '@/features/auth/auth.api';
+import { greetingKey, useNow } from '@/features/auth/authTime';
+import { AuthCard, AuthShell } from '@/features/auth/components/AuthShell';
+import {
+  AuthNotice,
+  AuthStepper,
+  CountdownBar,
+  FieldError,
+  IconInput,
+  PasswordInput,
+} from '@/features/auth/components/authParts';
 import { useAuthStore } from '@/features/auth/auth.store';
 import { OtpInput, RecoveryCodes, TotpQr } from '@/features/auth/components/TwoFactorParts';
 import { isOtpComplete } from '@/features/auth/otp';
@@ -47,6 +56,8 @@ export function LoginPage() {
   const [step, setStep] = useState<Step>({ kind: 'credentials' });
   const [code, setCode] = useState('');
   const [codeError, setCodeError] = useState<string | null>(null);
+  const [lock, setLock] = useState<{ until: number; total: number } | null>(null);
+  const now = useNow(60_000);
 
   const form = useForm<LoginInput>({
     resolver: zodResolver(loginSchema),
@@ -57,6 +68,9 @@ export function LoginPage() {
     if (err instanceof NormalizedApiError) {
       if (err.code === 'ACCOUNT_LOCKED') {
         const until = (err.details as { lockedUntil?: string } | undefined)?.lockedUntil;
+        const untilMs = until ? new Date(until).getTime() : NaN;
+        // Drives the live countdown; the text below stays as the fallback / screen-reader copy.
+        if (untilMs > Date.now()) setLock({ until: untilMs, total: untilMs - Date.now() });
         return until ? t('auth.lockedUntil', { time: formatDateTime(until) }) : t('auth.locked');
       }
       if (err.code === 'MFA_INVALID') return t('twoFactor.wrongCode');
@@ -77,6 +91,11 @@ export function LoginPage() {
     setHydrated(true);
     navigate(location.state?.from ?? ROUTES.dashboard, { replace: true });
   };
+
+  const unlock = useCallback(() => {
+    setLock(null);
+    form.clearErrors('root');
+  }, [form]);
 
   const backToCredentials = (message?: string) => {
     setStep({ kind: 'credentials' });
@@ -137,86 +156,108 @@ export function LoginPage() {
   const rootError = form.formState.errors.root?.message;
   const notice =
     reason === 'idle' ? t('auth.reason.idle') : reason === 'mfa' ? t('auth.reason.mfa') : reason === 'revoked' ? t('auth.reason.revoked') : null;
+  const errors = form.formState.errors;
+
+  const mfaSteps =
+    step.kind === 'verify'
+      ? [t('auth.flow.password'), t('auth.flow.verifyCode'), t('auth.flow.workspace')]
+      : [t('auth.flow.password'), t('auth.flow.linkApp'), t('auth.flow.saveCodes')];
+  const mfaIndex = step.kind === 'verify' ? 1 : step.kind === 'setup' ? 1 : 2;
+  const backLink = (
+    <button
+      type="button"
+      className="inline-flex min-h-[44px] w-full items-center justify-center text-sm font-medium text-primary hover:underline"
+      onClick={() => backToCredentials()}
+    >
+      {t('auth.backToSignIn')}
+    </button>
+  );
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm space-y-6 rounded-lg border border-border bg-card p-6 shadow-sm">
-        <div className="space-y-1 text-center">
-          <p className="font-display text-2xl text-primary">{t('app.name')}</p>
-          <p className="text-sm text-muted-foreground">
-            {step.kind === 'credentials'
-              ? t('auth.signInSubtitle')
-              : step.kind === 'verify'
-                ? t('twoFactor.verifySubtitle')
-                : step.kind === 'setup'
-                  ? t('twoFactor.setupRequiredSubtitle')
-                  : t('twoFactor.recoveryTitle')}
-          </p>
-        </div>
-
-        {step.kind === 'credentials' ? (
-          <form
-            className="space-y-4"
-            onSubmit={form.handleSubmit((values) => login.mutate(values))}
-            noValidate
-          >
-            {rootError ? (
-              <p role="alert" className="rounded-sm bg-destructive-soft px-3 py-2 text-sm text-destructive">
-                {rootError}
-              </p>
+    <AuthShell>
+      {step.kind === 'credentials' ? (
+        <AuthCard
+          icon={LogIn}
+          eyebrow={t(`auth.greeting.${greetingKey(now)}`)}
+          title={t('auth.welcomeBack')}
+          subtitle={t('auth.signInSubtitle')}
+        >
+          <form className="space-y-4" onSubmit={form.handleSubmit((values) => login.mutate(values))} noValidate>
+            {lock ? (
+              <AuthNotice tone="warning">
+                <p className="font-semibold">{t('auth.lockedTitle')}</p>
+                <p className="sr-only">{rootError}</p>
+                <CountdownBar until={lock.until} total={lock.total} label={t('auth.lockedCountdown')} tone="warning" onDone={unlock} />
+              </AuthNotice>
+            ) : rootError ? (
+              <AuthNotice tone="error">{rootError}</AuthNotice>
             ) : notice ? (
-              <p role="status" className="rounded-sm bg-info-soft px-3 py-2 text-sm text-info">
-                {notice}
-              </p>
+              <AuthNotice tone="info">{notice}</AuthNotice>
             ) : null}
 
             <div className="space-y-1.5">
               <Label htmlFor="phone">{t('auth.phone')}</Label>
-              <Input
+              <IconInput
                 id="phone"
+                icon={Phone}
                 type="tel"
+                inputMode="tel"
                 autoComplete="username"
-                aria-invalid={Boolean(form.formState.errors.phone)}
-                aria-describedby={form.formState.errors.phone ? 'phone-error' : undefined}
+                placeholder="20xx xxx xxx"
+                aria-invalid={Boolean(errors.phone)}
+                aria-describedby={errors.phone ? 'phone-error' : undefined}
                 {...form.register('phone')}
               />
-              {form.formState.errors.phone ? (
-                <p id="phone-error" role="alert" className="text-xs text-destructive">
-                  {form.formState.errors.phone.message}
-                </p>
-              ) : null}
+              {errors.phone ? <FieldError id="phone-error">{errors.phone.message}</FieldError> : null}
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="password">{t('auth.password')}</Label>
-              <Input
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="password">{t('auth.password')}</Label>
+                <Link to={ROUTES.forgotPassword} className="text-xs font-medium text-primary hover:underline">
+                  {t('auth.forgotPassword')}
+                </Link>
+              </div>
+              <PasswordInput
                 id="password"
-                type="password"
+                icon={LockKeyhole}
                 autoComplete="current-password"
-                aria-invalid={Boolean(form.formState.errors.password)}
-                aria-describedby={form.formState.errors.password ? 'password-error' : undefined}
+                aria-invalid={Boolean(errors.password)}
+                aria-describedby={errors.password ? 'password-error' : undefined}
                 {...form.register('password')}
               />
-              {form.formState.errors.password ? (
-                <p id="password-error" role="alert" className="text-xs text-destructive">
-                  {form.formState.errors.password.message}
-                </p>
-              ) : null}
+              {errors.password ? <FieldError id="password-error">{errors.password.message}</FieldError> : null}
             </div>
 
-            <Button type="submit" className="w-full" disabled={login.isPending}>
-              {login.isPending ? t('common.loading') : t('auth.signIn')}
+            <Button type="submit" className="h-11 w-full gap-2" disabled={login.isPending || Boolean(lock)}>
+              {login.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  {t('auth.signingIn')}
+                </>
+              ) : (
+                <>
+                  {t('auth.signIn')}
+                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                </>
+              )}
             </Button>
 
-            <div className="text-center">
-              <Link to={ROUTES.forgotPassword} className="text-xs text-primary hover:underline">
-                {t('auth.forgotPassword')}
-              </Link>
+            <div className="flex items-start gap-2 rounded-md bg-muted/50 px-3 py-2.5 text-xs text-muted-foreground">
+              <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
+              <span>{t('auth.securityNote')}</span>
             </div>
           </form>
-        ) : null}
+        </AuthCard>
+      ) : null}
 
-        {step.kind === 'verify' ? (
+      {step.kind === 'verify' ? (
+        <AuthCard
+          icon={ShieldCheck}
+          eyebrow={<AuthStepper steps={mfaSteps} current={mfaIndex} label={t('auth.flow.signInTitle')} />}
+          title={t('twoFactor.title')}
+          subtitle={t('twoFactor.verifySubtitle')}
+        >
           <form
             className="space-y-4"
             noValidate
@@ -226,23 +267,26 @@ export function LoginPage() {
               verify.mutate({ token: step.challenge.mfaToken, value: code });
             }}
           >
-            <div className="flex justify-center">
-              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-primary-subtle text-primary">
-                <ShieldCheck className="h-6 w-6" aria-hidden="true" />
-              </span>
-            </div>
             <OtpInput id="mfa-code" value={code} onChange={(v) => { setCode(v); setCodeError(null); }} error={codeError} allowRecovery />
-            <p className="text-xs text-muted-foreground">{t('twoFactor.recoveryHint')}</p>
-            <Button type="submit" className="w-full" disabled={verify.isPending}>
+            <p className="flex items-start gap-2 text-xs text-muted-foreground">
+              <KeyRound className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              {t('twoFactor.recoveryHint')}
+            </p>
+            <Button type="submit" className="h-11 w-full gap-2" disabled={verify.isPending}>
+              {verify.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
               {verify.isPending ? t('common.loading') : t('twoFactor.verify')}
             </Button>
-            <button type="button" className="w-full text-center text-xs text-primary hover:underline" onClick={() => backToCredentials()}>
-              {t('auth.backToSignIn')}
-            </button>
+            {backLink}
           </form>
-        ) : null}
+        </AuthCard>
+      ) : null}
 
-        {step.kind === 'setup' ? (
+      {step.kind === 'setup' ? (
+        <AuthCard
+          icon={QrCode}
+          eyebrow={<AuthStepper steps={mfaSteps} current={mfaIndex} label={t('auth.flow.setupTitle')} />}
+          title={t('twoFactor.setupRequiredSubtitle')}
+        >
           <form
             className="space-y-4"
             noValidate
@@ -252,27 +296,41 @@ export function LoginPage() {
               activate.mutate({ token: step.challenge.mfaToken, value: code });
             }}
           >
-            <p className="rounded-sm bg-info-soft px-3 py-2 text-xs text-info">{t('twoFactor.requiredNotice')}</p>
-            {step.setup ? <TotpQr setup={step.setup} /> : <p className="text-center text-sm text-muted-foreground">{t('common.loading')}</p>}
+            <AuthNotice tone="info">{t('twoFactor.requiredNotice')}</AuthNotice>
+            {step.setup ? (
+              <TotpQr setup={step.setup} />
+            ) : (
+              <div className="flex h-40 items-center justify-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                {t('common.loading')}
+              </div>
+            )}
             <OtpInput id="mfa-setup-code" value={code} onChange={(v) => { setCode(v); setCodeError(null); }} error={codeError} autoFocus={false} />
-            <Button type="submit" className="w-full" disabled={activate.isPending || !step.setup}>
+            <Button type="submit" className="h-11 w-full gap-2" disabled={activate.isPending || !step.setup}>
+              {activate.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
               {activate.isPending ? t('common.loading') : t('twoFactor.activate')}
             </Button>
-            <button type="button" className="w-full text-center text-xs text-primary hover:underline" onClick={() => backToCredentials()}>
-              {t('auth.backToSignIn')}
-            </button>
+            {backLink}
           </form>
-        ) : null}
+        </AuthCard>
+      ) : null}
 
-        {step.kind === 'recovery' ? (
+      {step.kind === 'recovery' ? (
+        <AuthCard
+          icon={KeyRound}
+          tone="success"
+          eyebrow={<AuthStepper steps={mfaSteps} current={mfaIndex} label={t('auth.flow.setupTitle')} />}
+          title={t('twoFactor.recoveryTitle')}
+        >
           <div className="space-y-4">
             <RecoveryCodes codes={step.codes} />
-            <Button className="w-full" onClick={() => finish(step.auth)}>
+            <Button className="h-11 w-full gap-2" onClick={() => finish(step.auth)}>
               {t('twoFactor.savedContinue')}
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </Button>
           </div>
-        ) : null}
-      </div>
-    </div>
+        </AuthCard>
+      ) : null}
+    </AuthShell>
   );
 }

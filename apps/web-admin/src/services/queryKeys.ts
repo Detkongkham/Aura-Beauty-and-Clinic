@@ -30,5 +30,6 @@ export const queryKeys = {
   },
   branches: {
     list: () => ['branches', 'list'] as const,
+    insights: (days: number) => ['branches', 'insights', days] as const,
   },
 } as const;

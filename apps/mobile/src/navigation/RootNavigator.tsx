@@ -14,11 +14,14 @@ import { useTheme } from '../theme/ThemeProvider';
 import { LoadingScreen } from '../components/shared/StateViews';
 import { AppNavigator } from './AppNavigator';
 import { AuthNavigator } from './AuthNavigator';
+import { navigationRef } from './navigationRef';
+import { usePushNavigation } from '../lib/usePushNavigation';
 import { StaffNavigator } from './StaffNavigator';
 
 export function RootNavigator(): React.JSX.Element {
   useAuthBootstrap();
   usePreferenceSync();
+  usePushNavigation();
   const status = useAuthStore((s) => s.status);
   const role = useAuthStore((s) => s.user?.role);
   const { palette, isDark } = useTheme();
@@ -56,6 +59,7 @@ export function RootNavigator(): React.JSX.Element {
 
   return (
     <NavigationContainer
+      ref={navigationRef}
       key={themeKey}
       theme={navTheme}
       initialState={stateRef.current}

@@ -9,6 +9,8 @@ import type {
 } from '@abcp/shared-types';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../config/database.js';
+import { logger } from '../../config/logger.js';
+import { pushOnly } from '../../services/push.js';
 import { storage } from '../../storage/index.js';
 import { ApiError } from '../../utils/ApiError.js';
 
@@ -201,6 +203,66 @@ async function assertCanSend(threadId: string, actor: AccessTokenPayload): Promi
   if (thread?.type === 'DIRECT') await assertNotBlocked(threadId, actor.sub);
 }
 
+/** ບໍ່ push ຊ້ຳເມື່ອຜູ້ສົ່ງດຽວກັນສົ່ງຕໍ່ເນື່ອງພາຍໃນຊ່ວງນີ້ (ຂໍ້ຄວາມທຳອິດແຈ້ງແລ້ວ). */
+const CHAT_PUSH_QUIET_MS = 60_000;
+
+/**
+ * Push ແຈ້ງຂໍ້ຄວາມໃໝ່ໃຫ້ຜູ້ຮັບທຸກຄົນໃນຫ້ອງ (ບໍ່ລວມຜູ້ສົ່ງ) — ປິດ debt ຂອງ 7C.2/8B:
+ * ເມື່ອກ່ອນຜູ້ຮັບຮູ້ສະເພາະຕອນເຊື່ອມ socket ຢູ່. Fire-and-forget; ລົ້ມບໍ່ກະທົບການສົ່ງ.
+ */
+async function notifyRecipients(
+  threadId: string,
+  messageId: string,
+  actor: AccessTokenPayload,
+  preview: string,
+): Promise<void> {
+  const [thread, sender, recent] = await Promise.all([
+    prisma.chatThread.findUnique({ where: { id: threadId }, select: { type: true, appointmentId: true } }),
+    prisma.user.findUnique({ where: { id: actor.sub }, select: { name: true } }),
+    prisma.chatMessage.count({
+      where: {
+        threadId,
+        senderId: actor.sub,
+        id: { not: messageId },
+        createdAt: { gte: new Date(Date.now() - CHAT_PUSH_QUIET_MS) },
+      },
+    }),
+  ]);
+  if (!thread || recent > 0) return;
+
+  let recipients: string[] = [];
+  if (thread.type === 'STAFF_INTERNAL' || thread.type === 'DIRECT') {
+    const parts = await prisma.conversationParticipant.findMany({ where: { threadId }, select: { userId: true } });
+    recipients = parts.map((p) => p.userId);
+  } else if (thread.appointmentId) {
+    const appt = await prisma.appointment.findUnique({
+      where: { id: thread.appointmentId },
+      select: { customerId: true, staffProfile: { select: { userId: true } } },
+    });
+    if (appt) recipients = [appt.customerId, appt.staffProfile.userId];
+  }
+  const text = preview.length > 120 ? `${preview.slice(0, 117)}…` : preview;
+  await Promise.all(
+    [...new Set(recipients)]
+      .filter((id) => id !== actor.sub)
+      .map((userId) =>
+        pushOnly({
+          userId,
+          type: 'CHAT_MESSAGE',
+          title: sender?.name ?? 'Aura',
+          body: text,
+          data: { threadId, threadType: thread.type, appointmentId: thread.appointmentId },
+        }),
+      ),
+  );
+}
+
+function notifyRecipientsLater(threadId: string, messageId: string, actor: AccessTokenPayload, preview: string): void {
+  notifyRecipients(threadId, messageId, actor, preview).catch((err: unknown) =>
+    logger.warn({ err, threadId }, 'chat push failed'),
+  );
+}
+
 export async function postMessage(
   threadId: string,
   actor: AccessTokenPayload,
@@ -215,6 +277,7 @@ export async function postMessage(
     }),
     prisma.chatThread.update({ where: { id: threadId }, data: { lastMessageAt: new Date() } }),
   ]);
+  notifyRecipientsLater(threadId, row.id, actor, body);
   return toMessageView(row);
 }
 
@@ -251,6 +314,7 @@ export async function postMediaMessage(
     }),
     prisma.chatThread.update({ where: { id: threadId }, data: { lastMessageAt: new Date() } }),
   ]);
+  notifyRecipientsLater(threadId, row.id, actor, row.body);
   return toMessageView(row);
 }
 

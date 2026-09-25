@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { ImageOff, Plus, Sparkles, Trash2, X } from 'lucide-react';
+import { Plus, Sparkles, Trash2, X } from 'lucide-react';
 import { useEffect, useState, type ComponentProps, type KeyboardEvent, type ReactNode } from 'react';
 import { useFieldArray, useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
@@ -23,7 +23,11 @@ import { NormalizedApiError } from '@/services/apiError';
 import type { Service } from '@/types/models';
 
 import { useProducts } from '@/features/inventory/inventory.api';
+import { baseEquivalent, defaultUomId, factorOf, unitChoices } from '@/features/inventory/uom';
 
+import { ServiceImageField } from './ServiceImageField';
+import { useImageUploadSession } from './useImageUploadSession';
+import { ServiceStepsInput } from './ServiceStepsInput';
 import { useSaveService, useServiceCategories, type ServiceInput } from './services.api';
 
 const formSchema = z
@@ -40,6 +44,7 @@ const formSchema = z
     description: z.string().max(2000).optional(),
     imageUrl: z.string().trim().url('URL ບໍ່ຖືກຕ້ອງ').optional().or(z.literal('')),
     highlights: z.array(z.string().trim().min(1).max(60)).max(12),
+    steps: z.array(z.object({ title: z.string().trim().max(80), body: z.string().trim().max(400) })).max(12),
     requireDeposit: z.boolean(),
     depositAmount: z.coerce.number().nonnegative().optional(),
     isActive: z.boolean(),
@@ -47,6 +52,8 @@ const formSchema = z
       z.object({
         productId: z.string().uuid('ເລືອກສິນຄ້າ'),
         qtyPerUse: z.coerce.number().positive(),
+        /** M1 — '' = ໜ່ວຍພື້ນຖານຂອງສິນຄ້າ. */
+        uomId: z.string().optional(),
       }),
     ),
   })
@@ -65,6 +72,7 @@ const EMPTY: FormValues = {
   description: '',
   imageUrl: '',
   highlights: [],
+  steps: [],
   requireDeposit: false,
   depositAmount: 0,
   isActive: true,
@@ -84,6 +92,7 @@ export function ServiceFormDialog({ open, onOpenChange, service }: Props) {
   const products = productsPage?.items ?? [];
   const productById = new Map(products.map((p) => [p.id, p]));
   const save = useSaveService(service?.id);
+  const uploads = useImageUploadSession(open);
 
   const form = useForm<FormValues>({ resolver: zodResolver(formSchema), defaultValues: EMPTY });
   const { fields, append, remove } = useFieldArray({ control: form.control, name: 'consumables' });
@@ -101,12 +110,14 @@ export function ServiceFormDialog({ open, onOpenChange, service }: Props) {
             description: service.description ?? '',
             imageUrl: service.imageUrl ?? '',
             highlights: service.highlights,
+            steps: service.steps ?? [],
             requireDeposit: service.requireDeposit,
             depositAmount: service.depositAmount ?? 0,
             isActive: service.isActive,
             consumables: service.consumables.map((c) => ({
               productId: c.productId,
               qtyPerUse: c.qtyPerUse,
+              uomId: c.uomId ?? '',
             })),
           }
         : EMPTY,
@@ -121,19 +132,24 @@ export function ServiceFormDialog({ open, onOpenChange, service }: Props) {
       compareAtPrice: parsed.compareAtPrice || null,
       imageUrl: parsed.imageUrl || null,
       depositAmount: parsed.requireDeposit ? parsed.depositAmount : null,
+      // Steps with no title are dropped rather than rejected — an empty row is just an unused slot.
+      steps: parsed.steps.filter((s) => s.title.length > 0),
       consumables: parsed.consumables.map((c) => ({
         productId: c.productId,
         productName: productById.get(c.productId)?.name ?? '',
         qtyPerUse: c.qtyPerUse,
         unit: productById.get(c.productId)?.unit ?? '',
+        uomId: c.uomId || null,
       })),
     };
+    uploads.keep(values.imageUrl || null);
     save.mutate(payload, {
       onSuccess: () => {
         toast.success(t('services.saved'));
         onOpenChange(false);
       },
       onError: (err) => {
+        uploads.keep(null);
         toast.error(err instanceof NormalizedApiError ? err.message : t('services.saveError'));
       },
     });
@@ -243,20 +259,28 @@ export function ServiceFormDialog({ open, onOpenChange, service }: Props) {
               <SectionLabel>{t('services.sectionPresentation')}</SectionLabel>
 
               <Field label={t('services.imageUrl')} error={form.formState.errors.imageUrl?.message}>
-                <div className="flex items-center gap-3">
-                  <ImagePreview url={form.watch('imageUrl')} name={form.watch('name')} />
-                  <Input
-                    className="flex-1"
-                    placeholder="https://..."
-                    {...form.register('imageUrl')}
-                  />
-                </div>
+                <ServiceImageField
+                  value={form.watch('imageUrl') ?? ''}
+                  name={form.watch('name')}
+                  error={form.formState.errors.imageUrl?.message}
+                  onChange={(url) =>
+                    form.setValue('imageUrl', url, { shouldDirty: true, shouldValidate: true })
+                  }
+                  onUploaded={uploads.track}
+                />
               </Field>
 
               <Field label={t('services.highlights')} hint={t('services.highlightsHint')}>
                 <HighlightsInput
                   value={form.watch('highlights') ?? []}
                   onChange={(v) => form.setValue('highlights', v, { shouldDirty: true })}
+                />
+              </Field>
+
+              <Field label={t('services.steps.label')} hint={t('services.steps.hint')}>
+                <ServiceStepsInput
+                  value={form.watch('steps') ?? []}
+                  onChange={(v) => form.setValue('steps', v, { shouldDirty: true })}
                 />
               </Field>
             </section>
@@ -308,7 +332,7 @@ export function ServiceFormDialog({ open, onOpenChange, service }: Props) {
                   variant="secondary"
                   size="sm"
                   disabled={products.length === 0}
-                  onClick={() => append({ productId: '', qtyPerUse: 1 })}
+                  onClick={() => append({ productId: '', qtyPerUse: 1, uomId: '' })}
                 >
                   <Plus className="h-4 w-4" aria-hidden="true" />
                   {t('common.create')}
@@ -327,14 +351,21 @@ export function ServiceFormDialog({ open, onOpenChange, service }: Props) {
                 <div className="space-y-2">
                   {fields.map((f, i) => {
                     const picked = productById.get(form.watch(`consumables.${i}.productId`));
+                    const units = unitChoices(picked);
+                    const uomId = form.watch(`consumables.${i}.uomId`) ?? '';
+                    const qty = Number(form.watch(`consumables.${i}.qtyPerUse`)) || 0;
                     return (
                       <div
                         key={f.id}
-                        className="grid grid-cols-[1fr_5rem_3.5rem_auto] items-end gap-2 rounded-xl border border-border bg-muted/30 p-3"
+                        className="grid grid-cols-[1fr_5rem_6rem_auto] items-end gap-2 rounded-xl border border-border bg-muted/30 p-3"
                       >
                         <Field label={t('services.bomProduct')}>
                           <Select
-                            {...form.register(`consumables.${i}.productId`)}
+                            {...form.register(`consumables.${i}.productId`, {
+                              // M1 — ເລືອກສິນຄ້າ → ໜ່ວຍ BOM ເລີ່ມຕົ້ນ (isConsumeDefault) ຂອງສິນຄ້ານັ້ນ.
+                              onChange: (e: { target: { value: string } }) =>
+                                form.setValue(`consumables.${i}.uomId`, defaultUomId(productById.get(e.target.value), 'consume')),
+                            })}
                             options={[
                               { value: '', label: t('services.bomPickProduct') },
                               ...products.map((p) => ({
@@ -353,9 +384,25 @@ export function ServiceFormDialog({ open, onOpenChange, service }: Props) {
                           />
                         </Field>
                         <Field label={t('services.bomUnit')}>
-                          <span className="inline-flex h-10 items-center text-xs text-muted-foreground">
-                            {picked?.unit ?? '—'}
-                          </span>
+                          {units.length > 1 ? (
+                            <div>
+                              <Select
+                                className="h-10 text-xs"
+                                {...form.register(`consumables.${i}.uomId`)}
+                                options={units.map((u) => ({ value: u.value, label: u.value ? u.code : u.label }))}
+                                aria-label={t('services.bomUnit')}
+                              />
+                              {uomId && picked ? (
+                                <span className="mt-0.5 block text-[11px] tabular-nums text-muted-foreground">
+                                  {baseEquivalent(qty, factorOf(picked, uomId), picked.unit)}
+                                </span>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <span className="inline-flex h-10 items-center text-xs text-muted-foreground">
+                              {picked?.unit ?? '—'}
+                            </span>
+                          )}
                         </Field>
                         <button
                           type="button"
@@ -468,26 +515,6 @@ function Field({
 
 /** 44×44 live thumbnail next to the image URL input — swaps to a neutral
  *  placeholder on empty/broken URLs instead of leaving a dead layout gap. */
-function ImagePreview({ url, name }: { url?: string; name?: string }) {
-  const [broken, setBroken] = useState(false);
-  useEffect(() => setBroken(false), [url]);
-  const show = url && !broken;
-  return (
-    <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/50 text-muted-foreground">
-      {show ? (
-        <img
-          src={url}
-          alt={name || ''}
-          className="h-full w-full object-cover"
-          onError={() => setBroken(true)}
-        />
-      ) : (
-        <ImageOff className="h-4 w-4" aria-hidden="true" />
-      )}
-    </span>
-  );
-}
-
 /** Enter-to-add chip editor for `Service.highlights` (short catalog badges
  *  like "ຜົມສຸຂະພາບດີ") — no shared TagInput exists yet, kept local. */
 function HighlightsInput({

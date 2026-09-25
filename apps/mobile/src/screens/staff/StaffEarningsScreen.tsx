@@ -6,7 +6,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ErrorView, LoadingScreen } from '../../components/shared/StateViews';
 import { AnimatedEntrance } from '../../components/ui/AnimatedEntrance';
 import { Gradient } from '../../components/ui/Gradient';
-import { useCommissionSummary } from '../../features/staff/staff-portal.api';
+import { useCommissionSummary, useMyPayslips } from '../../features/staff/staff-portal.api';
+import type { MyPayslipView } from '@abcp/shared-types';
 import { cn } from '../../lib/cn';
 import { formatLAK, vientiane } from '../../lib/format';
 import { normalizeError } from '../../services/apiError';
@@ -36,6 +37,8 @@ export function StaffEarningsScreen(_props: StaffTabScreenProps<'EarningsTab'>):
   const [month, setMonth] = useState(thisMonth);
   const query = useCommissionSummary(month);
   const prev = useCommissionSummary(shiftMonth(month, -1));
+  const payslips = useMyPayslips();
+  const payslip = payslips.data?.find((p) => p.monthYear === month) ?? null;
 
   const monthLabel = vientiane(`${month}-01T00:00:00`).format('MMMM YYYY');
   const data = query.data;
@@ -88,7 +91,10 @@ export function StaffEarningsScreen(_props: StaffTabScreenProps<'EarningsTab'>):
           refreshControl={
             <RefreshControl
               refreshing={query.isRefetching}
-              onRefresh={() => void query.refetch()}
+              onRefresh={() => {
+                void query.refetch();
+                void payslips.refetch();
+              }}
               tintColor={colors.primary}
             />
           }
@@ -149,6 +155,12 @@ export function StaffEarningsScreen(_props: StaffTabScreenProps<'EarningsTab'>):
               </View>
             </View>
           </AnimatedEntrance>
+
+          {payslip ? (
+            <AnimatedEntrance index={1}>
+              <PayslipCard slip={payslip} />
+            </AnimatedEntrance>
+          ) : null}
 
           <AnimatedEntrance index={1}>
             <StatRibbon>
@@ -311,5 +323,77 @@ export function StaffEarningsScreen(_props: StaffTabScreenProps<'EarningsTab'>):
         </ScrollView>
       )}
     </SafeAreaView>
+  );
+}
+
+/** Payroll G5.2 — ໃບຈ່າຍເງິນເດືອນຂອງເດືອນທີ່ເລືອກ (ສະເພາະຮອບທີ່ອະນຸມັດ/ຈ່າຍແລ້ວ). */
+function PayslipCard({ slip }: { slip: MyPayslipView }): React.JSX.Element {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const paid = slip.runStatus === 'PAID';
+  const earnings: Array<[string, number]> = [
+    [t('staffPortal.payslip.basePay'), slip.basePay - slip.absenceDeduction],
+    [t('staffPortal.payslip.overtime'), slip.overtimePay],
+    [t('staffPortal.payslip.commission'), slip.commission],
+    [t('staffPortal.payslip.bonus'), slip.bonus],
+    [t('staffPortal.payslip.allowances'), slip.allowances],
+  ];
+  const deductions: Array<[string, number]> = [
+    [t('staffPortal.payslip.sso'), slip.ssoEmployee],
+    [t('staffPortal.payslip.tax'), slip.incomeTax],
+    [t('staffPortal.payslip.advances'), slip.advances],
+    [t('staffPortal.payslip.other'), slip.otherDeductions + slip.clawback],
+  ];
+  const Row = ({ label, amount, minus }: { label: string; amount: number; minus?: boolean }) =>
+    amount === 0 ? null : (
+      <View className="flex-row items-center justify-between py-1">
+        <T className="font-lao text-muted-foreground">{label}</T>
+        <T className={cn('font-sans', minus ? 'text-destructive' : 'text-foreground')}>
+          {minus ? '−' : ''}
+          {formatLAK(amount)}
+        </T>
+      </View>
+    );
+  return (
+    <View className="gap-2">
+      <SectionHeading label={t('staffPortal.payslip.title')} />
+      <View className="rounded-2xl border border-border bg-card p-3.5" style={shadow.xs}>
+        <View className="flex-row items-center justify-between">
+          <View className="flex-1">
+            <T className="font-lao text-muted-foreground" style={SMALL}>
+              {t('staffPortal.payslip.net')}
+            </T>
+            <T className="font-display text-foreground" style={{ fontSize: 20, lineHeight: 26 }}>
+              {formatLAK(slip.netPay)}
+            </T>
+          </View>
+          <View className={cn('rounded-full px-2 py-0.5', paid ? 'bg-success-soft' : 'bg-warning-soft')}>
+            <T className={cn('font-lao-medium', paid ? 'text-success' : 'text-warning')} style={SMALL}>
+              {paid ? t('staffPortal.payslip.paid') : t('staffPortal.payslip.approved')}
+            </T>
+          </View>
+        </View>
+        {open ? (
+          <View className="mt-2 border-t border-border pt-2">
+            {earnings.map(([l, a]) => (
+              <Row key={l} label={l} amount={a} />
+            ))}
+            <Row label={t('staffPortal.payslip.gross')} amount={slip.grossPay} />
+            <View className="my-1 h-px bg-border" />
+            {deductions.map(([l, a]) => (
+              <Row key={l} label={l} amount={a} minus />
+            ))}
+          </View>
+        ) : null}
+        <T
+          className="mt-2 font-lao-medium text-primary"
+          style={SMALL}
+          onPress={() => setOpen((o) => !o)}
+          accessibilityRole="button"
+        >
+          {open ? t('staffPortal.payslip.hide') : t('staffPortal.payslip.show')}
+        </T>
+      </View>
+    </View>
   );
 }

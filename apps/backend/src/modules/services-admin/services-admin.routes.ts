@@ -5,6 +5,8 @@ import {
   adminServiceListQuerySchema,
   adminServiceUpdateSchema,
   serviceCategoryWriteSchema,
+  serviceImageDiscardSchema,
+  serviceImageUploadSchema,
 } from '@abcp/shared-types';
 import { authGuard } from '../../middlewares/authGuard.js';
 import { permissionGuard } from '../../middlewares/permissionGuard.js';
@@ -32,6 +34,23 @@ servicesAdminRouter.get(
   '/stats',
   asyncHandler(async (_req, res) => {
     res.json({ data: await svc.serviceStats() });
+  }),
+);
+// Registered before '/:id' so "images" is never read as a service id.
+servicesAdminRouter.post(
+  '/images',
+  manage,
+  validateRequest({ body: serviceImageUploadSchema }),
+  asyncHandler(async (req, res) => {
+    res.status(201).json({ data: await svc.uploadServiceImage(req.body) });
+  }),
+);
+servicesAdminRouter.post(
+  '/images/discard',
+  manage,
+  validateRequest({ body: serviceImageDiscardSchema }),
+  asyncHandler(async (req, res) => {
+    res.json({ data: { deleted: await svc.releaseServiceImage(req.body.url) } });
   }),
 );
 servicesAdminRouter.get(

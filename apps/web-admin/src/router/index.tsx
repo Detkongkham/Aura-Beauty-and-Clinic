@@ -1,6 +1,8 @@
+import { Suspense } from 'react';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 
 import { AppShell } from '@/components/layout/AppShell';
+import { PageLoader } from '@/components/shared/PageLoader';
 import { RouteError } from '@/error/RouteError';
 import { ForgotPasswordPage } from '@/pages/auth/ForgotPasswordPage';
 import { LoginPage } from '@/pages/auth/LoginPage';
@@ -15,6 +17,7 @@ import { ROUTES } from '@/router/paths';
 // --- Code-split feature pages (step 4) ---
 const DashboardPage = lazyPage(() => import('@/features/dashboard/DashboardPage'), 'DashboardPage');
 const ServicesPage = lazyPage(() => import('@/features/services/ServicesPage'), 'ServicesPage');
+const PackagesPage = lazyPage(() => import('@/features/services/PackagesPage'), 'PackagesPage');
 const CategoriesPage = lazyPage(() => import('@/features/services/CategoriesPage'), 'CategoriesPage');
 const AppointmentsPage = lazyPage(
   () => import('@/features/appointments/AppointmentsPage'),
@@ -76,7 +79,9 @@ const ChatModerationPage = lazyPage(
   () => import('@/features/messaging/ChatModerationPage'),
   'ChatModerationPage',
 );
+const SystemMapPage = lazyPage(() => import('@/features/system-map/SystemMapPage'), 'SystemMapPage');
 const FinancePage = lazyPage(() => import('@/features/finance/FinancePage'), 'FinancePage');
+const AccountingPage = lazyPage(() => import('@/features/accounting/AccountingPage'), 'AccountingPage');
 const LoyaltyPage = lazyPage(() => import('@/features/loyalty/LoyaltyPage'), 'LoyaltyPage');
 const GiftCardsPage = lazyPage(() => import('@/features/giftcards/GiftCardsPage'), 'GiftCardsPage');
 const CampaignsPage = lazyPage(() => import('@/features/marketing/CampaignsPage'), 'CampaignsPage');
@@ -93,6 +98,18 @@ const StockLedgerPage = lazyPage(
 const StockTransfersPage = lazyPage(
   () => import('@/features/inventory/StockTransfersPage'),
   'StockTransfersPage',
+);
+const StockCountsPage = lazyPage(
+  () => import('@/features/inventory/StockCountsPage'),
+  'StockCountsPage',
+);
+const SupplierReturnsPage = lazyPage(
+  () => import('@/features/inventory/SupplierReturnsPage'),
+  'SupplierReturnsPage',
+);
+const RetailSalesPage = lazyPage(
+  () => import('@/features/inventory/RetailSalesPage'),
+  'RetailSalesPage',
 );
 const PayrollPage = lazyPage(() => import('@/features/payroll/PayrollPage'), 'PayrollPage');
 const BanksPage = lazyPage(() => import('@/features/payments-treasury/BanksPage'), 'BanksPage');
@@ -113,6 +130,8 @@ const HomeServiceDispatchPage = lazyPage(
 );
 const ResourcesPage = lazyPage(() => import('@/features/resources/ResourcesPage'), 'ResourcesPage');
 const MessagingPage = lazyPage(() => import('@/features/messaging/MessagingPage'), 'MessagingPage');
+const PortalPage = lazyPage(() => import('@/features/portal/PortalPage'), 'PortalPage');
+const PublicSitePage = lazyPage(() => import('@/features/site/PublicSitePage'), 'PublicSitePage');
 
 /**
  * Route table. Feature modules (step 4) replace each PlaceholderPage with a
@@ -124,6 +143,15 @@ export const router = createBrowserRouter([
   { path: ROUTES.resetPassword, element: <ResetPasswordPage /> },
   { path: ROUTES.forbidden, element: <ForbiddenPage /> },
   { path: ROUTES.onboarding, element: <OnboardingPage /> },
+  {
+    // Public customer site — no auth, no AppShell (so it brings its own Suspense boundary).
+    path: ROUTES.site,
+    element: (
+      <Suspense fallback={<PageLoader />}>
+        <PublicSitePage />
+      </Suspense>
+    ),
+  },
 
   {
     element: <ProtectedRoute />,
@@ -133,6 +161,7 @@ export const router = createBrowserRouter([
         errorElement: <RouteError />,
         children: [
           { index: true, element: <DashboardPage /> },
+          { path: ROUTES.portal, element: <PortalPage /> },
           { path: ROUTES.notifications, element: <NotificationsPage /> },
           { path: ROUTES.account, element: <AccountPage /> },
           { path: ROUTES.search, element: <SearchPage /> },
@@ -161,6 +190,7 @@ export const router = createBrowserRouter([
             element: <RoleRoute permission="services:view" />,
             children: [
               { path: ROUTES.categories, element: <CategoriesPage /> },
+              { path: ROUTES.servicePackages, element: <PackagesPage /> },
               { path: ROUTES.services, element: <ServicesPage /> },
               { path: ROUTES.serviceDetail(), element: <ServiceDetailPage /> },
             ],
@@ -201,6 +231,7 @@ export const router = createBrowserRouter([
             element: <RoleRoute permission="finance:view" />,
             children: [
               { path: ROUTES.finance, element: <FinancePage /> },
+              { path: ROUTES.financeAccounting, element: <AccountingPage /> },
               { path: ROUTES.loyalty, element: <LoyaltyPage /> },
               { path: ROUTES.giftCards, element: <GiftCardsPage /> },
             ],
@@ -241,6 +272,7 @@ export const router = createBrowserRouter([
               { path: ROUTES.settingsModules, element: <ModuleManagementPage /> },
               { path: ROUTES.auditLog, element: <AuditLogPage /> },
               { path: ROUTES.chatModeration, element: <ChatModerationPage /> },
+              { path: ROUTES.systemMap, element: <SystemMapPage /> },
               {
                 element: <RoleRoute permission="users:view" />,
                 children: [{ path: ROUTES.usersRoles, element: <UsersPage /> }],
@@ -265,6 +297,20 @@ export const router = createBrowserRouter([
               { path: ROUTES.inventoryTransfers, element: <StockTransfersPage /> },
               { path: ROUTES.inventoryLedger, element: <StockLedgerPage /> },
             ],
+          },
+          // H3 — stock-take / cycle count (API is admin-only, like adjustments)
+          {
+            element: <RoleRoute permission="inventory:manage" />,
+            children: [
+              { path: ROUTES.inventoryCounts, element: <StockCountsPage /> },
+              // H5 — supplier returns / debit notes (API is admin-only)
+              { path: ROUTES.inventoryReturns, element: <SupplierReturnsPage /> },
+            ],
+          },
+          // M13 — retail / OTC sales (money path = finance permissions)
+          {
+            element: <RoleRoute permission="finance:view" />,
+            children: [{ path: ROUTES.inventorySales, element: <RetailSalesPage /> }],
           },
 
           { path: ROUTES.notFound, element: <NotFoundPage /> },

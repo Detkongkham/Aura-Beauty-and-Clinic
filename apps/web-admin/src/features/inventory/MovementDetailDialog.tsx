@@ -182,8 +182,22 @@ function MovementDetailBody({ movement, onClose }: { movement: StockMovementView
             {t('inventory.ledger.note')}
           </p>
           <p className="rounded-xl border border-border bg-muted/30 px-3.5 py-2.5 text-sm text-foreground">
+            {movement.reasonCode ? (
+              <span className="mr-1.5 rounded-full bg-muted px-1.5 py-0.5 text-2xs font-medium">
+                {t(`inventory.adjReason.${movement.reasonCode}`)}
+              </span>
+            ) : null}
             {movement.notes || t('inventory.ledger.detail.noNotes')}
           </p>
+          {movement.attachmentUrl ? (
+            <a href={movement.attachmentUrl} target="_blank" rel="noreferrer" className="block">
+              <img
+                src={movement.attachmentUrl}
+                alt={t('inventory.adjustPhoto')}
+                className="max-h-48 rounded-lg border border-border object-contain"
+              />
+            </a>
+          ) : null}
         </div>
       </div>
 

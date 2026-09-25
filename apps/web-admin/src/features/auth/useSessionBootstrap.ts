@@ -10,7 +10,7 @@ import { useAuthStore } from './auth.store';
  */
 export function useSessionBootstrap(): void {
   useEffect(() => {
-    const { tokens, hydrated, setUser, setHydrated, clear } = useAuthStore.getState();
+    const { tokens, hydrated, setUser, setHydrated } = useAuthStore.getState();
 
     if (hydrated) return;
     if (!tokens?.accessToken) {
@@ -25,8 +25,8 @@ export function useSessionBootstrap(): void {
         if (!cancelled) setUser(user);
       })
       .catch(() => {
-        // 401 already clears via the http interceptor; this covers other failures.
-        if (!cancelled) clear();
+        // A dead session is signed out by the http interceptor. Anything else (offline, backend
+        // restarting, 5xx) keeps the cached session — a reload must never sign anyone out.
       })
       .finally(() => {
         if (!cancelled) setHydrated(true);

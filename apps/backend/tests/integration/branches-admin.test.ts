@@ -126,4 +126,97 @@ describe('branches admin API', () => {
       .set(...bearer());
     expect(del.status).toBe(204);
   });
+
+  it('insights: ຕົວຊີ້ວັດຕໍ່ສາຂາ + validate days', async () => {
+    const res = await request(app).get('/api/v1/branches/insights?days=7').set(...bearer());
+    expect(res.status).toBe(200);
+    expect(res.body.data.days).toBe(7);
+    const mine = res.body.data.items.find((i: { branchId: string }) => i.branchId === createdBranchId);
+    expect(mine).toBeDefined();
+    expect(mine.period.daily).toHaveLength(7);
+    expect(mine).toMatchObject({ staffCount: 0, upcomingAppointments: 0, rating: { avg: null, count: 0 } });
+    expect(mine.today.utilization).toBeNull();
+
+    const bad = await request(app).get('/api/v1/branches/insights?days=12').set(...bearer());
+    expect(bad.status).toBe(400);
+  });
+
+  it('amenities round-trip ແລະ ຄ່າທີ່ບໍ່ຮູ້ຈັກ → 400', async () => {
+    const ok = await request(app)
+      .patch(`/api/v1/branches/${createdBranchId}`)
+      .set(...bearer())
+      .send({ amenities: ['wifi', 'parking'], email: 'qa@aura.la' });
+    expect(ok.status).toBe(200);
+    expect(ok.body.data).toMatchObject({ amenities: ['wifi', 'parking'], email: 'qa@aura.la' });
+    const bad = await request(app)
+      .patch(`/api/v1/branches/${createdBranchId}`)
+      .set(...bearer())
+      .send({ amenities: ['pool'] });
+    expect(bad.status).toBe(400);
+  });
+
+  it('ປິດສາຂາທີ່ມີນັດຈະມາເຖິງ → 409 ຈົນກວ່າຈະ force', async () => {
+    await request(app).patch(`/api/v1/branches/${createdBranchId}`).set(...bearer()).send({ isActive: true });
+    const [customer, staffProfile, service] = await Promise.all([
+      prisma.user.findFirstOrThrow({ where: { role: 'CUSTOMER' }, select: { id: true } }),
+      prisma.staffProfile.findFirstOrThrow({ select: { id: true } }),
+      prisma.service.findFirstOrThrow({ select: { id: true } }),
+    ]);
+    const tpl = { customerId: customer.id, staffProfileId: staffProfile.id, serviceId: service.id };
+    const start = new Date(Date.now() + 3 * 24 * 3600_000);
+    const appt = await prisma.appointment.create({
+      data: {
+        ...tpl,
+        branchId: createdBranchId,
+        startAt: start,
+        endAt: new Date(start.getTime() + 3600_000),
+        status: 'CONFIRMED',
+        totalAmount: 100000,
+      },
+    });
+    try {
+      const blocked = await request(app)
+        .patch(`/api/v1/branches/${createdBranchId}`)
+        .set(...bearer())
+        .send({ isActive: false });
+      expect(blocked.status).toBe(409);
+
+      const ins = await request(app).get('/api/v1/branches/insights').set(...bearer());
+      const mine = ins.body.data.items.find((i: { branchId: string }) => i.branchId === createdBranchId);
+      expect(mine.upcomingAppointments).toBe(1);
+
+      const forced = await request(app)
+        .patch(`/api/v1/branches/${createdBranchId}`)
+        .set(...bearer())
+        .send({ isActive: false, force: true });
+      expect(forced.status).toBe(200);
+      expect(forced.body.data.isActive).toBe(false);
+    } finally {
+      await prisma.appointment.delete({ where: { id: appt.id } });
+    }
+  });
+
+  it('BRANCH_ADMIN: ແກ້ ແລະ ເບິ່ງ insights ໄດ້ສະເພາະສາຂາຕົນ', async () => {
+    const login = await request(app)
+      .post('/api/v1/auth/login')
+      .send({ phone: '02000000001', password: 'Manager@12345' });
+    const managerBearer: [string, string] = ['Authorization', `Bearer ${login.body.data.tokens.accessToken}`];
+
+    const cross = await request(app)
+      .patch(`/api/v1/branches/${createdBranchId}`)
+      .set(...managerBearer)
+      .send({ closeTime: '17:00' });
+    expect(cross.status).toBe(403);
+
+    const ins = await request(app).get('/api/v1/branches/insights').set(...managerBearer);
+    expect(ins.status).toBe(200);
+    expect(ins.body.data.items).toHaveLength(1);
+    expect(ins.body.data.items[0].branchId).not.toBe(createdBranchId);
+
+    const closure = await request(app)
+      .post('/api/v1/branch-closures')
+      .set(...managerBearer)
+      .send({ branchId: 'all', date: '2027-05-01', reason: 'x' });
+    expect(closure.status).toBe(403);
+  });
 });

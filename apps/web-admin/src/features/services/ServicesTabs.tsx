@@ -1,4 +1,4 @@
-import { Sparkles, Tags } from 'lucide-react';
+import { Package, Sparkles, Tags } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 
@@ -9,16 +9,17 @@ const TAB_BASE =
   'flex items-center gap-2 whitespace-nowrap rounded-lg px-4 py-2 text-[13px] font-medium transition-colors';
 
 interface ServicesTabsProps {
-  active: 'services' | 'categories';
+  active: 'services' | 'categories' | 'packages';
 }
 
-/** Pill tab row shared by the catalog master-data screens (Services / Categories). */
+/** Pill tab row shared by the catalog master-data screens (Services / Categories / Packages). */
 export function ServicesTabs({ active }: ServicesTabsProps) {
   const { t } = useTranslation();
 
   const tabs = [
     { key: 'services' as const, to: ROUTES.services, label: t('nav.services'), icon: Sparkles },
     { key: 'categories' as const, to: ROUTES.categories, label: t('nav.categories'), icon: Tags },
+    { key: 'packages' as const, to: ROUTES.servicePackages, label: t('nav.packages'), icon: Package },
   ];
 
   return (

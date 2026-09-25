@@ -107,6 +107,13 @@ export type PaymentView = {
   refundedAmount: number;
   voidedAt: string | null;
   voidReason: string | null;
+  /** Wave 11 — ຄ່າບໍລິການ (ລວມຢູ່ໃນ totalAmount), ມັດຈຳທີ່ຢຶດເປັນຄ່າປັບ, ທິບທີ່ຮັບແລ້ວ (ບໍ່ລວມໃນ totalAmount). */
+  serviceChargeRate?: number | null;
+  serviceChargeAmount?: number;
+  forfeitedAmount?: number;
+  forfeitKind?: 'NO_SHOW' | 'LATE_CANCEL' | null;
+  forfeitedAt?: string | null;
+  gratuityAmount?: number;
 };
 
 /** ຜົນ deposit-intent — QR payload (mock, client render ເປັນ QR). */

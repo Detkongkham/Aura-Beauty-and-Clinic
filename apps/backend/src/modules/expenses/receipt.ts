@@ -10,7 +10,8 @@ import { parseMoney } from '../payments-treasury/slips/parser.js';
  * E7 — ອ່ານໃບຮັບເງິນ/ໃບແຈ້ງໜີ້ ເພື່ອຕື່ມຟອມລາຍຈ່າຍລ່ວງໜ້າ. ໃຊ້ pipeline OCR ດຽວກັບສະລິບ (W3: sharp → tesseract).
  *
  * ຫຼັກການ: ຄືນ null ເມື່ອບໍ່ແນ່ໃຈ ດີກວ່າເດົາຜິດ — ຜູ້ໃຊ້ເປັນຄົນກົດ "ນຳໃຊ້" ທຸກຄັ້ງ, ບໍ່ມີການບັນທຶກອັດຕະໂນມັດ.
- * ຮອງຮັບສະເພາະຮູບ (PDF ຕ້ອງ render ກ່ອນ — ຍັງບໍ່ເຮັດ).
+ * PDF (Wave 11): ອ່ານ text layer ໂດຍກົງ (ແມ່ນຍຳກວ່າ OCR ສຳລັບໃບແຈ້ງໜີ້ດິຈິຕອນ); PDF ທີ່ເປັນຮູບສະແກນ
+ * ບໍ່ມີ text → ແຈ້ງໃຫ້ອັບເປັນຮູບແທນ (ບໍ່ render ເພາະຕ້ອງໃຊ້ native canvas).
  */
 
 const TOTAL_LABEL_RE = /(grand\s*total|net\s*total|total\s*(amount|due|payable)?|amount\s*due|ລວມທັງໝົດ|ຍອດລວມ|ລວມເງິນ|ລວມ|ຍອດຊຳລະ)/i;
@@ -102,6 +103,25 @@ export function parseReceiptText(text: string, today = new Date()): Omit<Receipt
   };
 }
 
+/** ຂໍ້ຄວາມຈາກ text layer ຂອງ PDF (ໜ້າ 1–3). ບໍ່ມີ text = PDF ທີ່ເປັນຮູບສະແກນ. */
+export async function readPdfText(buffer: Buffer): Promise<{ text: string; confidence: number; engine: string }> {
+  if (buffer.subarray(0, 5).toString('latin1') !== '%PDF-') throw ApiError.badRequest('ໄຟລ໌ນີ້ບໍ່ແມ່ນ PDF');
+  let pages: string[];
+  try {
+    const { getDocumentProxy, extractText } = await import('unpdf');
+    const pdf = await getDocumentProxy(new Uint8Array(buffer));
+    const out = await extractText(pdf, { mergePages: false });
+    pages = (out.text as string[]).slice(0, 3);
+  } catch {
+    throw ApiError.badRequest('ເປີດ PDF ບໍ່ໄດ້ — ໄຟລ໌ອາດເສຍ ຫຼື ມີລະຫັດຜ່ານ');
+  }
+  const text = pages.join('\n').replace(/[ \t]+\n/g, '\n').trim();
+  if (text.replace(/\s/g, '').length < 12) {
+    throw ApiError.badRequest('PDF ນີ້ເປັນຮູບສະແກນ (ບໍ່ມີຂໍ້ຄວາມ) — ກະລຸນາອັບເປັນຮູບ JPG/PNG ແທນ');
+  }
+  return { text, confidence: 95, engine: 'pdf-text' };
+}
+
 /** POST /expenses/receipt-scan — ອ່ານ + ກວດວ່າໃບຮັບເງິນນີ້ຖືກໃຊ້ແລ້ວບໍ (hash ດຽວກັບ attachment). */
 export async function scanReceipt(input: ReceiptScanInput): Promise<ReceiptScanView> {
   const buffer = Buffer.from(input.dataBase64, 'base64');
@@ -111,11 +131,13 @@ export async function scanReceipt(input: ReceiptScanInput): Promise<ReceiptScanV
   const started = Date.now();
   const [dup, ocr] = await Promise.all([
     prisma.expenseAttachment.findFirst({ where: { imageHash }, select: { expense: { select: { id: true, title: true } } } }),
-    preprocessForOcr(buffer)
-      .then((img) => getOcrProvider().recognize(img))
-      .catch(() => {
-        throw ApiError.badRequest('ອ່ານຮູບບໍ່ໄດ້ — ລອງຖ່າຍໃໝ່ໃຫ້ຊັດ');
-      }),
+    input.contentType === 'application/pdf'
+      ? readPdfText(buffer)
+      : preprocessForOcr(buffer)
+          .then((img) => getOcrProvider().recognize(img))
+          .catch(() => {
+            throw ApiError.badRequest('ອ່ານຮູບບໍ່ໄດ້ — ລອງຖ່າຍໃໝ່ໃຫ້ຊັດ');
+          }),
   ]);
   return {
     ...parseReceiptText(ocr.text),

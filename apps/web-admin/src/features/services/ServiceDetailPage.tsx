@@ -110,7 +110,18 @@ export function ServiceDetailPage() {
                         <TableRow key={c.productId} className="h-10">
                           <TableCell>{c.productName}</TableCell>
                           <TableCell className="text-right tabular-nums">{c.qtyPerUse}</TableCell>
-                          <TableCell>{c.unit}</TableCell>
+                          <TableCell>
+                            {c.uomCode && c.factorToBase !== 1 ? (
+                              <>
+                                {c.uomCode}
+                                <span className="ml-1 text-xs tabular-nums text-muted-foreground">
+                                  (= {c.baseQtyPerUse} {c.unit})
+                                </span>
+                              </>
+                            ) : (
+                              c.unit
+                            )}
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

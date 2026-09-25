@@ -1,4 +1,5 @@
-import type { PayrollRow } from '@abcp/shared-types';
+import type { PayrollRow, SalaryType, StaffSalaryInput } from '@abcp/shared-types';
+import { SALARY_TYPES } from '@abcp/shared-types';
 import {
   Banknote,
   CalendarCheck2,
@@ -9,9 +10,11 @@ import {
   Sparkles,
   Star,
   Target,
+  Wallet,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 
 import { CurrencyText, DateTimeText } from '@/components/shared';
 import { PersonAvatar } from '@/components/shared/PersonAvatar';
@@ -19,6 +22,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
+import { useAuth } from '@/features/auth/useAuth';
+import { NormalizedApiError } from '@/services/apiError';
 import {
   Sheet,
   SheetBody,
@@ -32,7 +39,8 @@ import { formatCompactNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 import { useStaffBreakdown } from './payroll.api';
-import { attainmentTone, monthLabel, monthShort, TONE } from './payroll.lib';
+import { useSetStaffSalary, useStaffSalary } from './payrollRuns.api';
+import { attainmentTone, commissionPayableNow, monthLabel, monthShort, TONE } from './payroll.lib';
 import { AttainmentMeter, DetailRow, PayoutStatePill, Sparkline } from './payroll.parts';
 
 interface Props {
@@ -57,6 +65,87 @@ interface Props {
  * months of context, with the target editable in place rather than in a
  * separate dialog that loses the record you were looking at.
  */
+/** Salary type, base amount and social-security enrolment. Only SUPER_ADMIN can change them. */
+function SalarySection({ staffProfileId }: { staffProfileId: string }) {
+  const { t } = useTranslation();
+  const { role } = useAuth();
+  const isOwner = role === 'SUPER_ADMIN';
+  const { data } = useStaffSalary(staffProfileId);
+  const save = useSetStaffSalary();
+  const [draft, setDraft] = useState<StaffSalaryInput | null>(null);
+
+  useEffect(() => {
+    if (data) setDraft({ salaryType: data.salaryType, baseSalary: data.baseSalary, ssoEnrolled: data.ssoEnrolled });
+  }, [data]);
+
+  if (!draft) return null;
+  const dirty =
+    data != null &&
+    (draft.salaryType !== data.salaryType || draft.baseSalary !== data.baseSalary || draft.ssoEnrolled !== data.ssoEnrolled);
+
+  return (
+    <section className="rounded-lg border border-border p-3.5">
+      <h3 className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+        <Wallet className="h-3.5 w-3.5" aria-hidden="true" />
+        {t('payroll.salary.title')}
+      </h3>
+      <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <Select
+          aria-label={t('payroll.slip.salaryType')}
+          disabled={!isOwner}
+          value={draft.salaryType}
+          onChange={(e) => {
+            const salaryType = e.target.value as SalaryType;
+            setDraft({ ...draft, salaryType, baseSalary: salaryType === 'NONE' ? 0 : draft.baseSalary });
+          }}
+          options={SALARY_TYPES.map((x) => ({ value: x, label: t(`payroll.salaryType_${x}`) }))}
+        />
+        <Input
+          aria-label={t('payroll.salary.amount')}
+          type="number"
+          min="0"
+          step="1000"
+          inputMode="numeric"
+          disabled={!isOwner || draft.salaryType === 'NONE'}
+          value={draft.baseSalary}
+          onChange={(e) => setDraft({ ...draft, baseSalary: Number(e.target.value) || 0 })}
+        />
+      </div>
+      <label className="mt-2 flex items-center justify-between gap-3 text-sm">
+        <span>{t('payroll.salary.sso')}</span>
+        <Switch
+          checked={draft.ssoEnrolled}
+          disabled={!isOwner}
+          onCheckedChange={(v) => setDraft({ ...draft, ssoEnrolled: v })}
+          aria-label={t('payroll.salary.sso')}
+        />
+      </label>
+      {isOwner ? (
+        <div className="mt-2 flex justify-end">
+          <Button
+            size="sm"
+            disabled={!dirty || save.isPending}
+            onClick={() =>
+              save.mutate(
+                { staffProfileId, input: draft },
+                {
+                  onSuccess: () => toast.success(t('common.saved')),
+                  onError: (err) =>
+                    toast.error(err instanceof NormalizedApiError ? err.message : t('common.saveError')),
+                },
+              )
+            }
+          >
+            {t('common.save')}
+          </Button>
+        </div>
+      ) : (
+        <p className="mt-1 text-2xs text-muted-foreground">{t('payroll.salary.ownerOnly')}</p>
+      )}
+    </section>
+  );
+}
+
 export function StaffPayslipSheet({
   row,
   monthYear,
@@ -152,11 +241,17 @@ export function StaffPayslipSheet({
                 value={<CurrencyText amount={r.commissionPaid} />}
                 tone="success"
               />
-              {r.commissionUnpaid > 0 ? (
+              {commissionPayableNow(r) > 0 ? (
                 <DetailRow
                   label={t('payroll.payslip.commissionUnpaid')}
-                  value={<CurrencyText amount={r.commissionUnpaid} />}
+                  value={<CurrencyText amount={commissionPayableNow(r)} />}
                   tone="warning"
+                />
+              ) : null}
+              {r.commissionHeld > 0 ? (
+                <DetailRow
+                  label={t('payroll.payslip.commissionHeld')}
+                  value={<CurrencyText amount={r.commissionHeld} />}
                 />
               ) : null}
               <DetailRow
@@ -192,6 +287,9 @@ export function StaffPayslipSheet({
               />
             </div>
           </section>
+
+          {/* ── salary structure (P3) — owner edits, admins read ── */}
+          <SalarySection staffProfileId={r.staffProfileId} />
 
           {/* ── target, editable in place ── */}
           <section className="rounded-lg border border-border p-3.5">
@@ -414,10 +512,17 @@ export function StaffPayslipSheet({
                       </p>
                     </div>
                     <Badge
-                      variant={l.isPaid ? 'success' : 'warning'}
+                      variant={l.isPaid ? 'success' : l.collected ? 'warning' : 'neutral'}
                       className="shrink-0 px-1.5 py-0 text-2xs"
+                      title={
+                        l.isPaid && l.paidAt
+                          ? new Date(l.paidAt).toLocaleString(i18n.language)
+                          : l.collected
+                            ? undefined
+                            : t('payroll.heldHint')
+                      }
                     >
-                      {l.isPaid ? t('payroll.paid') : t('payroll.due')}
+                      {l.isPaid ? t('payroll.paid') : l.collected ? t('payroll.due') : t('payroll.heldShort')}
                     </Badge>
                   </li>
                 ))}
@@ -430,7 +535,7 @@ export function StaffPayslipSheet({
           </section>
         </SheetBody>
 
-        {canManage && (r.commissionUnpaid > 0 || (r.bonusAmount > 0 && !r.bonusPaid)) ? (
+        {canManage && (commissionPayableNow(r) > 0 || (r.bonusAmount > 0 && !r.bonusPaid)) ? (
           <SheetFooter>
             {r.bonusAmount > 0 && !r.bonusPaid ? (
               <Button variant="secondary" disabled={busy} onClick={() => onPayBonus(r)}>
@@ -438,7 +543,7 @@ export function StaffPayslipSheet({
                 {t('payroll.markBonusPaid')}
               </Button>
             ) : null}
-            {r.commissionUnpaid > 0 ? (
+            {commissionPayableNow(r) > 0 ? (
               <Button disabled={busy} onClick={() => onPayCommission(r)}>
                 <Banknote className="mr-1 h-4 w-4" aria-hidden="true" />
                 {t('payroll.payCommission')}

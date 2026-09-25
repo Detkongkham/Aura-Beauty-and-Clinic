@@ -13,6 +13,7 @@ import { Segmented } from '../../components/ui/Segmented';
 import { Touchable } from '../../components/ui/Touchable';
 import { ChangePasswordSheet, ProfileEditSheet } from '../../features/auth/AccountSheets';
 import { useAuth } from '../../features/auth/useAuth';
+import { useInventoryAccess } from '../../features/inventory/inventory.api';
 import {
   useAttendanceState,
   useCommissionSummary,
@@ -25,6 +26,7 @@ import { useUiStore } from '../../store/ui.store';
 import { colors, shadow } from '../../theme';
 import type { StaffTabScreenProps } from '../../navigation/types';
 import {
+  ActionTile,
   IconTile,
   SectionHeading,
   SMALL,
@@ -101,6 +103,7 @@ export function StaffProfileScreen({
   const language = useUiStore((s) => s.language) ?? (i18n.language as AppLanguage);
   const setLanguagePref = useUiStore((s) => s.setLanguagePref);
   const version = Constants.expoConfig?.version ?? '0.1.0';
+  const canStock = useInventoryAccess().canView;
 
   const schedule = useStaffSchedule(isoDateInDays(0));
   const commission = useCommissionSummary(vientiane().format('YYYY-MM'));
@@ -283,6 +286,15 @@ export function StaffProfileScreen({
                 </Touchable>
               ))}
             </View>
+            {canStock ? (
+              <ActionTile
+                icon="cube-outline"
+                tint={TINT.money}
+                label={t('stock.home.title')}
+                hint={t('stock.home.shortcutHint')}
+                onPress={() => navigation.navigate('StockHome')}
+              />
+            ) : null}
           </View>
         </AnimatedEntrance>
 

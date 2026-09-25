@@ -85,7 +85,7 @@ export const QueueTicketStatus = z.enum([
 ]);
 export type QueueTicketStatus = z.infer<typeof QueueTicketStatus>;
 
-export const POStatus = z.enum(['DRAFT', 'ORDERED', 'RECEIVED', 'CANCELLED']);
+export const POStatus = z.enum(['DRAFT', 'PENDING_APPROVAL', 'ORDERED', 'PARTIALLY_RECEIVED', 'RECEIVED', 'CANCELLED']);
 export type POStatus = z.infer<typeof POStatus>;
 
 export const PayoutStatus = z.enum(['PENDING', 'PROCESSING', 'PAID', 'REJECTED']);

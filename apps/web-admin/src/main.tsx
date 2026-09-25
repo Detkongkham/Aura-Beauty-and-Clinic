@@ -11,7 +11,9 @@ import '@fontsource/noto-sans-lao/500.css';
 import '@fontsource/noto-sans-lao/600.css';
 import '@fontsource/noto-sans-lao/700.css';
 import '@fontsource/noto-serif-lao/400.css';
+import '@fontsource/noto-serif-lao/500.css';
 import '@fontsource/noto-serif-lao/600.css';
+import '@fontsource/noto-serif-lao/700.css';
 import './index.css';
 
 import React from 'react';

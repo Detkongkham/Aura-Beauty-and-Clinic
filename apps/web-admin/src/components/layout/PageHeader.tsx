@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-import { cn } from '@/lib/utils';
+import { HeaderFrame } from './HeaderFrame';
 
 interface PageHeaderProps {
   title: string;
@@ -14,15 +14,19 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, description, actions, tabs, className }: PageHeaderProps) {
   return (
-    <div className={cn('space-y-3', className)}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-1">
-          <h1 className="text-2xl">{title}</h1>
-          {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
+    <div className="animate-in fade-in slide-in-from-top-2 fill-mode-both duration-300 ease-out motion-reduce:animate-none">
+      <HeaderFrame className={className}>
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 space-y-1">
+              <h1>{title}</h1>
+              {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
+            </div>
+            {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+          </div>
+          {tabs}
         </div>
-        {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
-      </div>
-      {tabs}
+      </HeaderFrame>
     </div>
   );
 }

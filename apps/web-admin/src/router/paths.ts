@@ -5,6 +5,10 @@ export const ROUTES = {
   resetPassword: '/reset-password',
 
   dashboard: '/',
+  /** Module launcher — every module the user can reach, grouped + described. */
+  portal: '/portal',
+  /** Public, unauthenticated clinic website. */
+  site: '/site',
   calendar: '/calendar',
   appointments: '/appointments',
   appointmentDetail: (id = ':id') => `/appointments/${id}`,
@@ -13,6 +17,7 @@ export const ROUTES = {
   services: '/services',
   serviceDetail: (id = ':id') => `/services/${id}`,
   categories: '/services/categories',
+  servicePackages: '/services/packages',
 
   staff: '/staff',
   staffDetail: (id = ':id') => `/staff/${id}`,
@@ -34,6 +39,8 @@ export const ROUTES = {
   settingsModules: '/settings/modules',
   auditLog: '/settings/audit',
   chatModeration: '/settings/chat-moderation',
+  /** Interactive system flow map — modules, APIs, jobs and status machines. */
+  systemMap: '/system-map',
   account: '/account',
 
   notifications: '/notifications',
@@ -44,6 +51,7 @@ export const ROUTES = {
 
   // Phase 5 — Finance & Marketing
   finance: '/finance',
+  financeAccounting: '/finance/accounting',
   financePaymentDetail: (id = ':id') => `/finance/${id}`,
   loyalty: '/loyalty',
   giftCards: '/gift-cards',
@@ -74,6 +82,9 @@ export const ROUTES = {
   inventoryPurchaseOrders: '/inventory/purchase-orders',
   inventoryTransfers: '/inventory/transfers',
   inventoryLedger: '/inventory/ledger',
+  inventoryCounts: '/inventory/counts',
+  inventoryReturns: '/inventory/returns',
+  inventorySales: '/inventory/sales',
 
   forbidden: '/403',
   notFound: '/404',

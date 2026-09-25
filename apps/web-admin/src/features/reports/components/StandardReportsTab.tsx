@@ -1,20 +1,43 @@
 import { useQuery } from '@tanstack/react-query';
 import {
+  Boxes,
   Building2,
   CalendarCheck,
   CalendarDays,
   Clock,
+  Hourglass,
+  Layers,
   ListChecks,
+  RefreshCw,
+  FlaskConical,
+  Percent,
+  Scale,
   Scissors,
+  ShoppingBag,
   Split,
   Timer,
+  TrendingDown,
   Users,
   type LucideIcon,
 } from 'lucide-react';
 import { useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import type {
+  AbcBasis,
+  AbcView,
+  InventoryReportGroupBy,
+  InventoryTurnoverView,
+  ProfitLossView,
+  ServiceMarginView,
+  RetailMarginView,
+  ServiceUsageView,
+  StockAgingView,
+  StockShrinkageView,
+  StockValuationView,
+} from '@abcp/shared-types';
 
 import { DateField } from '@/components/shared/DateField';
+import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { http } from '@/services/http';
 import { formatCurrency, formatDate } from '@/lib/format';
@@ -23,6 +46,8 @@ import type { DashboardStats } from '@/types/models';
 
 import { downloadCsv, type CsvRow } from '../lib/csv';
 import { HourHistogram } from './HourHistogram';
+import { AbcReportBody, CategoryGroupsTable } from './InventoryReportExtras';
+import { abcCsv, categoryGroupsCsv } from './inventoryReportCsv';
 import { CellBar, LedgerTable } from './LedgerTable';
 import { ReportDocHeader } from './ReportDocHeader';
 import { ReportRevenueBars } from './ReportRevenueBars';
@@ -53,7 +78,35 @@ type ReportId =
   | 'status'
   | 'peak-hours'
   | 'channel'
-  | 'queue';
+  | 'queue'
+  | 'profit-loss'
+  | 'service-margin'
+  | 'stock-valuation'
+  | 'shrinkage'
+  | 'inventory-turnover'
+  | 'stock-aging'
+  | 'service-usage'
+  | 'abc-analysis'
+  | 'retail-margin';
+
+/** 9D — ລາຍງານທີ່ໃຊ້ຊ່ວງວັນ from/to ຮ່ວມກັນ (ຄ່າວ່າງ = 30 ວັນຫຼ້າສຸດ). */
+const RANGE_REPORTS: ReportId[] = ['shrinkage', 'inventory-turnover', 'service-usage', 'abc-analysis', 'retail-margin'];
+/** 9C — M3: ລາຍງານທີ່ຈັດກຸ່ມຕາມໝວດສິນຄ້າໄດ້ (groupBy=category). */
+const GROUPABLE_REPORTS: ReportId[] = ['stock-valuation', 'inventory-turnover', 'stock-aging'];
+
+/** Finance reports load their own data (not the 14-day dashboard stats). */
+const SELF_LOADING: ReportId[] = [
+  'end-of-day',
+  'profit-loss',
+  'service-margin',
+  'stock-valuation',
+  'shrinkage',
+  'inventory-turnover',
+  'stock-aging',
+  'service-usage',
+  'abc-analysis',
+  'retail-margin',
+];
 
 const CATALOG: { groupKey: string; items: { id: ReportId; icon: LucideIcon }[] }[] = [
   { groupKey: 'daily', items: [{ id: 'end-of-day', icon: CalendarCheck }] },
@@ -78,6 +131,20 @@ const CATALOG: { groupKey: string; items: { id: ReportId; icon: LucideIcon }[] }
       { id: 'peak-hours', icon: Clock },
       { id: 'channel', icon: Split },
       { id: 'queue', icon: Timer },
+    ],
+  },
+  {
+    groupKey: 'finance',
+    items: [
+      { id: 'profit-loss', icon: Scale },
+      { id: 'service-margin', icon: Percent },
+      { id: 'retail-margin', icon: ShoppingBag },
+      { id: 'stock-valuation', icon: Boxes },
+      { id: 'shrinkage', icon: TrendingDown },
+      { id: 'inventory-turnover', icon: RefreshCw },
+      { id: 'stock-aging', icon: Hourglass },
+      { id: 'service-usage', icon: FlaskConical },
+      { id: 'abc-analysis', icon: Layers },
     ],
   },
 ];
@@ -108,6 +175,94 @@ export function StandardReportsTab({ branchId, branchName, stats }: Props) {
       return res.data.data;
     },
     enabled: active === 'end-of-day',
+  });
+
+  const branchParam = branchId && branchId !== 'all' ? { branchId } : {};
+  // M12-lite — P&L ເດືອນນີ້ (COGS ຈາກ valued ledger + shrinkage) ແລະ ກຳໄລຂັ້ນຕົ້ນຕໍ່ບໍລິການ (30 ວັນ).
+  const pnlQ = useQuery({
+    queryKey: ['reports', 'profit-loss', branchId],
+    queryFn: async () =>
+      (await http.get<{ data: ProfitLossView }>('/expenses/profit-loss', { params: branchParam })).data.data,
+    enabled: active === 'profit-loss',
+    retry: false,
+  });
+  const marginQ = useQuery({
+    queryKey: ['reports', 'service-margin', branchId],
+    queryFn: async () =>
+      (await http.get<{ data: ServiceMarginView }>('/stock-movements/service-margin', { params: branchParam })).data
+        .data,
+    enabled: active === 'service-margin',
+    retry: false,
+  });
+
+  // Inventory wave 9B — stock value as of a Vientiane day (from the valued ledger) + shrinkage by reason/product.
+  const [asOf, setAsOf] = useState(() => new Date().toISOString().slice(0, 10));
+  // 9C — M3: ຈັດກຸ່ມຕາມໝວດ (valuation/turnover/aging) + basis ຂອງ ABC.
+  const [groupBy, setGroupBy] = useState<InventoryReportGroupBy>('product');
+  const [abcBasis, setAbcBasis] = useState<AbcBasis>('consumptionValue');
+  const groupParam = groupBy === 'category' ? { groupBy } : {};
+  const [shrinkFrom, setShrinkFrom] = useState('');
+  const [shrinkTo, setShrinkTo] = useState('');
+  const valuationQ = useQuery({
+    queryKey: ['reports', 'stock-valuation', branchId, asOf, groupBy],
+    queryFn: async () =>
+      (
+        await http.get<{ data: StockValuationView }>('/stock-movements/valuation', {
+          params: { ...branchParam, ...(asOf ? { asOf } : {}), ...groupParam },
+        })
+      ).data.data,
+    enabled: active === 'stock-valuation',
+    retry: false,
+  });
+  const shrinkQ = useQuery({
+    queryKey: ['reports', 'shrinkage', branchId, shrinkFrom, shrinkTo],
+    queryFn: async () =>
+      (
+        await http.get<{ data: StockShrinkageView }>('/stock-movements/shrinkage', {
+          params: { ...branchParam, ...(shrinkFrom ? { from: shrinkFrom } : {}), ...(shrinkTo ? { to: shrinkTo } : {}) },
+        })
+      ).data.data,
+    enabled: active === 'shrinkage',
+    retry: false,
+  });
+  // Inventory wave 9D — turnover / days on hand, stock aging, consumable usage per service.
+  const rangeParams = { ...branchParam, ...(shrinkFrom ? { from: shrinkFrom } : {}), ...(shrinkTo ? { to: shrinkTo } : {}) };
+  const turnoverQ = useQuery({
+    queryKey: ['reports', 'inventory-turnover', branchId, shrinkFrom, shrinkTo, groupBy],
+    queryFn: async () =>
+      (await http.get<{ data: InventoryTurnoverView }>('/stock-movements/turnover', { params: { ...rangeParams, ...groupParam } }))
+        .data.data,
+    enabled: active === 'inventory-turnover',
+    retry: false,
+  });
+  const agingQ = useQuery({
+    queryKey: ['reports', 'stock-aging', branchId, groupBy],
+    queryFn: async () =>
+      (await http.get<{ data: StockAgingView }>('/stock-movements/aging', { params: { ...branchParam, ...groupParam } })).data.data,
+    enabled: active === 'stock-aging',
+    retry: false,
+  });
+  const usageQ = useQuery({
+    queryKey: ['reports', 'service-usage', branchId, shrinkFrom, shrinkTo],
+    queryFn: async () =>
+      (await http.get<{ data: ServiceUsageView }>('/stock-movements/service-usage', { params: rangeParams })).data.data,
+    enabled: active === 'service-usage',
+    retry: false,
+  });
+  const abcQ = useQuery({
+    queryKey: ['reports', 'abc-analysis', branchId, shrinkFrom, shrinkTo, abcBasis],
+    queryFn: async () =>
+      (await http.get<{ data: AbcView }>('/stock-movements/abc', { params: { ...rangeParams, basis: abcBasis } })).data.data,
+    enabled: active === 'abc-analysis',
+    retry: false,
+  });
+
+  // M13 — ກຳໄລຂັ້ນຕົ້ນຕໍ່ສິນຄ້າ (ຂາຍໜ້າຮ້ານ).
+  const retailQ = useQuery({
+    queryKey: ['reports', 'retail-margin', branchId, shrinkFrom, shrinkTo],
+    queryFn: async () => (await http.get<{ data: RetailMarginView }>('/retail-sales/margin', { params: rangeParams })).data.data,
+    enabled: active === 'retail-margin',
+    retry: false,
   });
 
   const onNavKey = (e: KeyboardEvent, id: ReportId) => {
@@ -194,9 +349,64 @@ export function StandardReportsTab({ branchId, branchName, stats }: Props) {
     label: t(`reports.std.${camel(active)}`),
     desc: t(`reports.std.${camel(active)}Desc`),
   };
-  const scope = active === 'end-of-day' ? [formatDate(date), branchName] : [win, branchName];
-  const loadingStats = !stats && active !== 'end-of-day';
-  const busy = loadingStats || (active === 'end-of-day' && eodLoading);
+  const scope =
+    active === 'end-of-day'
+      ? [formatDate(date), branchName]
+      : active === 'profit-loss'
+        ? [pnlQ.data?.from ?? '—', branchName]
+        : active === 'service-margin'
+          ? [marginQ.data ? `${formatDate(marginQ.data.from)} – ${formatDate(marginQ.data.to)}` : '—', branchName]
+          : active === 'stock-valuation'
+            ? [t('reports.inv.asOfScope', { date: formatDate(asOf) }), branchName]
+            : active === 'shrinkage'
+              ? [shrinkQ.data ? `${formatDate(shrinkQ.data.from)} – ${formatDate(shrinkQ.data.to)}` : '—', branchName]
+              : active === 'inventory-turnover'
+                ? [turnoverQ.data ? `${formatDate(turnoverQ.data.from)} – ${formatDate(turnoverQ.data.to)}` : '—', branchName]
+                : active === 'service-usage'
+                  ? [usageQ.data ? `${formatDate(usageQ.data.from)} – ${formatDate(usageQ.data.to)}` : '—', branchName]
+                  : active === 'retail-margin'
+                  ? [retailQ.data ? `${formatDate(retailQ.data.from)} – ${formatDate(retailQ.data.to)}` : '—', branchName]
+                  : active === 'abc-analysis'
+                    ? [
+                        abcQ.data?.from && abcQ.data.to
+                          ? `${formatDate(abcQ.data.from)} – ${formatDate(abcQ.data.to)}`
+                          : t('reports.inv.basis.stockValue'),
+                        branchName,
+                      ]
+                  : active === 'stock-aging'
+                    ? [t('reports.inv.asOfScope', { date: formatDate(agingQ.data?.asOf ?? new Date().toISOString().slice(0, 10)) }), branchName]
+                    : [win, branchName];
+  const loadingStats = !stats && !SELF_LOADING.includes(active);
+  const busy =
+    loadingStats ||
+    (active === 'end-of-day' && eodLoading) ||
+    (active === 'profit-loss' && pnlQ.isLoading) ||
+    (active === 'service-margin' && marginQ.isLoading) ||
+    (active === 'stock-valuation' && valuationQ.isLoading) ||
+    (active === 'shrinkage' && shrinkQ.isLoading) ||
+    (active === 'inventory-turnover' && turnoverQ.isLoading) ||
+    (active === 'stock-aging' && agingQ.isLoading) ||
+    (active === 'service-usage' && usageQ.isLoading) ||
+    (active === 'abc-analysis' && abcQ.isLoading) ||
+    (active === 'retail-margin' && retailQ.isLoading);
+
+  const pnlLines = useMemo(() => {
+    const p = pnlQ.data;
+    if (!p) return [];
+    return [
+      { k: 'revenue', label: t('reports.fin.revenue'), amount: p.revenue, kind: 'line' as const },
+      { k: 'refunds', label: t('reports.fin.refunds'), amount: -p.refunds, kind: 'line' as const },
+      { k: 'netRevenue', label: t('reports.fin.netRevenue'), amount: p.netRevenue, kind: 'sub' as const },
+      { k: 'retailRevenue', label: t('reports.fin.retailRevenue'), amount: p.retailRevenue, kind: 'memo' as const },
+      { k: 'cogs', label: t('reports.fin.cogs'), amount: -p.cogs, kind: 'line' as const },
+      { k: 'retailCogs', label: t('reports.fin.retailCogs'), amount: -p.retailCogs, kind: 'memo' as const },
+      { k: 'gross', label: t('reports.fin.grossProfit'), amount: p.grossProfit, kind: 'sub' as const },
+      { k: 'shrinkage', label: t('reports.fin.shrinkage'), amount: -p.shrinkage, kind: 'line' as const },
+      { k: 'labour', label: t('reports.fin.labour'), amount: -p.labour.total, kind: 'line' as const },
+      { k: 'operating', label: t('reports.fin.operating'), amount: -p.operating.total, kind: 'line' as const },
+      { k: 'net', label: t('reports.fin.netProfit'), amount: p.netProfit, kind: 'sub' as const },
+    ];
+  }, [pnlQ.data, t]);
 
   function handleExport() {
     let body: CsvRow[] = [];
@@ -285,6 +495,76 @@ export function StandardReportsTab({ branchId, branchName, stats }: Props) {
         [t('reports.queue.called'), stats.queueCalled],
         [t('reports.queue.longestWait'), stats.queueLongestWaitMin],
         [t('reports.queue.nextNumber'), stats.queueNextNumber ?? '—'],
+      ];
+    } else if (active === 'profit-loss' && pnlQ.data) {
+      body = [
+        [t('reports.metric'), t('reports.value')],
+        ...pnlLines.map((l): CsvRow => [l.label, l.amount]),
+      ];
+    } else if (active === 'service-margin' && marginQ.data) {
+      const m = marginQ.data;
+      body = [
+        [t('reports.col.service'), t('reports.col.completed'), t('reports.col.revenue'), t('reports.fin.cogs'), t('reports.fin.grossMargin'), t('reports.fin.marginPct')],
+        ...m.rows.map((r): CsvRow => [r.serviceName, r.completed, r.revenue, r.cogs, r.grossMargin, `${(r.marginPct * 100).toFixed(1)}%`]),
+        [t('reports.total'), m.totals.completed, m.totals.revenue, m.totals.cogs, m.totals.grossMargin, `${(m.totals.marginPct * 100).toFixed(1)}%`],
+      ];
+    } else if (active === 'stock-valuation' && valuationQ.data) {
+      const v = valuationQ.data;
+      body = [
+        [t('reports.inv.asOf'), v.asOf],
+        [],
+        ...categoryGroupsCsv('valuation', v.groups, t),
+        [t('reports.inv.product'), t('reports.inv.sku'), t('reports.col.branch'), t('reports.inv.qty'), t('reports.inv.unit'), t('reports.inv.avgCost'), t('reports.inv.value'), t('reports.inv.fallback')],
+        ...v.rows.map((r): CsvRow => [r.productName, r.sku, r.branchName, r.qty, r.unit, r.avgCost, r.value, r.fallbackUsed ? `${r.fallbackRows} @ ${r.fallbackCost ?? ''}` : '']),
+        [t('reports.total'), '', '', '', '', '', v.totals.value, v.totals.fallbackProducts || ''],
+      ];
+    } else if (active === 'shrinkage' && shrinkQ.data) {
+      const d = shrinkQ.data;
+      body = [
+        [t('reports.inv.reason'), t('reports.inv.events'), t('reports.inv.qty'), t('reports.inv.lossValue')],
+        ...d.byReason.map((r): CsvRow => [t(`inventory.adjReason.${r.reason}`), r.count, r.qty, r.value]),
+        [t('reports.total'), d.totals.count, '', d.totals.value],
+        [],
+        [t('reports.inv.product'), t('reports.inv.sku'), t('reports.col.branch'), t('reports.inv.events'), t('reports.inv.qty'), t('reports.inv.unit'), t('reports.inv.lossValue')],
+        ...d.byProduct.map((r): CsvRow => [r.productName, r.sku, r.branchName, r.count, r.qty, r.unit, r.value]),
+      ];
+    } else if (active === 'inventory-turnover' && turnoverQ.data) {
+      const d = turnoverQ.data;
+      body = [
+        [t('reports.inv.days'), d.days],
+        [],
+        ...categoryGroupsCsv('turnover', d.groups, t),
+        [t('reports.inv.product'), t('reports.inv.sku'), t('reports.col.branch'), t('reports.fin.cogs'), t('reports.inv.openingValue'), t('reports.inv.closingValue'), t('reports.inv.avgValue'), t('reports.inv.turnover'), t('reports.inv.daysOnHand')],
+        ...d.rows.map((r): CsvRow => [r.productName, r.sku, r.branchName, r.cogs, r.openingValue, r.closingValue, r.avgValue, r.turnover, r.daysOnHand ?? '']),
+        [t('reports.total'), '', '', d.totals.cogs, d.totals.openingValue, d.totals.closingValue, d.totals.avgValue, d.totals.turnover, d.totals.daysOnHand ?? ''],
+      ];
+    } else if (active === 'stock-aging' && agingQ.data) {
+      const d = agingQ.data;
+      body = [
+        [t('reports.inv.bucket'), t('reports.inv.lines'), t('reports.inv.qty'), t('reports.inv.value')],
+        ...d.buckets.map((b): CsvRow => [t('reports.inv.bucketDays', { range: b.bucket }), b.lines, b.qty, b.value]),
+        [],
+        ...categoryGroupsCsv('aging', d.groups, t),
+        [t('reports.inv.product'), t('reports.inv.sku'), t('reports.col.branch'), t('reports.inv.lot'), t('reports.inv.receivedAt'), t('reports.inv.ageDays'), t('reports.inv.qty'), t('reports.inv.unit'), t('reports.inv.value')],
+        ...d.rows.map((r): CsvRow => [r.productName, r.sku, r.branchName, r.lotNumber ?? '', r.receivedAt.slice(0, 10), r.ageDays, r.qty, r.unit, r.value]),
+      ];
+    } else if (active === 'service-usage' && usageQ.data) {
+      const d = usageQ.data;
+      body = [
+        [t('reports.col.service'), t('reports.inv.appointments'), t('reports.inv.value'), t('reports.inv.perAppointment')],
+        ...d.byService.map((r): CsvRow => [r.serviceName, r.appointments, r.value, r.valuePerAppointment]),
+        [],
+        [t('reports.col.service'), t('reports.inv.product'), t('reports.inv.appointments'), t('reports.inv.qty'), t('reports.inv.unit'), t('reports.inv.perAppointment'), t('reports.inv.value')],
+        ...d.rows.map((r): CsvRow => [r.serviceName, r.productName, r.appointments, r.qty, r.unit, r.qtyPerAppointment, r.value]),
+      ];
+    } else if (active === 'abc-analysis' && abcQ.data) {
+      body = abcCsv(abcQ.data, t);
+    } else if (active === 'retail-margin' && retailQ.data) {
+      const m = retailQ.data;
+      body = [
+        [t('reports.inv.product'), t('reports.inv.sku'), t('reports.retail.qtySold'), t('reports.retail.qtyReturned'), t('reports.col.revenue'), t('reports.fin.cogs'), t('reports.fin.grossMargin'), t('reports.fin.marginPct')],
+        ...m.rows.map((r): CsvRow => [r.productName, r.sku, r.qtySold, r.qtyReturned, r.revenue, r.cogs, r.grossMargin, `${(r.marginPct * 100).toFixed(1)}%`]),
+        [t('reports.total'), '', m.totals.qtySold, m.totals.qtyReturned, m.totals.revenue, m.totals.cogs, m.totals.grossMargin, `${(m.totals.marginPct * 100).toFixed(1)}%`],
       ];
     }
     const stamp = active === 'end-of-day' ? date : new Date().toISOString().slice(0, 10);
@@ -603,6 +883,503 @@ export function StandardReportsTab({ branchId, branchName, stats }: Props) {
       );
     }
 
+    if (active === 'profit-loss') {
+      const p = pnlQ.data;
+      if (pnlQ.isError) return <Empty label={t('reports.fin.noAccess')} />;
+      if (!p) return <Skeleton className="h-56 w-full" />;
+      const pct = (n: number) => (p.netRevenue > 0 ? `${Math.round((n / p.netRevenue) * 1000) / 10}%` : '—');
+      return (
+        <div className="space-y-4">
+          <KpiRow>
+            {kpi({ label: t('reports.fin.netRevenue'), value: formatCurrency(p.netRevenue), icon: CalendarDays, tone: 'primary', index: 0 })}
+            {kpi({ label: t('reports.fin.cogs'), value: formatCurrency(p.cogs), icon: Scissors, tone: 'violet', sub: t('reports.fin.cogsSub'), index: 1 })}
+            {kpi({ label: t('reports.fin.grossProfit'), value: formatCurrency(p.grossProfit), icon: Scale, tone: 'info', sub: pct(p.grossProfit), index: 2 })}
+            {kpi({ label: t('reports.fin.netProfit'), value: formatCurrency(p.netProfit), icon: ListChecks, tone: p.netProfit >= 0 ? 'success' : 'violet', sub: pct(p.netProfit), index: 3 })}
+          </KpiRow>
+          <LedgerTable
+            rows={pnlLines}
+            rowKey={(r) => r.k}
+            columns={[
+              {
+                key: 'label',
+                label: t('reports.metric'),
+                render: (r) => (
+                  <span
+                    className={cn(
+                      r.kind === 'sub' ? 'font-semibold text-foreground' : r.kind === 'memo' ? 'pl-6 text-xs italic text-muted-foreground' : 'pl-3 text-muted-foreground',
+                    )}
+                  >
+                    {r.label}
+                  </span>
+                ),
+              },
+              {
+                key: 'amount',
+                label: t('reports.value'),
+                align: 'right',
+                render: (r) => (
+                  <span className={cn(r.kind === 'sub' && 'font-semibold', r.amount < 0 && 'text-destructive')}>
+                    {formatCurrency(r.amount)}
+                  </span>
+                ),
+              },
+              { key: 'share', label: t('reports.col.share'), align: 'right', render: (r) => <span className="text-muted-foreground">{pct(Math.abs(r.amount))}</span> },
+            ]}
+          />
+          <p className="text-[11px] leading-relaxed text-muted-foreground">{t('reports.fin.pnlNote')}</p>
+        </div>
+      );
+    }
+
+    if (active === 'service-margin') {
+      const m = marginQ.data;
+      if (marginQ.isError) return <Empty label={t('reports.fin.noAccess')} />;
+      if (!m) return <Skeleton className="h-56 w-full" />;
+      const maxRev = Math.max(1, ...m.rows.map((r) => r.revenue));
+      const fmtPct = (v: number) => `${(v * 100).toFixed(1)}%`;
+      return (
+        <div className="space-y-4">
+          <KpiRow>
+            {kpi({ label: t('reports.col.revenue'), value: formatCurrency(m.totals.revenue), icon: CalendarDays, tone: 'primary', index: 0 })}
+            {kpi({ label: t('reports.fin.cogs'), value: formatCurrency(m.totals.cogs), icon: Scissors, tone: 'violet', index: 1 })}
+            {kpi({ label: t('reports.fin.grossMargin'), value: formatCurrency(m.totals.grossMargin), icon: Scale, tone: 'success', sub: fmtPct(m.totals.marginPct), index: 2 })}
+            {kpi({ label: t('reports.col.completed'), value: m.totals.completed, icon: ListChecks, tone: 'info', index: 3 })}
+          </KpiRow>
+          <LedgerTable
+            rows={m.rows}
+            rowKey={(r) => r.serviceId}
+            empty={t('reports.empty')}
+            defaultSort={{ key: 'revenue', dir: 'desc' }}
+            columns={[
+              { key: 'name', label: t('reports.col.service'), render: (r) => <span className="font-medium">{r.serviceName}</span>, sortValue: (r) => r.serviceName },
+              { key: 'completed', label: t('reports.col.completed'), align: 'right', render: (r) => r.completed, sortValue: (r) => r.completed },
+              {
+                key: 'revenue',
+                label: t('reports.col.revenue'),
+                align: 'right',
+                render: (r) => (
+                  <span className="inline-flex items-center justify-end">
+                    {formatCurrency(r.revenue)}
+                    <CellBar value={r.revenue} max={maxRev} />
+                  </span>
+                ),
+                sortValue: (r) => r.revenue,
+              },
+              { key: 'cogs', label: t('reports.fin.cogs'), align: 'right', render: (r) => <span className="text-muted-foreground">{formatCurrency(r.cogs)}</span>, sortValue: (r) => r.cogs },
+              { key: 'margin', label: t('reports.fin.grossMargin'), align: 'right', render: (r) => formatCurrency(r.grossMargin), sortValue: (r) => r.grossMargin },
+              {
+                key: 'pct',
+                label: t('reports.fin.marginPct'),
+                align: 'right',
+                render: (r) => <span className={cn(r.marginPct < 0.5 && 'text-destructive')}>{fmtPct(r.marginPct)}</span>,
+                sortValue: (r) => r.marginPct,
+              },
+            ]}
+            total={[
+              t('reports.total'),
+              m.totals.completed,
+              formatCurrency(m.totals.revenue),
+              formatCurrency(m.totals.cogs),
+              formatCurrency(m.totals.grossMargin),
+              fmtPct(m.totals.marginPct),
+            ]}
+          />
+        </div>
+      );
+    }
+
+    if (active === 'retail-margin') {
+      const m = retailQ.data;
+      if (retailQ.isError) return <Empty label={t('reports.fin.noAccess')} />;
+      if (!m) return <Skeleton className="h-56 w-full" />;
+      const maxRev = Math.max(1, ...m.rows.map((r) => r.revenue));
+      const fmtPct = (v: number) => `${(v * 100).toFixed(1)}%`;
+      return (
+        <div className="space-y-4">
+          <KpiRow>
+            {kpi({ label: t('reports.col.revenue'), value: formatCurrency(m.totals.revenue), icon: CalendarDays, tone: 'primary', sub: t('reports.retail.exVat'), index: 0 })}
+            {kpi({ label: t('reports.fin.cogs'), value: formatCurrency(m.totals.cogs), icon: Boxes, tone: 'violet', index: 1 })}
+            {kpi({ label: t('reports.fin.grossMargin'), value: formatCurrency(m.totals.grossMargin), icon: Scale, tone: 'success', sub: fmtPct(m.totals.marginPct), index: 2 })}
+            {kpi({ label: t('reports.retail.sales'), value: m.totals.saleCount, icon: ShoppingBag, tone: 'info', index: 3 })}
+          </KpiRow>
+          <LedgerTable
+            rows={m.rows}
+            rowKey={(r) => r.productId}
+            empty={t('reports.empty')}
+            defaultSort={{ key: 'margin', dir: 'desc' }}
+            columns={[
+              {
+                key: 'name',
+                label: t('reports.inv.product'),
+                render: (r) => (
+                  <span>
+                    <span className="font-medium">{r.productName}</span>
+                    <span className="block text-[11px] text-muted-foreground">{r.sku}</span>
+                  </span>
+                ),
+                sortValue: (r) => r.productName,
+              },
+              { key: 'qty', label: t('reports.retail.netQty'), align: 'right', render: (r) => `${r.netQty.toLocaleString()} ${r.unit}`, sortValue: (r) => r.netQty },
+              {
+                key: 'revenue',
+                label: t('reports.col.revenue'),
+                align: 'right',
+                render: (r) => (
+                  <span className="inline-flex items-center justify-end">
+                    {formatCurrency(r.revenue)}
+                    <CellBar value={r.revenue} max={maxRev} />
+                  </span>
+                ),
+                sortValue: (r) => r.revenue,
+              },
+              { key: 'cogs', label: t('reports.fin.cogs'), align: 'right', render: (r) => <span className="text-muted-foreground">{formatCurrency(r.cogs)}</span>, sortValue: (r) => r.cogs },
+              { key: 'margin', label: t('reports.fin.grossMargin'), align: 'right', render: (r) => formatCurrency(r.grossMargin), sortValue: (r) => r.grossMargin },
+              {
+                key: 'pct',
+                label: t('reports.fin.marginPct'),
+                align: 'right',
+                render: (r) => <span className={cn(r.marginPct < 0.2 && 'text-destructive')}>{fmtPct(r.marginPct)}</span>,
+                sortValue: (r) => r.marginPct,
+              },
+            ]}
+            total={[
+              t('reports.total'),
+              m.totals.qtySold - m.totals.qtyReturned,
+              formatCurrency(m.totals.revenue),
+              formatCurrency(m.totals.cogs),
+              formatCurrency(m.totals.grossMargin),
+              fmtPct(m.totals.marginPct),
+            ]}
+          />
+          <p className="text-[11px] leading-relaxed text-muted-foreground">{t('reports.retail.note')}</p>
+        </div>
+      );
+    }
+
+    if (active === 'stock-valuation') {
+      const v = valuationQ.data;
+      if (valuationQ.isError) return <Empty label={t('reports.fin.noAccess')} />;
+      if (!v) return <Skeleton className="h-56 w-full" />;
+      const maxVal = Math.max(1, ...v.rows.map((r) => r.value));
+      return (
+        <div className="space-y-4">
+          <KpiRow>
+            {kpi({ label: t('reports.inv.totalValue'), value: formatCurrency(v.totals.value), icon: Boxes, tone: 'primary', sub: formatDate(v.asOf), index: 0 })}
+            {kpi({ label: t('reports.inv.products'), value: v.totals.products, icon: ListChecks, tone: 'info', index: 1 })}
+            {kpi({ label: t('reports.inv.fallbackProducts'), value: v.totals.fallbackProducts, icon: Scale, tone: v.totals.fallbackProducts ? 'violet' : 'success', sub: t('reports.inv.fallbackSub'), index: 2 })}
+          </KpiRow>
+          {v.groups ? <CategoryGroupsTable kind="valuation" groups={v.groups} t={t} /> : null}
+          <LedgerTable
+            rows={v.rows}
+            rowKey={(r) => r.productId}
+            empty={t('reports.empty')}
+            defaultSort={{ key: 'value', dir: 'desc' }}
+            columns={[
+              {
+                key: 'name',
+                label: t('reports.inv.product'),
+                render: (r) => (
+                  <span>
+                    <span className="font-medium">{r.productName}</span>
+                    <span className="block text-[11px] text-muted-foreground">{r.sku} · {r.branchName}</span>
+                  </span>
+                ),
+                sortValue: (r) => r.productName,
+              },
+              { key: 'qty', label: t('reports.inv.qty'), align: 'right', render: (r) => `${r.qty.toLocaleString()} ${r.unit}`, sortValue: (r) => r.qty },
+              { key: 'avg', label: t('reports.inv.avgCost'), align: 'right', render: (r) => <span className="text-muted-foreground">{formatCurrency(r.avgCost)}</span>, sortValue: (r) => r.avgCost },
+              {
+                key: 'value',
+                label: t('reports.inv.value'),
+                align: 'right',
+                render: (r) => (
+                  <span className="inline-flex items-center justify-end">
+                    {formatCurrency(r.value)}
+                    {r.fallbackUsed ? (
+                      <span className="ml-1 text-warning" title={t('reports.inv.fallbackTitle', { rows: r.fallbackRows, cost: formatCurrency(r.fallbackCost ?? 0) })}>
+                        *
+                      </span>
+                    ) : null}
+                    <CellBar value={Math.max(0, r.value)} max={maxVal} />
+                  </span>
+                ),
+                sortValue: (r) => r.value,
+              },
+            ]}
+            total={[t('reports.total'), '', '', formatCurrency(v.totals.value)]}
+          />
+          <p className="text-[11px] leading-relaxed text-muted-foreground">{t('reports.inv.valuationNote')}</p>
+        </div>
+      );
+    }
+
+    if (active === 'shrinkage') {
+      const d = shrinkQ.data;
+      if (shrinkQ.isError) return <Empty label={t('reports.fin.noAccess')} />;
+      if (!d) return <Skeleton className="h-56 w-full" />;
+      const maxReason = Math.max(1, ...d.byReason.map((r) => r.value));
+      const top = d.byReason[0];
+      return (
+        <div className="space-y-4">
+          <KpiRow>
+            {kpi({ label: t('reports.inv.lossValue'), value: formatCurrency(d.totals.value), icon: TrendingDown, tone: 'violet', index: 0 })}
+            {kpi({ label: t('reports.inv.events'), value: d.totals.count, icon: ListChecks, tone: 'info', index: 1 })}
+            {kpi({ label: t('reports.inv.topReason'), value: top ? t(`inventory.adjReason.${top.reason}`) : '—', sub: top ? formatCurrency(top.value) : undefined, icon: Scale, tone: 'primary', index: 2 })}
+          </KpiRow>
+          <TableWrap title={t('reports.inv.byReason')}>
+            <LedgerTable
+              rows={d.byReason}
+              rowKey={(r) => r.reason}
+              empty={t('reports.empty')}
+              columns={[
+                { key: 'reason', label: t('reports.inv.reason'), render: (r) => <span className="font-medium">{t(`inventory.adjReason.${r.reason}`)}</span> },
+                { key: 'count', label: t('reports.inv.events'), align: 'right', render: (r) => r.count, sortValue: (r) => r.count },
+                { key: 'qty', label: t('reports.inv.qty'), align: 'right', render: (r) => r.qty.toLocaleString(), sortValue: (r) => r.qty },
+                {
+                  key: 'value',
+                  label: t('reports.inv.lossValue'),
+                  align: 'right',
+                  render: (r) => (
+                    <span className="inline-flex items-center justify-end">
+                      {formatCurrency(r.value)}
+                      <CellBar value={r.value} max={maxReason} />
+                    </span>
+                  ),
+                  sortValue: (r) => r.value,
+                },
+              ]}
+              total={[t('reports.total'), d.totals.count, '', formatCurrency(d.totals.value)]}
+            />
+          </TableWrap>
+          <TableWrap title={t('reports.inv.byProduct')}>
+            <LedgerTable
+              rows={d.byProduct}
+              rowKey={(r) => r.productId}
+              empty={t('reports.empty')}
+              defaultSort={{ key: 'value', dir: 'desc' }}
+              columns={[
+                {
+                  key: 'name',
+                  label: t('reports.inv.product'),
+                  render: (r) => (
+                    <span>
+                      <span className="font-medium">{r.productName}</span>
+                      <span className="block text-[11px] text-muted-foreground">{r.sku} · {r.branchName}</span>
+                    </span>
+                  ),
+                  sortValue: (r) => r.productName,
+                },
+                { key: 'count', label: t('reports.inv.events'), align: 'right', render: (r) => r.count, sortValue: (r) => r.count },
+                { key: 'qty', label: t('reports.inv.qty'), align: 'right', render: (r) => `${r.qty.toLocaleString()} ${r.unit}`, sortValue: (r) => r.qty },
+                { key: 'value', label: t('reports.inv.lossValue'), align: 'right', render: (r) => formatCurrency(r.value), sortValue: (r) => r.value },
+              ]}
+            />
+          </TableWrap>
+          <p className="text-[11px] leading-relaxed text-muted-foreground">{t('reports.inv.shrinkageNote')}</p>
+        </div>
+      );
+    }
+
+    if (active === 'inventory-turnover') {
+      const d = turnoverQ.data;
+      if (turnoverQ.isError) return <Empty label={t('reports.fin.noAccess')} />;
+      if (!d) return <Skeleton className="h-56 w-full" />;
+      return (
+        <div className="space-y-4">
+          <KpiRow>
+            {kpi({ label: t('reports.inv.turnover'), value: `${d.totals.turnover}×`, sub: t('reports.inv.daysWindow', { days: d.days }), icon: RefreshCw, tone: 'primary', index: 0 })}
+            {kpi({ label: t('reports.inv.daysOnHand'), value: d.totals.daysOnHand ?? '—', icon: Hourglass, tone: 'info', index: 1 })}
+            {kpi({ label: t('reports.fin.cogs'), value: formatCurrency(d.totals.cogs), icon: TrendingDown, tone: 'violet', index: 2 })}
+            {kpi({ label: t('reports.inv.avgValue'), value: formatCurrency(d.totals.avgValue), icon: Boxes, tone: 'success', index: 3 })}
+          </KpiRow>
+          {d.groups ? <CategoryGroupsTable kind="turnover" groups={d.groups} t={t} /> : null}
+          <TableWrap title={t('reports.inv.byProduct')}>
+            <LedgerTable
+              rows={d.rows}
+              rowKey={(r) => r.productId}
+              empty={t('reports.empty')}
+              defaultSort={{ key: 'cogs', dir: 'desc' }}
+              columns={[
+                {
+                  key: 'name',
+                  label: t('reports.inv.product'),
+                  render: (r) => (
+                    <span>
+                      <span className="font-medium">{r.productName}</span>
+                      <span className="block text-[11px] text-muted-foreground">{r.sku} · {r.branchName}</span>
+                    </span>
+                  ),
+                  sortValue: (r) => r.productName,
+                },
+                { key: 'cogs', label: t('reports.fin.cogs'), align: 'right', render: (r) => formatCurrency(r.cogs), sortValue: (r) => r.cogs },
+                { key: 'avg', label: t('reports.inv.avgValue'), align: 'right', render: (r) => formatCurrency(r.avgValue), sortValue: (r) => r.avgValue },
+                { key: 'turn', label: t('reports.inv.turnover'), align: 'right', render: (r) => `${r.turnover}×`, sortValue: (r) => r.turnover },
+                { key: 'doh', label: t('reports.inv.daysOnHand'), align: 'right', render: (r) => r.daysOnHand ?? '—', sortValue: (r) => r.daysOnHand ?? Number.MAX_SAFE_INTEGER },
+              ]}
+              total={[t('reports.total'), formatCurrency(d.totals.cogs), formatCurrency(d.totals.avgValue), `${d.totals.turnover}×`, d.totals.daysOnHand ?? '—']}
+            />
+          </TableWrap>
+          <p className="text-[11px] leading-relaxed text-muted-foreground">{t('reports.inv.turnoverNote')}</p>
+        </div>
+      );
+    }
+
+    if (active === 'stock-aging') {
+      const d = agingQ.data;
+      if (agingQ.isError) return <Empty label={t('reports.fin.noAccess')} />;
+      if (!d) return <Skeleton className="h-56 w-full" />;
+      const maxBucket = Math.max(1, ...d.buckets.map((b) => b.value));
+      const old = d.buckets.find((b) => b.bucket === '90+');
+      return (
+        <div className="space-y-4">
+          <KpiRow>
+            {kpi({ label: t('reports.inv.value'), value: formatCurrency(d.totals.value), icon: Boxes, tone: 'primary', index: 0 })}
+            {kpi({ label: t('reports.inv.lines'), value: d.totals.lines, icon: ListChecks, tone: 'info', index: 1 })}
+            {kpi({ label: t('reports.inv.over90'), value: formatCurrency(old?.value ?? 0), icon: Hourglass, tone: 'violet', index: 2 })}
+          </KpiRow>
+          {d.groups ? <CategoryGroupsTable kind="aging" groups={d.groups} t={t} /> : null}
+          <TableWrap title={t('reports.inv.byBucket')}>
+            <LedgerTable
+              rows={d.buckets}
+              rowKey={(r) => r.bucket}
+              columns={[
+                { key: 'bucket', label: t('reports.inv.bucket'), render: (r) => <span className="font-medium">{t('reports.inv.bucketDays', { range: r.bucket })}</span> },
+                { key: 'lines', label: t('reports.inv.lines'), align: 'right', render: (r) => r.lines },
+                { key: 'qty', label: t('reports.inv.qty'), align: 'right', render: (r) => r.qty.toLocaleString() },
+                {
+                  key: 'value',
+                  label: t('reports.inv.value'),
+                  align: 'right',
+                  render: (r) => (
+                    <span className="inline-flex items-center justify-end">
+                      {formatCurrency(r.value)}
+                      <CellBar value={r.value} max={maxBucket} />
+                    </span>
+                  ),
+                },
+              ]}
+              total={[t('reports.total'), d.totals.lines, d.totals.qty.toLocaleString(), formatCurrency(d.totals.value)]}
+            />
+          </TableWrap>
+          <TableWrap title={t('reports.inv.byProduct')}>
+            <LedgerTable
+              rows={d.rows}
+              rowKey={(r, i) => `${r.productId}-${r.lotNumber ?? '-'}-${i}`}
+              empty={t('reports.empty')}
+              defaultSort={{ key: 'age', dir: 'desc' }}
+              columns={[
+                {
+                  key: 'name',
+                  label: t('reports.inv.product'),
+                  render: (r) => (
+                    <span>
+                      <span className="font-medium">{r.productName}</span>
+                      <span className="block text-[11px] text-muted-foreground">
+                        {r.sku} · {r.branchName}
+                        {r.lotNumber ? ` · ${t('reports.inv.lot')} ${r.lotNumber}` : ''}
+                      </span>
+                    </span>
+                  ),
+                  sortValue: (r) => r.productName,
+                },
+                {
+                  key: 'age',
+                  label: t('reports.inv.ageDays'),
+                  align: 'right',
+                  render: (r) => (
+                    <span title={t(`reports.inv.ageSource.${r.ageSource}`)}>
+                      {r.ageDays} · {formatDate(r.receivedAt)}
+                    </span>
+                  ),
+                  sortValue: (r) => r.ageDays,
+                },
+                { key: 'qty', label: t('reports.inv.qty'), align: 'right', render: (r) => `${r.qty.toLocaleString()} ${r.unit}`, sortValue: (r) => r.qty },
+                { key: 'value', label: t('reports.inv.value'), align: 'right', render: (r) => formatCurrency(r.value), sortValue: (r) => r.value },
+              ]}
+            />
+          </TableWrap>
+        </div>
+      );
+    }
+
+    if (active === 'abc-analysis') {
+      const d = abcQ.data;
+      if (abcQ.isError) return <Empty label={t('reports.fin.noAccess')} />;
+      if (!d) return <Skeleton className="h-56 w-full" />;
+      return <AbcReportBody d={d} t={t} />;
+    }
+
+    if (active === 'service-usage') {
+      const d = usageQ.data;
+      if (usageQ.isError) return <Empty label={t('reports.fin.noAccess')} />;
+      if (!d) return <Skeleton className="h-56 w-full" />;
+      const maxSvc = Math.max(1, ...d.byService.map((r) => r.value));
+      return (
+        <div className="space-y-4">
+          <KpiRow>
+            {kpi({ label: t('reports.inv.value'), value: formatCurrency(d.totals.value), icon: FlaskConical, tone: 'primary', index: 0 })}
+            {kpi({ label: t('reports.inv.appointments'), value: d.totals.appointments, icon: ListChecks, tone: 'info', index: 1 })}
+            {kpi({
+              label: t('reports.inv.perAppointment'),
+              value: formatCurrency(d.totals.appointments ? Math.round(d.totals.value / d.totals.appointments) : 0),
+              icon: Scale,
+              tone: 'violet',
+              index: 2,
+            })}
+          </KpiRow>
+          <TableWrap title={t('reports.inv.byService')}>
+            <LedgerTable
+              rows={d.byService}
+              rowKey={(r) => r.serviceId}
+              empty={t('reports.empty')}
+              defaultSort={{ key: 'value', dir: 'desc' }}
+              columns={[
+                { key: 'name', label: t('reports.col.service'), render: (r) => <span className="font-medium">{r.serviceName}</span>, sortValue: (r) => r.serviceName },
+                { key: 'appts', label: t('reports.inv.appointments'), align: 'right', render: (r) => r.appointments, sortValue: (r) => r.appointments },
+                { key: 'per', label: t('reports.inv.perAppointment'), align: 'right', render: (r) => formatCurrency(r.valuePerAppointment), sortValue: (r) => r.valuePerAppointment },
+                {
+                  key: 'value',
+                  label: t('reports.inv.value'),
+                  align: 'right',
+                  render: (r) => (
+                    <span className="inline-flex items-center justify-end">
+                      {formatCurrency(r.value)}
+                      <CellBar value={r.value} max={maxSvc} />
+                    </span>
+                  ),
+                  sortValue: (r) => r.value,
+                },
+              ]}
+              total={[t('reports.total'), d.totals.appointments, '', formatCurrency(d.totals.value)]}
+            />
+          </TableWrap>
+          <TableWrap title={t('reports.inv.byServiceProduct')}>
+            <LedgerTable
+              rows={d.rows}
+              rowKey={(r) => `${r.serviceId}-${r.productId}`}
+              empty={t('reports.empty')}
+              columns={[
+                {
+                  key: 'name',
+                  label: t('reports.inv.product'),
+                  render: (r) => (
+                    <span>
+                      <span className="font-medium">{r.productName}</span>
+                      <span className="block text-[11px] text-muted-foreground">{r.serviceName}</span>
+                    </span>
+                  ),
+                  sortValue: (r) => `${r.serviceName} ${r.productName}`,
+                },
+                { key: 'qty', label: t('reports.inv.qty'), align: 'right', render: (r) => `${r.qty.toLocaleString()} ${r.unit}`, sortValue: (r) => r.qty },
+                { key: 'per', label: t('reports.inv.perAppointment'), align: 'right', render: (r) => r.qtyPerAppointment.toLocaleString(), sortValue: (r) => r.qtyPerAppointment },
+                { key: 'value', label: t('reports.inv.value'), align: 'right', render: (r) => formatCurrency(r.value), sortValue: (r) => r.value },
+              ]}
+            />
+          </TableWrap>
+        </div>
+      );
+    }
+
     return <Empty label={t('reports.empty')} />;
   }
 
@@ -675,14 +1452,78 @@ export function StandardReportsTab({ branchId, branchName, stats }: Props) {
             onPrint={() => window.print()}
             onExport={handleExport}
             control={
-              active === 'end-of-day' ? (
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                    {t('reports.std.date')}
-                  </label>
-                  <DateField value={date} onChange={setDate} aria-label={t('reports.std.date')} />
-                </div>
-              ) : undefined
+              <div className="flex flex-wrap items-end gap-2">
+                {GROUPABLE_REPORTS.includes(active) ? (
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">{t('reports.inv.groupBy')}</label>
+                    <Select
+                      className="h-9 w-[150px]"
+                      value={groupBy}
+                      onChange={(e) => setGroupBy(e.target.value as InventoryReportGroupBy)}
+                      options={[
+                        { value: 'product', label: t('reports.inv.groupProduct') },
+                        { value: 'category', label: t('reports.inv.groupCategory') },
+                      ]}
+                      aria-label={t('reports.inv.groupBy')}
+                    />
+                  </div>
+                ) : null}
+                {active === 'abc-analysis' ? (
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">{t('reports.inv.abcBasis')}</label>
+                    <Select
+                      className="h-9 w-[170px]"
+                      value={abcBasis}
+                      onChange={(e) => setAbcBasis(e.target.value as AbcBasis)}
+                      options={[
+                        { value: 'consumptionValue', label: t('reports.inv.basis.consumptionValue') },
+                        { value: 'stockValue', label: t('reports.inv.basis.stockValue') },
+                      ]}
+                      aria-label={t('reports.inv.abcBasis')}
+                    />
+                  </div>
+                ) : null}
+                {active === 'end-of-day' ? (
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                      {t('reports.std.date')}
+                    </label>
+                    <DateField value={date} onChange={setDate} aria-label={t('reports.std.date')} />
+                  </div>
+                ) : active === 'stock-valuation' ? (
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">{t('reports.inv.asOf')}</label>
+                    <DateField value={asOf} onChange={setAsOf} aria-label={t('reports.inv.asOf')} />
+                  </div>
+                ) : RANGE_REPORTS.includes(active) ? (
+                  <div className="flex flex-wrap gap-2">
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground">{t('reports.inv.from')}</label>
+                      <DateField
+                        value={shrinkFrom}
+                        max={shrinkTo || undefined}
+                        onChange={setShrinkFrom}
+                        onClear={() => setShrinkFrom('')}
+                        clearLabel={t('inventory.ledger.clearDate')}
+                        placeholder={t('reports.inv.last30')}
+                        aria-label={t('reports.inv.from')}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground">{t('reports.inv.to')}</label>
+                      <DateField
+                        value={shrinkTo}
+                        min={shrinkFrom || undefined}
+                        onChange={setShrinkTo}
+                        onClear={() => setShrinkTo('')}
+                        clearLabel={t('inventory.ledger.clearDate')}
+                        placeholder={t('reports.inv.today')}
+                        aria-label={t('reports.inv.to')}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+              </div>
             }
           />
 

@@ -233,6 +233,11 @@ into the existing client, so that half should work without a rebuild; voice reco
 
 ## Debt / explicitly deferred
 
+> **Update 2026-09-26:** web-admin chat media, the mobile blocklist screen, push on new
+> STAFF_INTERNAL/DIRECT/CONSULTATION messages (`chat.service notifyRecipients` → `pushOnly`, one push per
+> sender burst, no inbox rows) and a web-admin lock/unlock toggle (ThreadDetailsPanel; BRANCH_ADMIN scoped)
+> are all shipped. Also 2026-09-26: voice bubbles show real playback progress + elapsed/total time (after first load — no stored duration column), and /settings/chat-moderation has a read-only **Blocks** tab (`GET /conversations/moderation/blocks`, per-user blocked-by count). Nothing left open from this list.
+
 - **Web-admin chat has no media UI** — `ChatPanel.tsx`/`ThreadView.tsx` still only render `m.body` as
   plain text, so an admin viewing a thread that contains an image/voice message sees only the
   placeholder caption text, not the actual media. Deliberately out of scope per the user's explicit

@@ -63,6 +63,15 @@ export type StaffStackParamList = {
   StaffThread: { threadId: string; title: string; locked?: boolean };
   StaffSlipInbox: undefined;
   StaffSlipReview: { slipId: string };
+  // M14 — ສະຕັອກ (ສະເພາະຜູ້ມີ inventory:view)
+  StockHome: undefined;
+  StockScan: undefined;
+  StockProduct: { id: string };
+  StockCounts: undefined;
+  StockCount: { id: string };
+  StockReceiveList: undefined;
+  StockReceive: { poId: string };
+  StockAdjust: { productId: string };
 };
 
 export type StaffAppScreenProps<T extends keyof StaffStackParamList> = NativeStackScreenProps<

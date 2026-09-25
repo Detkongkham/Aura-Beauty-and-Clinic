@@ -14,6 +14,8 @@ import type {
 import type { AccessTokenPayload } from '@abcp/shared-types';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/database.js';
+import { syncAppointmentReservations } from '../inventory/reservation.service.js';
+import { onRetailPaymentSettled } from '../inventory/retail-stock.service.js';
 import { env } from '../../config/env.js';
 import { ErrorCode } from '../../constants/errorCodes.js';
 import { ApiError } from '../../utils/ApiError.js';
@@ -32,6 +34,7 @@ import { activatePurchasedPackage } from '../packages/packages.service.js';
 import { assertCashDrawerOpen } from '../payments-treasury/cash-drawer/cash-policy.js';
 import { exclusiveBillVat, getVatSettings, splitVat } from './vat.js';
 import { runSerializable } from '../../utils/serializable.js';
+import { getFinancePolicy } from '../finance-ledger/policy.js';
 
 // ---- deposit rate ---------------------------------------------------
 
@@ -90,7 +93,10 @@ const PAYMENT_INCLUDE = {
   // ບິນຊື້ບັດຂອງຂວັນ/ແພັກເກັດ ບໍ່ມີ appointment — ໃຊ້ຊື່ຜູ້ຊື້ ເພື່ອໃຫ້ພະນັກງານຊອກບິນຮັບເງິນສົດໄດ້.
   giftCardPurchase: { select: { buyer: { select: { name: true } } } },
   packagePurchase: { select: { user: { select: { name: true } } } },
+  // M13 — ບິນຂາຍສິນຄ້າໜ້າຮ້ານ (ລູກຄ້າບໍ່ບັງຄັບ).
+  retailSale: { select: { customer: { select: { name: true } } } },
   transactions: { orderBy: { createdAt: 'asc' } },
+  gratuities: { select: { amount: true } },
 } satisfies Prisma.PaymentInclude;
 
 type PaymentRow = Prisma.PaymentGetPayload<{ include: typeof PAYMENT_INCLUDE }>;
@@ -123,6 +129,7 @@ function toView(p: PaymentRow): PaymentView {
       p.bookingGroup?.payer.name ??
       p.giftCardPurchase?.buyer?.name ??
       p.packagePurchase?.user?.name ??
+      p.retailSale?.customer?.name ??
       null,
     totalAmount: total,
     depositAmount: toNum(p.depositAmount),
@@ -141,6 +148,12 @@ function toView(p: PaymentRow): PaymentView {
     refundedAmount: toNum(p.refundedAmount),
     voidedAt: p.voidedAt?.toISOString() ?? null,
     voidReason: p.voidReason,
+    serviceChargeRate: p.serviceChargeRate ? p.serviceChargeRate.toNumber() : null,
+    serviceChargeAmount: toNum(p.serviceChargeAmount),
+    forfeitedAmount: toNum(p.forfeitedAmount),
+    forfeitKind: p.forfeitKind,
+    forfeitedAt: p.forfeitedAt?.toISOString() ?? null,
+    gratuityAmount: round2(p.gratuities.reduce((s, g) => s + toNum(g.amount), 0)),
   };
 }
 
@@ -173,8 +186,12 @@ export async function createPayment(
     if (existing) return toView(existing);
   }
 
+  // Wave 11 (F-19) — ຄ່າບໍລິການ % (ຖ້າເປີດ) ບວກເທິງລາຄາບໍລິການ ກ່ອນຄິດ VAT; ຢຸດອັດຕາໄວ້ໃນບິນ.
+  const scPercent = (await getFinancePolicy()).serviceChargePercent;
+  const serviceCharge = scPercent > 0 ? round2((bill.total * scPercent) / 100) : 0;
+
   // VAT ແບບ EXCLUSIVE: ລາຄາບໍລິການບໍ່ລວມພາສີ → ບວກພາສີເທິງຍອດ ແລະ ຢຸດໄວ້ໃນບິນ; ມັດຈຳຄິດຈາກຍອດລວມພາສີ.
-  const { total, vat } = await exclusiveBillVat(bill.total);
+  const { total, vat } = await exclusiveBillVat(round2(bill.total + serviceCharge));
   const rate = input.depositRate ?? (await getDepositRate());
   const deposit = round2(total * rate);
 
@@ -186,6 +203,7 @@ export async function createPayment(
       totalAmount: dec(total),
       depositAmount: dec(deposit),
       paymentStatus: 'PENDING',
+      ...(serviceCharge > 0 ? { serviceChargeRate: scPercent / 100, serviceChargeAmount: dec(serviceCharge) } : {}),
       ...(vat
         ? { vatRate: vat.vatRate, vatMode: vat.vatMode, taxAmount: dec(vat.taxAmount), netAmount: dec(vat.netAmount) }
         : {}),
@@ -544,7 +562,11 @@ export async function recomputeAndSettle(id: string): Promise<PaymentView> {
   // ມັດຈຳ/ຈ່າຍຄົບ → ຢືນຢັນນັດ (ກັນ No-Show)
   const appt = row.appointment;
   if (appt && (status === 'DEPOSIT_PAID' || status === 'FULLY_PAID') && appt.status === 'PENDING') {
-    await prisma.appointment.update({ where: { id: appt.id }, data: { status: 'CONFIRMED' } });
+    await prisma.$transaction(async (tx) => {
+      await tx.appointment.update({ where: { id: appt.id }, data: { status: 'CONFIRMED' } });
+      // H7 — ນັດຢືນຢັນແລ້ວ → ຈອງ consumable ຂອງ BOM.
+      await syncAppointmentReservations(tx, appt.id);
+    });
   }
 
   // ຈ່າຍຄົບ → ໃຫ້ຄະແນນສະສົມ + ໃບຮັບເງິນ
@@ -573,6 +595,8 @@ export async function recomputeAndSettle(id: string): Promise<PaymentView> {
   if (status === 'FULLY_PAID') {
     await activatePurchasedGiftCard(id).catch(() => undefined);
     await activatePurchasedPackage(id).catch(() => undefined);
+    // M13 — ບິນຂາຍໜ້າຮ້ານ: ຕັດສະຕັອກ SOLD (idempotent) + ຄະແນນສະສົມ. ຕັດບໍ່ໄດ້ → RetailSale.stockError (ບໍ່ throw).
+    await onRetailPaymentSettled(id).catch(() => undefined);
   }
 
   return loadView(id);

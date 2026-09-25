@@ -1,10 +1,12 @@
-import { CalendarClock, LayoutDashboard, Scissors, Search, UserRound, Users } from 'lucide-react';
+import { CalendarClock, CalendarPlus, ReceiptText, Scissors, Search, Ticket, UserRound } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { useNavGroups } from '@/components/layout/useNavGroups';
+import { useAuth } from '@/features/auth/useAuth';
 import { useDebounce } from '@/hooks/useDebounce';
 import { cn } from '@/lib/utils';
 import { ROUTES } from '@/router/paths';
@@ -40,23 +42,55 @@ export function CommandPalette({ open, onOpenChange }: Props) {
     }
   }, [open]);
 
-  const navItems: Item[] = useMemo(
-    () => [
-      { id: 'n-dash', label: t('nav.dashboard'), to: ROUTES.dashboard, icon: LayoutDashboard, group: t('search.navigate') },
-      { id: 'n-cal', label: t('nav.calendar'), to: ROUTES.calendar, icon: CalendarClock, group: t('search.navigate') },
-      { id: 'n-appt', label: t('nav.appointments'), to: ROUTES.appointments, icon: CalendarClock, group: t('search.navigate') },
-      { id: 'n-svc', label: t('nav.services'), to: ROUTES.services, icon: Scissors, group: t('search.navigate') },
-      { id: 'n-staff', label: t('nav.staff'), to: ROUTES.staff, icon: Users, group: t('search.navigate') },
-      { id: 'n-cust', label: t('nav.customers'), to: ROUTES.customers, icon: UserRound, group: t('search.navigate') },
-    ],
-    [t],
+  const { hasPermission } = useAuth();
+  const groups = useNavGroups(hasPermission);
+
+  /** Every module the user can open (same list as the sidebar / portal), searchable by name, blurb or group. */
+  const modules = useMemo(
+    () =>
+      groups.flatMap((g) =>
+        g.items
+          .flatMap((it) => (it.children?.length ? it.children : [it]))
+          .map((it) => ({
+            id: `m-${it.to}`,
+            label: t(`nav.${it.labelKey}`),
+            sub: t(`nav.${g.labelKey}`),
+            haystack: [
+              t(`nav.${it.labelKey}`),
+              t(`portal.desc.${it.labelKey}`, { defaultValue: '' }),
+              t(`nav.${g.labelKey}`),
+              it.to,
+            ]
+              .join(' ')
+              .toLowerCase(),
+            to: it.to,
+            icon: it.icon,
+            group: t('search.navigate'),
+          })),
+      ),
+    [groups, t],
   );
 
-  const items: Item[] = useMemo(() => {
+  /** "Do something" shortcuts that open a create form directly (deep links honoured by each page). */
+  const actions = useMemo(() => {
+    const allowed = new Set(modules.map((m) => m.to));
+    return [
+      { id: 'x-book', label: t('portal.quick.book'), to: `${ROUTES.appointments}?new=1`, icon: CalendarPlus, route: ROUTES.appointments, perm: hasPermission('appointments:manage') },
+      { id: 'x-walkin', label: t('portal.quick.walkin'), to: `${ROUTES.queue}?walkin=1`, icon: Ticket, route: ROUTES.queue, perm: true },
+      { id: 'x-expense', label: t('portal.quick.expense'), to: `${ROUTES.paymentsExpenses}?new=1`, icon: ReceiptText, route: ROUTES.paymentsExpenses, perm: hasPermission('expenses:manage') },
+    ]
+      .filter((a) => a.perm && allowed.has(a.route))
+      .map(({ route: _r, perm: _p, ...a }) => ({ ...a, group: t('search.actions'), haystack: a.label.toLowerCase() }));
+  }, [modules, hasPermission, t]);
+
+  const navItems: Item[] = useMemo(() => {
     const q = debounced.trim().toLowerCase();
-    const nav = q
-      ? navItems.filter((n) => n.label.toLowerCase().includes(q))
-      : navItems;
+    if (!q) return [...actions, ...modules.slice(0, 8)];
+    return [...actions, ...modules].filter((m) => m.haystack.includes(q)).slice(0, 12);
+  }, [actions, modules, debounced]);
+
+  const items: Item[] = useMemo(() => {
+    const nav = navItems;
     const customers: Item[] =
       data?.customers.map((c) => ({
         id: `c-${c.id}`,
@@ -85,7 +119,7 @@ export function CommandPalette({ open, onOpenChange }: Props) {
         group: t('nav.services'),
       })) ?? [];
     return [...nav, ...customers, ...appts, ...services];
-  }, [navItems, data, debounced, t]);
+  }, [navItems, data, t]);
 
   const go = (item: Item | undefined) => {
     if (!item) return;

@@ -8,6 +8,7 @@ import { PersonAvatar } from '@/components/shared/PersonAvatar';
 import { Button } from '@/components/ui/button';
 import { Combobox } from '@/components/ui/combobox';
 import { Select } from '@/components/ui/select';
+import { useEquipmentList, useRooms } from '@/features/resources/resources.api';
 import {
   Sheet,
   SheetBody,
@@ -95,6 +96,8 @@ export function BookingSheet({ open, onOpenChange, appointment, defaultBranchId,
   const [slotStart, setSlotStart] = useState('');
   const [slotStaffId, setSlotStaffId] = useState('');
   const [notes, setNotes] = useState('');
+  const [roomId, setRoomId] = useState('');
+  const [equipmentId, setEquipmentId] = useState('');
   /** Set once the server has rejected the chosen slot as a clash. */
   const [clash, setClash] = useState(false);
 
@@ -110,13 +113,25 @@ export function BookingSheet({ open, onOpenChange, appointment, defaultBranchId,
     setSlotStart('');
     setSlotStaffId('');
     setNotes('');
+    setRoomId('');
+    setEquipmentId('');
     setClash(false);
   }, [open, appointment, defaultBranchId]);
+
+  // Rooms/equipment belong to one branch — a branch change invalidates the pick.
+  useEffect(() => {
+    setRoomId('');
+    setEquipmentId('');
+  }, [branchId]);
 
   const debouncedCustomer = useDebounce(customerQuery, 300);
   const { data: branches = [] } = useBranches();
   const { data: servicesPage } = useServices({ page: 1, pageSize: 100, isActive: 'true' });
   const { data: staffPage } = useStaffList({ page: 1, pageSize: 100 });
+  const { data: rooms = [] } = useRooms({ branchId: branchId || undefined });
+  const { data: equipment = [] } = useEquipmentList({ branchId: branchId || undefined });
+  const openRooms = rooms.filter((r) => r.isAvailable && r.branchId === branchId);
+  const openEquipment = equipment.filter((e) => e.isAvailable && e.branchId === branchId);
   const { data: customersPage, isFetching: customersLoading } = useCustomers({
     page: 1,
     pageSize: 20,
@@ -194,6 +209,8 @@ export function BookingSheet({ open, onOpenChange, appointment, defaultBranchId,
         staffProfileId: slotStaffId || staffId || undefined,
         startAt: slotStart,
         ...(notes.trim() ? { customerNotes: notes.trim() } : {}),
+        ...(roomId ? { roomId } : {}),
+        ...(equipmentId ? { equipmentId } : {}),
       },
       {
         onSuccess: (res) => {
@@ -202,8 +219,10 @@ export function BookingSheet({ open, onOpenChange, appointment, defaultBranchId,
           onDone?.(res.id);
         },
         onError: (err) => {
-          if (err instanceof NormalizedApiError && err.status === 409) {
+          if (err instanceof NormalizedApiError && err.status === 409 && !roomId && !equipmentId) {
             toast.error(t('appointments.slotTaken'));
+          } else if (err instanceof NormalizedApiError && err.message) {
+            toast.error(err.message);
           } else {
             toast.error(t('services.saveError'));
           }
@@ -369,6 +388,31 @@ export function BookingSheet({ open, onOpenChange, appointment, defaultBranchId,
               </div>
             )}
           </div>
+
+          {!isReschedule && branchId && (openRooms.length > 0 || openEquipment.length > 0) ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {openRooms.length > 0 ? (
+                <Field label={t('appointments.room')}>
+                  <Select
+                    value={roomId}
+                    onChange={(e) => setRoomId(e.target.value)}
+                    placeholder={t('appointments.noRoom')}
+                    options={openRooms.map((r) => ({ value: r.id, label: r.name }))}
+                  />
+                </Field>
+              ) : null}
+              {openEquipment.length > 0 ? (
+                <Field label={t('appointments.equipment')}>
+                  <Select
+                    value={equipmentId}
+                    onChange={(e) => setEquipmentId(e.target.value)}
+                    placeholder={t('appointments.noEquipment')}
+                    options={openEquipment.map((x) => ({ value: x.id, label: `${x.name} · ${x.code}` }))}
+                  />
+                </Field>
+              ) : null}
+            </div>
+          ) : null}
 
           {!isReschedule ? (
             <Field label={t('appointments.customerNotes')}>

@@ -46,6 +46,12 @@ function keyOf(url: string): string | null {
   return q === -1 ? rest : rest.slice(0, q);
 }
 
+/** key ຂອງ storage (decode ແລ້ວ, ບໍ່ມີ query/ລາຍເຊັນ) ຈາກ URL — null ຖ້າບໍ່ແມ່ນໄຟລ໌ຂອງ storage ເຮົາ. */
+export function storageKeyFromUrl(url: string): string | null {
+  const key = keyOf(url);
+  return key ? safeDecode(key) : null;
+}
+
 export function signUploadUrl(url: string, nowMs?: number): string {
   const key = keyOf(url);
   const decoded = key && safeDecode(key);

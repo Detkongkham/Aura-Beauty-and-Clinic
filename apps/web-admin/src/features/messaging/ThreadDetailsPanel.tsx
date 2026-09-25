@@ -4,6 +4,7 @@ import {
   CalendarClock,
   Image as ImageIcon,
   Lock,
+  LockOpen,
   Mail,
   MessageSquareText,
   Mic,
@@ -14,17 +15,21 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 
 import { DateTimeText } from '@/components/shared/DateTimeText';
 import { PersonAvatar } from '@/components/shared/PersonAvatar';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useAuth } from '@/features/auth/useAuth';
 import { useStaffList } from '@/features/staff/staff.api';
+import { useConfirm } from '@/hooks/useConfirm';
+import { NormalizedApiError } from '@/services/apiError';
 import { cn } from '@/lib/utils';
 
 import { ConversationAvatar } from './ConversationList';
-import { useConversationMedia } from './messaging.api';
+import { useConversationMedia, useSetThreadLock } from './messaging.api';
 import type { ConversationRow, Participant } from './messagingModel';
 
 const MEDIA_PREVIEW_LIMIT = 9;
@@ -59,6 +64,26 @@ export function ThreadDetailsPanel({
   };
 
   const single = !row.isGroup ? byUserId.get(row.others[0]?.id ?? '') : undefined;
+  const { role } = useAuth();
+  const canLock = role === 'SUPER_ADMIN' || role === 'BRANCH_ADMIN';
+  const setLock = useSetThreadLock();
+  const confirm = useConfirm();
+  const toggleLock = async () => {
+    const next = !c.isLocked;
+    const ok = await confirm({
+      title: next ? t('messaging.lockConfirmTitle') : t('messaging.unlockConfirmTitle'),
+      description: next ? t('messaging.lockConfirmBody') : t('messaging.unlockConfirmBody'),
+      confirmLabel: next ? t('messaging.lockThread') : t('messaging.unlockThread'),
+    });
+    if (!ok) return;
+    setLock.mutate(
+      { id: c.id, isLocked: next },
+      {
+        onSuccess: () => toast.success(next ? t('messaging.lockedToast') : t('messaging.unlockedToast')),
+        onError: (err) => toast.error(err instanceof NormalizedApiError ? err.message : t('common.saveError')),
+      },
+    );
+  };
   const branches = useMemo(
     () => Array.from(new Set(row.others.map((p) => byUserId.get(p.id)?.branchName).filter(Boolean))),
     [row.others, byUserId],
@@ -112,6 +137,23 @@ export function ThreadDetailsPanel({
             </Chip>
           </div>
         </div>
+
+        {canLock ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="w-full"
+            disabled={setLock.isPending}
+            onClick={() => void toggleLock()}
+          >
+            {c.isLocked ? (
+              <LockOpen className="mr-1.5 h-4 w-4" aria-hidden="true" />
+            ) : (
+              <Lock className="mr-1.5 h-4 w-4" aria-hidden="true" />
+            )}
+            {c.isLocked ? t('messaging.unlockThread') : t('messaging.lockThread')}
+          </Button>
+        ) : null}
 
         {/* Stats */}
         <div className="grid grid-cols-3 gap-2">

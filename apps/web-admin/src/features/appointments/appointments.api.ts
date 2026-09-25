@@ -73,10 +73,11 @@ export const appointmentsApi = {
     id: string,
     status: AppointmentStatus,
     staffNotes?: string,
+    waiveFee?: boolean,
   ): Promise<AppointmentListItem> {
     const { data } = await http.patch<Envelope<AppointmentListItem>>(
       `/appointments/${id}/status`,
-      { status, ...(staffNotes !== undefined ? { staffNotes } : {}) },
+      { status, ...(staffNotes !== undefined ? { staffNotes } : {}), ...(waiveFee ? { waiveFee } : {}) },
     );
     return data.data;
   },
@@ -144,11 +145,14 @@ export function useSetAppointmentStatus() {
       id,
       status,
       staffNotes,
+      waiveFee,
     }: {
       id: string;
       status: AppointmentStatus;
       staffNotes?: string;
-    }) => appointmentsApi.setStatus(id, status, staffNotes),
+      /** Wave 11 — skip keeping the paid deposit as a no-show / late-cancel fee. */
+      waiveFee?: boolean;
+    }) => appointmentsApi.setStatus(id, status, staffNotes, waiveFee),
     onSuccess: () => invalidateAppointments(qc),
   });
 }

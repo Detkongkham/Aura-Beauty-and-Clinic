@@ -36,6 +36,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   modules: 'nav.settingsModules',
   audit: 'nav.auditLog',
   'chat-moderation': 'nav.chatModeration',
+  'system-map': 'nav.systemMap',
   notifications: 'nav.notifications',
   reports: 'nav.reports',
   'import-export': 'nav.importExport',
@@ -56,6 +57,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   'purchase-orders': 'nav.inventoryPurchaseOrders',
   transfers: 'nav.inventoryTransfers',
   ledger: 'nav.inventoryLedger',
+  counts: 'nav.inventoryCounts',
   search: 'search.title',
   account: 'nav.account',
 };

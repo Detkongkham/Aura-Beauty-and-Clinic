@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   branchClosureCreateSchema,
   branchCreateSchema,
+  branchInsightsQuerySchema,
   branchUpdateSchema,
 } from '@abcp/shared-types';
 import { authGuard } from '../../middlewares/authGuard.js';
@@ -13,9 +14,13 @@ import {
   createBranchHandler,
   createClosureHandler,
   deleteClosureHandler,
+  branchInsightsHandler,
   listBranchesHandler,
   listClosuresHandler,
   updateBranchHandler,
+  archiveBranchHandler,
+  branchHistoryHandler,
+  restoreBranchHandler,
 } from './branches.controller.js';
 
 const idParamSchema = z.object({ id: z.string().uuid() });
@@ -34,11 +39,39 @@ branchesRouter.get(
   listBranchesHandler,
 );
 
+/** ຕົວຊີ້ວັດຕໍ່ສາຂາ — BRANCH_ADMIN ເຫັນສະເພາະສາຂາຕົນ. ຕ້ອງມາກ່ອນ '/:id'. */
+branchesRouter.get(
+  '/insights',
+  roleGuard('SUPER_ADMIN', 'BRANCH_ADMIN'),
+  validateRequest({ query: branchInsightsQuerySchema }),
+  branchInsightsHandler,
+);
+
 branchesRouter.post(
   '/',
   roleGuard('SUPER_ADMIN'),
   validateRequest({ body: branchCreateSchema }),
   createBranchHandler,
+);
+branchesRouter.get(
+  '/:id/history',
+  roleGuard('SUPER_ADMIN', 'BRANCH_ADMIN'),
+  validateRequest({ params: idParamSchema }),
+  branchHistoryHandler,
+);
+branchesRouter.delete(
+  '/:id',
+  roleGuard('SUPER_ADMIN'),
+  permissionGuard('branches:manage'),
+  validateRequest({ params: idParamSchema }),
+  archiveBranchHandler,
+);
+branchesRouter.post(
+  '/:id/restore',
+  roleGuard('SUPER_ADMIN'),
+  permissionGuard('branches:manage'),
+  validateRequest({ params: idParamSchema }),
+  restoreBranchHandler,
 );
 branchesRouter.patch(
   '/:id',

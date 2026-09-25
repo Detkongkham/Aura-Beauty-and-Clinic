@@ -15,7 +15,6 @@ import type {
   TreatmentRecordView,
 } from '@abcp/shared-types';
 import type { Prisma, StaffAttendance } from '@prisma/client';
-import { Prisma as PrismaNS } from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import { env } from '../../config/env.js';
 import { storage } from '../../storage/index.js';
@@ -32,8 +31,10 @@ import { haversineMeters } from '../../utils/geo.js';
 import { mirrorTicketFromAppointment } from '../queue/queue.service.js';
 import { earnPoints } from '../loyalty/loyalty.service.js';
 import { consumeServiceStock } from '../inventory/inventory.service.js';
+import { syncAppointmentReservations } from '../inventory/reservation.service.js';
 import { rewardReferralOnComplete } from '../referral/referral.service.js';
 import { syncTripOnAppointmentStatus } from '../home-service/home-service.service.js';
+import { accrueCommission } from '../payroll/commission.js';
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -202,32 +203,12 @@ export async function updateAppointmentStatus(
 
     // ສຳເລັດ → ບັນທຶກຄ່າຄອມມິດຊັນ (idempotent — appointmentId ເປັນ unique).
     if (input.status === 'COMPLETED') {
-      const profile = await tx.staffProfile.findUniqueOrThrow({
-        where: { id: staffProfileId },
-        select: { commissionRate: true },
-      });
-      const serviceAmount = row.totalAmount;
-      const payout = round2(serviceAmount.toNumber() * profile.commissionRate);
-      await tx.staffCommission.upsert({
-        where: { appointmentId },
-        update: {
-          serviceAmount,
-          commissionRate: profile.commissionRate,
-          payoutAmount: new PrismaNS.Decimal(payout),
-        },
-        create: {
-          appointmentId,
-          staffProfileId,
-          serviceAmount,
-          commissionRate: profile.commissionRate,
-          payoutAmount: new PrismaNS.Decimal(payout),
-        },
-      });
+      await accrueCommission(tx, appointmentId);
 
       // ໃຫ້ຄະແນນສະສົມ (Module 19) — idempotent ຕໍ່ appt:<id>, ຮ່ວມກັບ path ຊຳລະບິນ.
       await earnPoints(tx, {
         userId: row.customerId,
-        amountLak: serviceAmount.toNumber(),
+        amountLak: row.totalAmount.toNumber(),
         refId: `appt:${appointmentId}`,
         notes: 'ໄດ້ຄະແນນຈາກການໃຊ້ບໍລິການ',
       });
@@ -238,6 +219,9 @@ export async function updateAppointmentStatus(
       // ໂມດູນ 33 — ໃຫ້ລາງວັນຜູ້ແນະນຳ (idempotent ຕໍ່ rewardClaimed).
       await rewardReferralOnComplete(tx, appointmentId);
     }
+
+    // H7 — ປັບການຈອງ consumable ຕາມສະຖານະໃໝ່ (soft, idempotent).
+    await syncAppointmentReservations(tx, appointmentId);
 
     return row;
   });

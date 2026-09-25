@@ -58,7 +58,7 @@ conversationsRouter.patch(
   roleGuard('SUPER_ADMIN', 'BRANCH_ADMIN'),
   validateRequest({ params: idParamSchema, body: setThreadLockSchema }),
   asyncHandler(async (req, res) => {
-    await conversations.setThreadLock(req.params.id!, req.body.isLocked);
+    await conversations.setThreadLock(req.params.id!, req.body.isLocked, req.auth!);
     res.json({ data: { id: req.params.id, isLocked: req.body.isLocked } });
   }),
 );
@@ -118,6 +118,14 @@ conversationsRouter.delete(
 );
 
 // ---- Moderation (admin-only) — ໜ້າ /settings/chat-moderation ----
+conversationsRouter.get(
+  '/moderation/blocks',
+  roleGuard('SUPER_ADMIN', 'BRANCH_ADMIN'),
+  asyncHandler(async (_req, res) => {
+    res.json({ data: await conversations.listAllChatBlocks() });
+  }),
+);
+
 conversationsRouter.get(
   '/reports',
   roleGuard('SUPER_ADMIN', 'BRANCH_ADMIN'),

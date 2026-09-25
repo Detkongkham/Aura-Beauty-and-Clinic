@@ -4,12 +4,15 @@ import { tsParam, VIENTIANE_OFFSET_MINUTES } from './dateHelpers.js';
 /**
  * Wave 10B — ເລກເອກະສານຕໍ່ເນື່ອງ ບໍ່ຂາດຕອນ ບໍ່ຊ້ຳ (gapless).
  * INV = ໃບຮັບເງິນ (ອອກຕອນບິນ FULLY_PAID), CN = ໃບຄືນເງິນ (credit note, ອອກຕອນ refund PAID).
+ * PO = ໃບສັ່ງຊື້, TRF = ໃບໂອນສິນຄ້າ (inventory M5 — ແຖວເກົ່າຍັງເປັນ `PO-<hex>`/`TRF-<hex>`, ບໍ່ backfill).
+ * SC = ໃບນັບສະຕັອກ (inventory H3). GRN = ໃບຮັບເຄື່ອງ (H4), RTS = ໃບຄືນສິນຄ້າຜູ້ສະໜອງ / debit note (H5).
+ * RS = ບິນຂາຍສິນຄ້າໜ້າຮ້ານ (inventory M13 — ເລກຂອງ RetailSale; ໃບຮັບເງິນຍັງເປັນ INV ຂອງ Payment).
  *
  * ຕ້ອງເອີ້ນພາຍໃນ $transaction ດຽວກັບການຂຽນເອກະສານ: `INSERT … ON CONFLICT DO UPDATE lastNo+1` ລັອກແຖວຕົວນັບ
  * ຈົນ commit → ຄົນທີ່ມາພ້ອມກັນລໍຄິວ (ເລກບໍ່ຊ້ຳ), ແລະ ຖ້າ tx rollback ເລກກໍ rollback ນຳ (ເລກບໍ່ຂາດ).
  * ຮູບແບບ: `<TYPE>-<ລະຫັດສາຂາ>-<ປີວຽງຈັນ>-<ລຳດັບ 6 ຫຼັກ>` (ຕ້ອງກົງກັບ SQL backfill ໃນ migration 20260921190000).
  */
-export type DocType = 'INV' | 'CN' | 'Z';
+export type DocType = 'INV' | 'CN' | 'Z' | 'PO' | 'TRF' | 'SC' | 'GRN' | 'RTS' | 'RS';
 
 export async function nextDocumentNo(
   tx: Prisma.TransactionClient,

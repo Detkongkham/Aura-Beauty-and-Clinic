@@ -607,7 +607,10 @@ const pnl: ProfitLossView = {
   refunds: 500_000,
   netRevenue: 19_500_000,
   cogs: 2_000_000,
+  retailRevenue: 1_200_000,
+  retailCogs: 450_000,
   grossProfit: 17_500_000,
+  shrinkage: 0,
   labour: { commissionAndBonus: 3_000_000, otherPayroll: 0, total: 3_000_000 },
   operating: {
     total: 1_200_000,

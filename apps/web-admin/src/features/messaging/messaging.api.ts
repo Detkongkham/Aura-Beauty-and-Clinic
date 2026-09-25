@@ -10,9 +10,13 @@ interface Envelope<T> {
 const KEY = (type?: string) => ['conversations', 'list', type ?? 'all'] as const;
 
 /** GET /conversations — ໂມດູນ 38 Wave 8B. ຫ້ອງແຊັດ STAFF_INTERNAL ຂອງ actor ປັດຈຸບັນ. */
-export function useConversations(type: 'STAFF_INTERNAL' = 'STAFF_INTERNAL') {
+export function useConversations(
+  type: 'STAFF_INTERNAL' = 'STAFF_INTERNAL',
+  options: { enabled?: boolean } = {},
+) {
   return useQuery({
     queryKey: KEY(type),
+    enabled: options.enabled ?? true,
     queryFn: async () => {
       const { data } = await http.get<Envelope<ConversationListItem[]>>('/conversations', {
         params: { type },
@@ -66,6 +70,23 @@ export function useMarkConversationRead() {
   });
 }
 
+/** PATCH /conversations/:id/lock — admin locks (read-only) or reopens a thread. */
+export function useSetThreadLock() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, isLocked }: { id: string; isLocked: boolean }) => {
+      await http.patch(`/conversations/${id}/lock`, { isLocked });
+      return { id, isLocked };
+    },
+    onSuccess: ({ id, isLocked }) => {
+      qc.setQueriesData<ConversationListItem[]>({ queryKey: ['conversations', 'list'] }, (prev) =>
+        prev?.map((c) => (c.id === id ? { ...c, isLocked } : c)),
+      );
+      void qc.invalidateQueries({ queryKey: ['conversations'] });
+    },
+  });
+}
+
 /** POST /conversations {type:'STAFF_INTERNAL'} — ສ້າງຫ້ອງ STAFF_INTERNAL ໃໝ່. */
 export function useCreateStaffConversation() {
   const qc = useQueryClient();
@@ -113,3 +134,26 @@ export function useReviewChatReport() {
     },
   });
 }
+
+export type AdminChatBlockView = {
+  id: string;
+  blockerId: string;
+  blockerName: string;
+  blockedId: string;
+  blockedName: string;
+  blockedCount: number;
+  createdAt: string;
+};
+
+/** GET /conversations/moderation/blocks — every user block (read-only), newest first. */
+export function useChatBlocks(enabled: boolean) {
+  return useQuery({
+    queryKey: ['conversations', 'moderation', 'blocks'],
+    enabled,
+    queryFn: async () => {
+      const { data } = await http.get<{ data: AdminChatBlockView[] }>('/conversations/moderation/blocks');
+      return data.data;
+    },
+  });
+}
+

@@ -62,7 +62,8 @@ export function StockWatchCard({ data }: { data: DashboardStats }) {
       ) : (
         <ul className="-mx-1 space-y-1">
           {items.map((p) => {
-            const ratio = p.minStockQty > 0 ? Math.min(p.stockQty / p.minStockQty, 1) : 0;
+            const threshold = p.threshold ?? p.minStockQty;
+            const ratio = threshold > 0 ? Math.min(p.stockQty / threshold, 1) : 0;
             const critical = p.stockQty <= 0 || ratio < 0.5;
             return (
               <li key={p.id} className="rounded-lg px-1 py-1.5">
@@ -88,7 +89,7 @@ export function StockWatchCard({ data }: { data: DashboardStats }) {
                       {t('dashboard.stock.left', {
                         qty: qty(p.stockQty),
                         unit: p.unit,
-                        min: qty(p.minStockQty),
+                        min: qty(threshold),
                       })}
                       {multiBranch ? ` · ${p.branchName}` : ''}
                     </p>

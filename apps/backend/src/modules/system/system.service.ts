@@ -601,3 +601,72 @@ export async function endOfDayReport(date: string, branchId: string): Promise<un
       .slice(0, 5),
   };
 }
+
+type StatusGroupRow = { _count: { _all: number } } & Record<string, unknown>;
+
+function tally(rows: StatusGroupRow[], field: string): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const r of rows) out[String(r[field])] = r._count._all;
+  return out;
+}
+
+/**
+ * Live row counts per state for every status machine drawn on /system-map, plus how many
+ * rows each machine created in the last 30 days. Keys match the flow ids in
+ * web-admin `flows.status.ts` (`status-<key>`).
+ */
+export async function statusMachineCounts() {
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const recent = { createdAt: { gte: since } };
+  const g = { _count: { _all: true } } as const;
+
+  const [
+    appointment, payment, slip, expense, po, transfer, count, home, queue, giftcard, refund,
+    appointment30, payment30, slip30, expense30, po30, transfer30, count30, home30, queue30, giftcard30, refund30,
+  ] = await Promise.all([
+    prisma.appointment.groupBy({ by: ['status'], where: { deletedAt: null }, ...g }),
+    prisma.payment.groupBy({ by: ['paymentStatus'], ...g }),
+    prisma.paymentSlip.groupBy({ by: ['verdict'], ...g }),
+    prisma.expense.groupBy({ by: ['status'], ...g }),
+    prisma.purchaseOrder.groupBy({ by: ['status'], ...g }),
+    prisma.stockTransfer.groupBy({ by: ['status'], ...g }),
+    prisma.stockCount.groupBy({ by: ['status'], ...g }),
+    prisma.homeServiceTrip.groupBy({ by: ['status'], ...g }),
+    prisma.queueTicket.groupBy({ by: ['status'], ...g }),
+    prisma.giftCard.groupBy({ by: ['status'], ...g }),
+    prisma.refund.groupBy({ by: ['status'], ...g }),
+    prisma.appointment.count({ where: { deletedAt: null, ...recent } }),
+    prisma.payment.count({ where: recent }),
+    prisma.paymentSlip.count({ where: recent }),
+    prisma.expense.count({ where: recent }),
+    prisma.purchaseOrder.count({ where: recent }),
+    prisma.stockTransfer.count({ where: recent }),
+    prisma.stockCount.count({ where: recent }),
+    prisma.homeServiceTrip.count({ where: recent }),
+    prisma.queueTicket.count({ where: recent }),
+    prisma.giftCard.count({ where: recent }),
+    prisma.refund.count({ where: recent }),
+  ]);
+
+  const m = (rows: StatusGroupRow[], field: string, last30d: number) => {
+    const states = tally(rows, field);
+    return { states, total: Object.values(states).reduce((s, n) => s + n, 0), last30d };
+  };
+
+  return {
+    generatedAt: new Date().toISOString(),
+    machines: {
+      appointment: m(appointment, 'status', appointment30),
+      payment: m(payment, 'paymentStatus', payment30),
+      slip: m(slip, 'verdict', slip30),
+      expense: m(expense, 'status', expense30),
+      po: m(po, 'status', po30),
+      transfer: m(transfer, 'status', transfer30),
+      count: m(count, 'status', count30),
+      home: m(home, 'status', home30),
+      queue: m(queue, 'status', queue30),
+      giftcard: m(giftcard, 'status', giftcard30),
+      refund: m(refund, 'status', refund30),
+    },
+  };
+}

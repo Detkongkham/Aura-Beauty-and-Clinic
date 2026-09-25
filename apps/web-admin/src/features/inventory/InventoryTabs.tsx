@@ -1,17 +1,21 @@
-import { ArrowLeftRight, Boxes, ClipboardList, ScrollText, Truck } from 'lucide-react';
+import { ArrowLeftRight, Boxes, ClipboardCheck, ClipboardList, ScrollText, ShoppingBag, Truck, Undo2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 
+import { useAuth } from '@/features/auth/useAuth';
 import { cn } from '@/lib/utils';
 import { ROUTES } from '@/router/paths';
 
 const TAB_BASE =
   'flex items-center gap-2 whitespace-nowrap rounded-lg px-4 py-2 text-[13px] font-medium transition-colors';
 
-type TabKey = 'products' | 'suppliers' | 'purchaseOrders' | 'transfers' | 'ledger';
+type TabKey = 'products' | 'suppliers' | 'purchaseOrders' | 'transfers' | 'counts' | 'returns' | 'sales' | 'ledger';
 
 export function InventoryTabs({ active }: { active: TabKey }) {
   const { t } = useTranslation();
+  const { hasPermission } = useAuth();
+  const canManage = hasPermission('inventory:manage');
+  const canSales = hasPermission('finance:view');
   const tabs = [
     { key: 'products' as const, to: ROUTES.inventory, label: t('inventory.tab.products'), icon: Boxes },
     { key: 'suppliers' as const, to: ROUTES.inventorySuppliers, label: t('inventory.tab.suppliers'), icon: Truck },
@@ -27,6 +31,13 @@ export function InventoryTabs({ active }: { active: TabKey }) {
       label: t('inventory.tab.transfers'),
       icon: ArrowLeftRight,
     },
+    ...(canManage
+      ? [
+          { key: 'counts' as const, to: ROUTES.inventoryCounts, label: t('inventory.tab.counts'), icon: ClipboardCheck },
+          { key: 'returns' as const, to: ROUTES.inventoryReturns, label: t('inventory.tab.returns'), icon: Undo2 },
+        ]
+      : []),
+    ...(canSales ? [{ key: 'sales' as const, to: ROUTES.inventorySales, label: t('inventory.tab.sales'), icon: ShoppingBag }] : []),
     { key: 'ledger' as const, to: ROUTES.inventoryLedger, label: t('inventory.tab.ledger'), icon: ScrollText },
   ];
 

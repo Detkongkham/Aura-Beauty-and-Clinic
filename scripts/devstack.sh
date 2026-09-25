@@ -9,6 +9,7 @@
 #   scripts/devstack.sh status
 #   scripts/devstack.sh psql      # psql ເຂົ້າ db abcp
 #   scripts/devstack.sh reset     # ລຶບ data cluster ແລ້ວ init ໃໝ່
+#   scripts/devstack.sh backup    # pg_dump → .devstack/backups (ຫຼື \$BACKUP_DIR)
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
@@ -167,6 +168,17 @@ cmd_reset() {
   echo "✔ cluster ໃໝ່ພ້ອມ (ຕ້ອງ run: pnpm --filter @abcp/backend db:migrate && db:seed)"
 }
 
+# backup: pg_dump (custom format) → $BACKUP_DIR (default .devstack/backups), ເກັບ 14 ໄຟລ໌ຫຼ້າສຸດ.
+# /portal system status ອ່ານໄຟລ໌ໃໝ່ສຸດຈາກ BACKUP_DIR ຂອງ backend. ຕັ້ງ cron: 0 2 * * * scripts/devstack.sh backup
+cmd_backup() {
+  local dir="${BACKUP_DIR:-$DS/backups}"
+  mkdir -p "$dir"
+  local file="$dir/${DB_NAME}-$(date +%Y%m%d-%H%M%S).dump"
+  pg pg_dump -Fc -f "$file" "postgresql://${DB_USER}:${DB_PASS}@localhost:${PGPORT}/${DB_NAME}"
+  ls -1t "$dir"/*.dump 2>/dev/null | tail -n +15 | xargs -r rm -f
+  echo "✔ backup: $file ($(du -h "$file" | cut -f1))"
+}
+
 case "${1:-}" in
   setup)  cmd_setup ;;
   start)  cmd_start ;;
@@ -174,5 +186,6 @@ case "${1:-}" in
   status) cmd_status ;;
   psql)   cmd_psql ;;
   reset)  cmd_reset ;;
-  *) echo "ໃຊ້: $0 {setup|start|stop|status|psql|reset}"; exit 1 ;;
+  backup) cmd_backup ;;
+  *) echo "ໃຊ້: $0 {setup|start|stop|status|psql|reset|backup}"; exit 1 ;;
 esac

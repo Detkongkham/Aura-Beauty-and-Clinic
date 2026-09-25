@@ -10,6 +10,8 @@ import {
   treatmentRecordUpsertSchema,
 } from '@abcp/shared-types';
 import { authGuard } from '../../middlewares/authGuard.js';
+import { myPayslips } from '../payroll/payroll-run.service.js';
+import { asyncHandler } from '../../utils/asyncHandler.js';
 import { roleGuard } from '../../middlewares/roleGuard.js';
 import { validateRequest } from '../../middlewares/validateRequest.js';
 import {
@@ -60,6 +62,14 @@ staffPortalRouter.post(
 );
 
 // 5. ສະຫຼຸບຄ່າຄອມມິດຊັນ
+/** Payroll G5.2 — ໃບຈ່າຍເງິນເດືອນຂອງຕົນເອງ (ຮອບທີ່ອະນຸມັດ/ຈ່າຍແລ້ວ). */
+staffPortalRouter.get(
+  '/payslips',
+  asyncHandler(async (req, res) => {
+    res.json({ data: await myPayslips(req.auth!.sub) });
+  }),
+);
+
 staffPortalRouter.get(
   '/commission',
   validateRequest({ query: commissionQuerySchema }),

@@ -1,4 +1,5 @@
 import type {
+  MyPayslipView,
   AttendanceCheckInput,
   AttendanceRecordView,
   AttendanceStateView,
@@ -109,6 +110,17 @@ export function useCommissionSummary(month: string) {
         '/staff-portal/commission',
         { params: { month } },
       );
+      return data.data;
+    },
+  });
+}
+
+/** Payroll G5.2 — ໃບຈ່າຍເງິນເດືອນຂອງຕົນເອງ (ຮອບທີ່ອະນຸມັດ/ຈ່າຍແລ້ວ, ໃໝ່→ເກົ່າ). */
+export function useMyPayslips() {
+  return useQuery({
+    queryKey: ['staff', 'payslips'],
+    queryFn: async () => {
+      const { data } = await http.get<{ data: MyPayslipView[] }>('/staff-portal/payslips');
       return data.data;
     },
   });

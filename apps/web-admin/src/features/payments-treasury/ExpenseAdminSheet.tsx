@@ -20,6 +20,8 @@ import { NormalizedApiError } from '@/services/apiError';
 
 import { CashFundsPanel } from './CashFundsPanel';
 import { CategoryGlyph } from './expense.parts';
+import { RecurringSplitEditor } from './RecurringSplitEditor';
+import { splitValid, type SplitRow } from './recurringSplit.lib';
 import {
   useExpenseBudgets,
   useExpenseCategories,
@@ -58,13 +60,14 @@ export function ExpenseAdminSheet({ open, onClose, branches, defaultBranchId, ca
   const saveCat = useSaveCategory();
 
   const [rule, setRule] = useState({ title: '', amount: '', dayOfMonth: '1', categoryId: '', branchId: '' });
+  const [ruleSplit, setRuleSplit] = useState<SplitRow[]>([]);
   const [cat, setCat] = useState<{ code: string; nameLo: string; nameEn: string; kind: ExpenseCategoryKind }>({ code: '', nameLo: '', nameEn: '', kind: 'OPERATING' });
   const [editing, setEditing] = useState<string | null>(null);
 
   const onError = (err: unknown) => toast.error(err instanceof NormalizedApiError ? err.message : t('common.saveError'));
   const branchId = rule.branchId || defaultBranchId || branches[0]?.id || '';
   const amount = Number(rule.amount);
-  const ruleValid = rule.title.trim() && rule.categoryId && branchId && Number.isFinite(amount) && amount > 0;
+  const ruleValid = rule.title.trim() && rule.categoryId && branchId && Number.isFinite(amount) && amount > 0 && splitValid(ruleSplit);
   const catValid = /^[A-Z0-9_]{2,40}$/.test(cat.code) && cat.nameLo.trim() && cat.nameEn.trim();
   const active = rules.filter((r) => r.isActive);
   const monthly = active.filter((r) => r.currency === 'LAK').reduce((s, r) => s + r.amount, 0);
@@ -132,7 +135,7 @@ export function ExpenseAdminSheet({ open, onClose, branches, defaultBranchId, ca
                 <ul className="divide-y divide-border rounded-lg border border-border">
                   {sorted.map((r) =>
                     editing === r.id ? (
-                      <RuleEditor key={r.id} rule={r} busy={saveRule.isPending} onCancel={() => setEditing(null)} onSave={(update) => saveRule.mutate({ id: r.id, update }, { onSuccess: () => { toast.success(t('common.saved')); setEditing(null); }, onError })} />
+                      <RuleEditor key={r.id} rule={r} branches={branches} isSuper={isSuper} busy={saveRule.isPending} onCancel={() => setEditing(null)} onSave={(update) => saveRule.mutate({ id: r.id, update }, { onSuccess: () => { toast.success(t('common.saved')); setEditing(null); }, onError })} />
                     ) : (
                       <li key={r.id} className={`flex items-center gap-3 px-3 py-2.5 ${r.isActive ? '' : 'opacity-60'}`}>
                         <CategoryGlyph code={categories.find((c) => c.id === r.category.id)?.code} color={categoryColor(r.category.id, categories)} size="sm" />
@@ -141,6 +144,11 @@ export function ExpenseAdminSheet({ open, onClose, branches, defaultBranchId, ca
                           <p className="truncate text-2xs text-muted-foreground">
                             {r.branchName} · {categoryName(r.category, lang)}
                           </p>
+                          {r.allocations?.length ? (
+                            <p className="truncate text-2xs text-muted-foreground">
+                              {t('payTreasury.exp.recurringSplit.label')}: {r.allocations.map((a) => `${a.branchName} ${a.percent}%`).join(' · ')}
+                            </p>
+                          ) : null}
                           {r.isActive ? (
                             <p className="mt-0.5 inline-flex items-center gap-1 text-2xs text-info">
                               <CalendarClock className="h-3 w-3" aria-hidden="true" />
@@ -189,6 +197,9 @@ export function ExpenseAdminSheet({ open, onClose, branches, defaultBranchId, ca
                     <span className="shrink-0">{t('payTreasury.exp.dayLabel')}</span>
                     <Input type="number" min={1} max={28} value={rule.dayOfMonth} onChange={(e) => setRule({ ...rule, dayOfMonth: e.target.value })} className="h-9 tabular-nums" />
                   </label>
+                  {isSuper && branches.length > 1 ? (
+                    <RecurringSplitEditor rows={ruleSplit} onChange={setRuleSplit} branches={branches} payingBranchId={branchId} />
+                  ) : null}
                   <Button
                     className="sm:col-span-2"
                     disabled={!ruleValid || saveRule.isPending}
@@ -202,12 +213,14 @@ export function ExpenseAdminSheet({ open, onClose, branches, defaultBranchId, ca
                             amount,
                             currency: 'LAK',
                             dayOfMonth: Math.min(28, Math.max(1, Number(rule.dayOfMonth) || 1)),
+                            ...(ruleSplit.length ? { allocations: ruleSplit.map((x) => ({ branchId: x.branchId, percent: Number(x.percent) })) } : {}),
                           },
                         },
                         {
                           onSuccess: () => {
                             toast.success(t('common.saved'));
                             setRule({ title: '', amount: '', dayOfMonth: '1', categoryId: '', branchId: '' });
+                            setRuleSplit([]);
                           },
                           onError,
                         },
@@ -292,35 +305,46 @@ export function ExpenseAdminSheet({ open, onClose, branches, defaultBranchId, ca
 
 function RuleEditor({
   rule,
+  branches,
+  isSuper,
   busy,
   onCancel,
   onSave,
 }: {
   rule: RecurringExpenseView;
+  branches: { id: string; name: string }[];
+  isSuper: boolean;
   busy: boolean;
   onCancel: () => void;
-  onSave: (u: { title: string; amount: number; dayOfMonth: number }) => void;
+  onSave: (u: { title: string; amount: number; dayOfMonth: number; allocations?: { branchId: string; percent: number }[] }) => void;
 }) {
   const { t } = useTranslation();
   const [title, setTitle] = useState(rule.title);
   const [amount, setAmount] = useState(String(rule.amount));
   const [day, setDay] = useState(String(rule.dayOfMonth));
+  const [split, setSplit] = useState<SplitRow[]>((rule.allocations ?? []).map((a) => ({ branchId: a.branchId, percent: String(a.percent) })));
   const n = Number(amount);
   const d = Number(day);
-  const ok = title.trim() && Number.isFinite(n) && n > 0 && d >= 1 && d <= 28;
+  const ok = title.trim() && Number.isFinite(n) && n > 0 && d >= 1 && d <= 28 && splitValid(split);
+  const allocations = isSuper ? { allocations: split.map((x) => ({ branchId: x.branchId, percent: Number(x.percent) })) } : {};
   return (
     <li className="grid gap-2 bg-muted/30 px-3 py-2.5 sm:grid-cols-[1fr_120px_70px_auto]">
       <Input aria-label={t('payTreasury.exp.title')} value={title} onChange={(e) => setTitle(e.target.value)} className="h-8" />
       <Input aria-label={t('payTreasury.exp.amount')} type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} className="h-8 tabular-nums" />
       <Input aria-label={t('payTreasury.exp.dayLabel')} type="number" min={1} max={28} value={day} onChange={(e) => setDay(e.target.value)} className="h-8 tabular-nums" />
       <div className="flex gap-1">
-        <Button size="icon" className="h-8 w-8" disabled={!ok || busy} aria-label={t('common.save')} onClick={() => onSave({ title: title.trim(), amount: n, dayOfMonth: d })}>
+        <Button size="icon" className="h-8 w-8" disabled={!ok || busy} aria-label={t('common.save')} onClick={() => onSave({ title: title.trim(), amount: n, dayOfMonth: d, ...allocations })}>
           <Check className="h-4 w-4" aria-hidden="true" />
         </Button>
         <Button size="icon" variant="ghost" className="h-8 w-8" aria-label={t('common.cancel')} onClick={onCancel}>
           <X className="h-4 w-4" aria-hidden="true" />
         </Button>
       </div>
+      {isSuper && branches.length > 1 ? (
+        <div className="sm:col-span-4">
+          <RecurringSplitEditor rows={split} onChange={setSplit} branches={branches} payingBranchId={rule.branchId} />
+        </div>
+      ) : null}
     </li>
   );
 }

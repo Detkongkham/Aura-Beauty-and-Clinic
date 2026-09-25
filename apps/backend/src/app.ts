@@ -18,6 +18,10 @@ export function createApp(): Express {
   // ສະລິບໂອນເງິນ (base64 ຈາກກ້ອງມືຖື, ສູງສຸດ SLIP_MAX_BYTES=8MB → ~11MB) ໃຫຍ່ກວ່າ 2mb — ຂະຫຍາຍ limit ສະເພາະ
   // route ນີ້ ແລະ ຕ້ອງມາກ່ອນ parser ກາງ (ອັນທຳອິດທີ່ parse ສຳເລັດຈະຕັ້ງ req.body, ອັນຖັດໄປຂ້າມ).
   app.use('/api/v1/payments-treasury/payments/:id/slips', express.json({ limit: '12mb' }));
+  // H2 — ຮູບຫຼັກຖານການປັບສະຕັອກ (≤ 5MB → base64 ~7MB).
+  app.use('/api/v1/stock-movements/adjust', express.json({ limit: '8mb' }));
+  // ຮູບບໍລິການ (≤ 5MB → base64 ~7MB).
+  app.use('/api/v1/services/images', express.json({ limit: '8mb' }));
   // 2mb headroom: the business logo is stored inline as a resized PNG data-URL
   // in PUT /settings (no object storage yet).
   // rawBody ເກັບໄວ້ເພື່ອກວດ HMAC ຂອງ payment webhook (ຕ້ອງເປັນ byte ຕົ້ນສະບັບ, ບໍ່ແມ່ນ JSON ທີ່ re-serialize).

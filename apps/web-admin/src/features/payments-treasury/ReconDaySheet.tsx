@@ -154,7 +154,7 @@ export function ReconDaySheet({ target, fallback, canManage, canReconcile, curre
     del.mutate(row.statementId, { onSuccess: () => toast.success(t('payTreasury.recon.cleared')), onError });
   }
 
-  const describeMatch = (kind: 'TX' | 'EXPENSE' | 'REFUND', id: string): string | null => {
+  const describeMatch = (kind: 'TX' | 'EXPENSE' | 'REFUND' | 'CASH_FUND', id: string): string | null => {
     if (kind === 'TX') {
       const c = data?.credits.find((x) => x.id === id);
       return c ? `${c.customerName ?? t('payTreasury.recon.walkIn')} · ${formatTime(c.at)}` : null;

@@ -153,7 +153,7 @@ export async function listServices(
 }
 
 /** ແປງ Service.steps (Json) → ServiceStep[] ຢ່າງປອດໄພ. */
-function parseSteps(raw: unknown): ServiceStep[] {
+export function parseSteps(raw: unknown): ServiceStep[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .filter(

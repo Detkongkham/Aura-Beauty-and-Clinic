@@ -24,6 +24,7 @@ import { formatCurrency } from '@/lib/format';
 import { NormalizedApiError } from '@/services/apiError';
 
 import { PayRunCard } from './PayRunCard';
+import { PayRunsPanel } from './PayRunsPanel';
 import { PayrollCommandBar } from './PayrollCommandBar';
 import { PayrollInsights } from './PayrollInsights';
 import { PayrollLeaderboard } from './PayrollLeaderboard';
@@ -45,6 +46,7 @@ import {
   SORTERS,
   SORT_KEYS,
   VIEW_MODES,
+  commissionPayableNow,
   currentMonthYear,
   deltaPct,
   monthLabel,
@@ -73,7 +75,7 @@ const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
  */
 export function PayrollPage() {
   const { t, i18n } = useTranslation();
-  const { hasPermission } = useAuth();
+  const { hasPermission, role } = useAuth();
   const canManage = hasPermission('staff:manage');
   const confirm = useConfirm();
   const { data: branches } = useBranches();
@@ -202,13 +204,22 @@ export function PayrollPage() {
     [t],
   );
 
+  /** Success toast + a follow-up note when some commission stayed held (bill not collected). */
+  const announcePaid = useCallback(
+    (message: string, held: number) => {
+      toast.success(message);
+      if (held > 0) toast.info(t('payroll.heldAfterPay', { amount: formatCurrency(held) }));
+    },
+    [t],
+  );
+
   const payOne = useCallback(
     async (row: PayrollRow) => {
       const ok = await confirm({
         title: t('payroll.confirmPay.title'),
         description: t('payroll.confirmPay.body', {
           name: row.staffName,
-          amount: formatCurrency(row.commissionUnpaid),
+          amount: formatCurrency(commissionPayableNow(row)),
           month: monthLabel(monthYear, i18n.language),
         }),
         confirmLabel: t('payroll.payCommission'),
@@ -221,10 +232,10 @@ export function PayrollPage() {
           isPaid: true,
           branchId: branchId || undefined,
         },
-        { onSuccess: () => toast.success(t('payroll.commissionsPaid')), onError },
+        { onSuccess: (res) => announcePaid(t('payroll.commissionsPaid'), res.held), onError },
       );
     },
-    [confirm, t, i18n.language, monthYear, branchId, payComm, onError],
+    [confirm, t, i18n.language, monthYear, branchId, payComm, onError, announcePaid],
   );
 
   const payBonusOne = useCallback(
@@ -239,13 +250,13 @@ export function PayrollPage() {
   const payMany = useCallback(
     async (ids: string[], clear?: () => void) => {
       const targets = allRows.filter(
-        (r) => ids.includes(r.staffProfileId) && r.commissionUnpaid > 0,
+        (r) => ids.includes(r.staffProfileId) && commissionPayableNow(r) > 0,
       );
       if (targets.length === 0) {
         toast.info(t('payroll.nothingToPay'));
         return;
       }
-      const amount = targets.reduce((s, r) => s + r.commissionUnpaid, 0);
+      const amount = targets.reduce((s, r) => s + commissionPayableNow(r), 0);
       const ok = await confirm({
         title: t('payroll.confirmPayBulk.title', { count: targets.length }),
         description: t('payroll.confirmPayBulk.body', {
@@ -265,14 +276,14 @@ export function PayrollPage() {
         },
         {
           onSuccess: (res) => {
-            toast.success(t('payroll.commissionsPaidBulk', { count: res.staff }));
+            announcePaid(t('payroll.commissionsPaidBulk', { count: res.staff }), res.held);
             clear?.();
           },
           onError,
         },
       );
     },
-    [allRows, confirm, t, i18n.language, monthYear, branchId, payCommBulk, onError],
+    [allRows, confirm, t, i18n.language, monthYear, branchId, payCommBulk, onError, announcePaid],
   );
 
   const bonusMany = useCallback(
@@ -362,7 +373,7 @@ export function PayrollPage() {
         paying={busy}
         onPayAll={() =>
           void payMany(
-            allRows.filter((r) => r.commissionUnpaid > 0).map((r) => r.staffProfileId),
+            allRows.filter((r) => commissionPayableNow(r) > 0).map((r) => r.staffProfileId),
           )
         }
       />
@@ -467,6 +478,16 @@ export function PayrollPage() {
           report={data}
           loading={isLoading && !data}
           onOpen={(r) => patchParams({ id: r.staffProfileId }, { resetPage: false })}
+        />
+      ) : view === 'runs' ? (
+        <PayRunsPanel
+          monthYear={monthYear}
+          branchId={branchId}
+          branches={(branches ?? []).map((b) => ({ id: b.id, name: b.name }))}
+          rows={allRows}
+          canManage={canManage}
+          isOwner={role === 'SUPER_ADMIN'}
+          onBranch={(id) => patchParams({ branch: id })}
         />
       ) : (
         <PayrollInsights rows={filtered} report={data} loading={isLoading && !data} />

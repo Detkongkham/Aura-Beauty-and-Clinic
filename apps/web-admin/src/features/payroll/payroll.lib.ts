@@ -55,7 +55,7 @@ export const TONE: Record<Tone, { chip: string; bar: string; ring: string; text:
   },
 };
 
-export const VIEW_MODES = ['roster', 'leaderboard', 'insights'] as const;
+export const VIEW_MODES = ['roster', 'leaderboard', 'insights', 'runs'] as const;
 export type ViewMode = (typeof VIEW_MODES)[number];
 
 export const SORT_KEYS = [
@@ -193,4 +193,12 @@ export function paceRatio(
   const expected = (daysElapsed / daysInMonth) * 100;
   if (expected <= 0) return null;
   return attainmentPct / expected;
+}
+
+/**
+ * Commission that can be paid right now — unpaid minus the part whose bill is
+ * not collected yet (held by the server's collection rule, audit C2).
+ */
+export function commissionPayableNow(r: Pick<PayrollRow, 'commissionUnpaid' | 'commissionHeld'>): number {
+  return Math.max(0, Math.round((r.commissionUnpaid - r.commissionHeld) * 100) / 100);
 }

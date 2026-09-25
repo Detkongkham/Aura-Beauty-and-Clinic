@@ -372,4 +372,4 @@ In-App Chat + rule-based AI Camera + Telegram pilot), all shipped and verified a
   in this environment) + `GOOGLE_MAPS_API_KEY` unprovisioned. **Update 2026-09-24:** map switched to
   MapLibre + OSM — no Google key needed any more; the EAS dev-client rebuild is still owed.
 - Phase 7C.4: no real Telegram bot token/webhook provisioned (dev/mocked-payload only).
-- Phase 7C.1: no resource picker wired into the admin appointment-create form (CRUD + listing only).
+- ~~Phase 7C.1: no resource picker wired into the admin appointment-create form~~ — **done 2026-09-26**: BookingSheet room/equipment pickers + backend check that the resource belongs to the booking branch and is in service.

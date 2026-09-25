@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Building2, Check, Clock, MapPin, Power } from 'lucide-react';
-import { useEffect, type ComponentProps, type ReactNode } from 'react';
+import { Building2, Check, Clock, MapPin, Power, Sparkles, TriangleAlert } from 'lucide-react';
+import { useEffect, useState, type ComponentProps, type ReactNode } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { z } from 'zod';
@@ -22,7 +22,10 @@ import { cn } from '@/lib/utils';
 import { NormalizedApiError } from '@/services/apiError';
 import type { Branch, LaoProvinceId } from '@/types/models';
 
+import { BranchExtrasFields } from './BranchExtrasFields';
+import { extrasFrom, extrasInvalid, extrasPayload, type BranchExtras } from './branchExtras.lib';
 import { BranchMapPicker } from './BranchMapPicker';
+import { AMENITY_ICON, AMENITY_IDS } from './branches.lib';
 import { LAO_PROVINCES, provinceOptions } from './lao-provinces';
 import { useSaveBranch, type BranchInput } from './branches.api';
 
@@ -35,6 +38,8 @@ const formSchema = z.object({
   province: z.enum(PROVINCE_IDS),
   address: z.string().trim().max(300),
   phone: z.string().trim().max(30),
+  email: z.union([z.literal(''), z.string().trim().email().max(160)]),
+  amenities: z.array(z.enum(['wifi', 'parking', 'drink', 'lounge', 'kids', 'card'])),
   latitude: z.coerce.number().min(-90).max(90),
   longitude: z.coerce.number().min(-180).max(180),
   openTime: z.string().regex(TIME_RE),
@@ -50,6 +55,8 @@ const EMPTY: FormValues = {
   province: 'vientiane-capital',
   address: '',
   phone: '',
+  email: '',
+  amenities: [],
   latitude: 0,
   longitude: 0,
   openTime: '09:00',
@@ -73,13 +80,18 @@ export function BranchFormDialog({
   open,
   onOpenChange,
   branch,
+  upcomingAppointments,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   branch?: Branch | null;
+  /** Future PENDING/CONFIRMED appointments — closing the branch asks for confirmation when > 0. */
+  upcomingAppointments?: number;
 }) {
   const { t, i18n } = useTranslation();
   const save = useSaveBranch(branch?.id);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [extras, setExtras] = useState<BranchExtras>(() => extrasFrom(null));
 
   const form = useForm<FormValues>({ resolver: zodResolver(formSchema), defaultValues: EMPTY });
   const { errors } = form.formState;
@@ -94,6 +106,10 @@ export function BranchFormDialog({
             province: branch.province,
             address: branch.address,
             phone: branch.phone,
+            email: branch.email ?? '',
+            amenities: (branch.amenities ?? []).filter((a): a is (typeof AMENITY_IDS)[number] =>
+              (AMENITY_IDS as string[]).includes(a),
+            ),
             latitude: branch.latitude,
             longitude: branch.longitude,
             openTime: branch.openTime,
@@ -103,6 +119,8 @@ export function BranchFormDialog({
           }
         : EMPTY,
     );
+    setConfirmClose(false);
+    setExtras(extrasFrom(branch ?? null));
   }, [open, branch, form]);
 
   const province = form.watch('province');
@@ -110,6 +128,15 @@ export function BranchFormDialog({
   const closeTime = form.watch('closeTime');
   const isActive = form.watch('isActive');
   const allowNegativeStock = form.watch('allowNegativeStock');
+  const amenities = form.watch('amenities') ?? [];
+  // Turning an open branch off while it still has bookings needs an explicit second click.
+  const closingWithBookings = Boolean(branch?.isActive) && !isActive && (upcomingAppointments ?? 0) > 0;
+  const toggleAmenity = (a: (typeof AMENITY_IDS)[number]) =>
+    form.setValue(
+      'amenities',
+      amenities.includes(a) ? amenities.filter((x) => x !== a) : [...amenities, a],
+      { shouldDirty: true },
+    );
   const lat = Number(form.watch('latitude')) || 0;
   const lng = Number(form.watch('longitude')) || 0;
 
@@ -122,7 +149,15 @@ export function BranchFormDialog({
 
   const onSubmit = form.handleSubmit((values) => {
     const parsed = formSchema.parse(values);
-    const payload: BranchInput = { ...parsed };
+    if (extrasInvalid(extras)) {
+      toast.error(t('branches.extras.hoursInvalid'));
+      return;
+    }
+    if (closingWithBookings && !confirmClose) {
+      setConfirmClose(true);
+      return;
+    }
+    const payload: BranchInput = { ...parsed, ...extrasPayload(extras), ...(closingWithBookings ? { force: true } : {}) };
     save.mutate(payload, {
       onSuccess: () => {
         toast.success(t('branches.saved'));
@@ -185,9 +220,21 @@ export function BranchFormDialog({
                   </Field>
                 </div>
 
-                <Field label={t('branches.phone')}>
-                  <Input type="tel" inputMode="tel" {...form.register('phone')} />
-                </Field>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label={t('branches.phone')}>
+                    <Input type="tel" inputMode="tel" autoComplete="tel" {...form.register('phone')} />
+                  </Field>
+                  <Field label={t('branches.email')} error={errors.email && t('branches.form.emailInvalid')}>
+                    <Input
+                      type="email"
+                      inputMode="email"
+                      autoComplete="email"
+                      aria-invalid={Boolean(errors.email)}
+                      placeholder="branch@aura.la"
+                      {...form.register('email')}
+                    />
+                  </Field>
+                </div>
               </Section>
 
               <div className="space-y-6">
@@ -243,9 +290,45 @@ export function BranchFormDialog({
                       aria-label={t('inventory.allowNegative.title')}
                     />
                   </label>
+                  {closingWithBookings ? (
+                    <p role="alert" className="flex items-start gap-2 rounded-lg bg-warning-soft px-3 py-2 text-xs text-warning">
+                      <TriangleAlert className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      {t('branches.form.closeWarning', { count: upcomingAppointments })}
+                    </p>
+                  ) : null}
+                </Section>
+
+                <Section icon={Sparkles} title={t('branches.amenities.title')}>
+                  <p className="-mt-1 text-xs text-muted-foreground">{t('branches.amenities.hint')}</p>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {AMENITY_IDS.map((a) => {
+                      const Icon = AMENITY_ICON[a];
+                      const on = amenities.includes(a);
+                      return (
+                        <button
+                          key={a}
+                          type="button"
+                          aria-pressed={on}
+                          onClick={() => toggleAmenity(a)}
+                          className={cn(
+                            'flex min-h-10 items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-xs font-medium transition-colors motion-reduce:transition-none',
+                            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                            on ? 'border-primary/50 bg-primary/10 text-primary' : 'border-border bg-card text-muted-foreground hover:bg-muted',
+                          )}
+                        >
+                          <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                          <span className="min-w-0 flex-1 truncate">{t(`branches.amenities.${a}`)}</span>
+                          {on ? <Check className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> : null}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </Section>
               </div>
             </div>
+
+            {/* Wave 11: weekly hours, manager, targets, photos */}
+            <BranchExtrasFields value={extras} onChange={setExtras} branchId={branch?.id} />
 
             {/* Row 2: address + big map */}
             <Section icon={MapPin} title={t('branches.form.sectionLocation')}>
@@ -300,9 +383,18 @@ export function BranchFormDialog({
             <Button type="button" variant="secondary" size="lg" onClick={() => onOpenChange(false)}>
               {t('common.cancel')}
             </Button>
-            <Button type="submit" size="lg" disabled={save.isPending}>
+            <Button
+              type="submit"
+              size="lg"
+              variant={confirmClose && closingWithBookings ? 'danger' : 'primary'}
+              disabled={save.isPending}
+            >
               <Check className="h-4 w-4" aria-hidden="true" />
-              {save.isPending ? t('common.loading') : t('common.save')}
+              {save.isPending
+                ? t('common.loading')
+                : confirmClose && closingWithBookings
+                  ? t('branches.form.confirmClose', { count: upcomingAppointments })
+                  : t('common.save')}
             </Button>
           </div>
         </form>

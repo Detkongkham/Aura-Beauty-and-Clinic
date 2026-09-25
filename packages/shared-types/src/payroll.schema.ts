@@ -24,36 +24,54 @@ export const kpiRecomputeSchema = z.object({
 });
 export type KpiRecomputeInput = z.infer<typeof kpiRecomputeSchema>;
 
-export const bonusPaidSchema = z.object({
-  monthYear: monthYearSchema,
-  isBonusPaid: z.boolean(),
-});
+/**
+ * ການຍົກເລີກການຈ່າຍ (un-pay) ຕ້ອງມີເຫດຜົນ — ບັນທຶກລົງ AuditLog (docs/payroll-audit.md C3).
+ */
+const reasonSchema = z.string().trim().min(3, 'ກະລຸນາລະບຸເຫດຜົນ').max(300).optional();
+const UNPAY_REASON_ISSUE = { message: 'ການຍົກເລີກການຈ່າຍຕ້ອງລະບຸເຫດຜົນ', path: ['reason'] };
+
+export const bonusPaidSchema = z
+  .object({
+    monthYear: monthYearSchema,
+    isBonusPaid: z.boolean(),
+    reason: reasonSchema,
+  })
+  .refine((v) => v.isBonusPaid || Boolean(v.reason), UNPAY_REASON_ISSUE);
 export type BonusPaidInput = z.infer<typeof bonusPaidSchema>;
 
-export const commissionPaySchema = z.object({
-  staffProfileId: z.string().uuid(),
-  monthYear: monthYearSchema,
-  isPaid: z.boolean(),
-  /** ຈຳກັດການຈ່າຍໄວ້ສະເພາະສາຂາທີ່ກຳລັງເບິ່ງຢູ່ — ບໍ່ດັ່ງນັ້ນຄິວສາຂາອື່ນຈະຖືກຈ່າຍນຳ. */
-  branchId: z.string().uuid().optional(),
-});
+export const commissionPaySchema = z
+  .object({
+    staffProfileId: z.string().uuid(),
+    monthYear: monthYearSchema,
+    isPaid: z.boolean(),
+    /** ຈຳກັດການຈ່າຍໄວ້ສະເພາະສາຂາທີ່ກຳລັງເບິ່ງຢູ່ — ບໍ່ດັ່ງນັ້ນຄິວສາຂາອື່ນຈະຖືກຈ່າຍນຳ. */
+    branchId: z.string().uuid().optional(),
+    reason: reasonSchema,
+  })
+  .refine((v) => v.isPaid || Boolean(v.reason), UNPAY_REASON_ISSUE);
 export type CommissionPayInput = z.infer<typeof commissionPaySchema>;
 
 /** ຈ່າຍຄ່າຄອມຫຼາຍຄົນພ້ອມກັນ (bulk action bar ໃນຕາຕະລາງ payroll). */
-export const commissionBulkPaySchema = z.object({
-  staffProfileIds: z.array(z.string().uuid()).min(1).max(500),
-  monthYear: monthYearSchema,
-  isPaid: z.boolean(),
-  branchId: z.string().uuid().optional(),
-});
+export const commissionBulkPaySchema = z
+  .object({
+    staffProfileIds: z.array(z.string().uuid()).min(1).max(500),
+    monthYear: monthYearSchema,
+    isPaid: z.boolean(),
+    branchId: z.string().uuid().optional(),
+    reason: reasonSchema,
+  })
+  .refine((v) => v.isPaid || Boolean(v.reason), UNPAY_REASON_ISSUE);
 export type CommissionBulkPayInput = z.infer<typeof commissionBulkPaySchema>;
 
 /** ໝາຍໂບນັດຈ່າຍ/ຍົກເລີກ ຫຼາຍຄົນພ້ອມກັນ. */
-export const bonusBulkPaidSchema = z.object({
-  staffProfileIds: z.array(z.string().uuid()).min(1).max(500),
-  monthYear: monthYearSchema,
-  isBonusPaid: z.boolean(),
-});
+export const bonusBulkPaidSchema = z
+  .object({
+    staffProfileIds: z.array(z.string().uuid()).min(1).max(500),
+    monthYear: monthYearSchema,
+    isBonusPaid: z.boolean(),
+    reason: reasonSchema,
+  })
+  .refine((v) => v.isBonusPaid || Boolean(v.reason), UNPAY_REASON_ISSUE);
 export type BonusBulkPaidInput = z.infer<typeof bonusBulkPaidSchema>;
 
 // ---- response view-models -----------------------------------------
@@ -82,6 +100,11 @@ export type PayrollRow = {
   commissionTotal: number;
   commissionPaid: number;
   commissionUnpaid: number;
+  /**
+   * ສ່ວນຂອງ commissionUnpaid ທີ່ບິນຍັງເກັບເງິນບໍ່ຄົບ — ຍັງຈ່າຍບໍ່ໄດ້ (C2).
+   * 0 ສະເໝີເມື່ອປິດນະໂຍບາຍ `payroll.commissionRequiresCollection`.
+   */
+  commissionHeld: number;
   targetRevenue: number;
   actualRevenue: number;
   targetMet: boolean;
@@ -96,7 +119,7 @@ export type PayrollRow = {
   clawbackUnsettled: number;
   /** commissionTotal + bonusAmount − clawbackTotal */
   payable: number;
-  /** max(0, commissionUnpaid + (bonusPaid ? 0 : bonusAmount) − clawbackUnsettled) */
+  /** max(0, commissionUnpaid − commissionHeld + (bonusPaid ? 0 : bonusAmount) − clawbackUnsettled) — ຈ່າຍໄດ້ດຽວນີ້. */
   outstanding: number;
 
   // ── ບໍລິບົດເພີ່ມ (Wave 11 — payroll console) ─────────────────────
@@ -134,6 +157,7 @@ export type PayrollTotals = {
   commissionTotal: number;
   commissionPaid: number;
   commissionUnpaid: number;
+  commissionHeld: number;
   bonusTotal: number;
   bonusUnpaid: number;
   /** ຍອດຫັກຄືນຄອມມິດຊັນ (ຄືນເງິນບິນທີ່ຈ່າຍຄອມແລ້ວ) ຂອງເດືອນນີ້. */
@@ -163,6 +187,8 @@ export type PayrollReport = {
   monthYear: string;
   generatedAt: string;
   bonusRate: number;
+  /** ນະໂຍບາຍ C2: ຄ່າຄອມຈ່າຍໄດ້ສະເພາະນັດທີ່ເກັບເງິນບິນຄົບແລ້ວ. */
+  commissionRequiresCollection: boolean;
   /** ເດືອນນີ້ຍັງບໍ່ທັນຈົບ → ຕົວເລກຍັງເໜັງຕີງ, UI ຕ້ອງບອກຜູ້ໃຊ້. */
   isCurrentMonth: boolean;
   daysElapsed: number;
@@ -185,6 +211,9 @@ export type PayrollCommissionLine = {
   commissionRate: number;
   payoutAmount: number;
   isPaid: boolean;
+  paidAt: string | null;
+  /** ບິນຂອງນັດນີ້ເກັບເງິນຄົບແລ້ວ (ຫຼື ບໍ່ມີເງິນຕ້ອງເກັບ). */
+  collected: boolean;
 };
 
 /** ຂໍ້ມູນ drill-down ຕໍ່ຄົນ — payslip ຂອງເດືອນ. */

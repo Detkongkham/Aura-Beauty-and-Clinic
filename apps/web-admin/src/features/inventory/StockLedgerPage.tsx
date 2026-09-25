@@ -1,20 +1,23 @@
 import { useMemo, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router-dom';
 import { ChevronRight, ScrollText, Store } from 'lucide-react';
 import type { StockMovementTypeValue, StockMovementView } from '@abcp/shared-types';
 
 import { StickyPageHeader } from '@/components/layout/StickyPageHeader';
 import { DateField } from '@/components/shared/DateField';
 import { CurrencyText, DataTable, DateTimeText, FilterBar, Pagination, StatusPill } from '@/components/shared';
+import { Combobox } from '@/components/ui/combobox';
 import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { useBranches } from '@/features/branches/branches.api';
 
+import { InventoryExportButton } from './InventoryExportButton';
 import { InventoryStatCard } from './InventoryStatCard';
 import { InventoryTabs } from './InventoryTabs';
-import { useStockMovements, useStockMovementStats } from './inventory.api';
+import { useProducts, useStockMovements, useStockMovementStats } from './inventory.api';
 import { MovementDetailDialog } from './MovementDetailDialog';
 import {
   MOVEMENT_TYPE_ICON,
@@ -28,7 +31,10 @@ export function StockLedgerPage() {
   const { t } = useTranslation();
   const { data: branches } = useBranches();
 
+  const [searchParams, setSearchParams] = useSearchParams();
   const [branchId, setBranchId] = useState('');
+  // L5 — product filter; `?productId=` pre-fills it (link from the product detail sheet).
+  const [productId, setProductIdState] = useState(searchParams.get('productId') ?? '');
   const [type, setType] = useState<StockMovementTypeValue | ''>('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -36,7 +42,19 @@ export function StockLedgerPage() {
   const [pageSize, setPageSize] = useState(20);
   const [detail, setDetail] = useState<StockMovementView | null>(null);
 
+  const { data: productOptions } = useProducts({ branchId: branchId || undefined, page: 1, pageSize: 2000 });
+
+  function setProductId(v: string) {
+    setProductIdState(v);
+    setPage(1);
+    const next = new URLSearchParams(searchParams);
+    if (v) next.set('productId', v);
+    else next.delete('productId');
+    setSearchParams(next, { replace: true });
+  }
+
   const { data, isLoading } = useStockMovements({
+    productId: productId || undefined,
     branchId: branchId || undefined,
     type: type || undefined,
     from: from || undefined,
@@ -45,12 +63,13 @@ export function StockLedgerPage() {
     pageSize,
   });
   const { data: stats, isLoading: statsLoading } = useStockMovementStats({
+    productId: productId || undefined,
     branchId: branchId || undefined,
     from: from || undefined,
     to: to || undefined,
   });
 
-  const hasActiveFilters = Boolean(branchId) || Boolean(type) || Boolean(from) || Boolean(to);
+  const hasActiveFilters = Boolean(branchId) || Boolean(productId) || Boolean(type) || Boolean(from) || Boolean(to);
 
   function toggleType(v: StockMovementTypeValue | '') {
     setType((current) => (current === v ? '' : v));
@@ -132,7 +151,7 @@ export function StockLedgerPage() {
           ),
       },
       {
-        // C4 — WAC ຢູ່ ณ ເວລານັ້ນ. null = ແຖວເກົ່າກ່ອນ costing wave (ບໍ່ backfill).
+        // C4 — WAC ຢູ່ àºàº²àº¡ ເວລານັ້ນ. null = ແຖວເກົ່າກ່ອນ costing wave (ບໍ່ backfill).
         header: t('inventory.ledger.unitCost'),
         accessorKey: 'unitCost',
         meta: { align: 'right' },
@@ -162,7 +181,20 @@ export function StockLedgerPage() {
           );
         },
       },
-      { header: t('inventory.ledger.note'), accessorKey: 'notes', cell: ({ getValue }) => (getValue() as string) || '—' },
+      {
+        header: t('inventory.ledger.note'),
+        accessorKey: 'notes',
+        cell: ({ row }) => (
+          <div className="min-w-0">
+            {row.original.reasonCode ? (
+              <span className="mb-0.5 inline-block rounded-full bg-muted px-1.5 py-0.5 text-2xs font-medium text-foreground">
+                {t(`inventory.adjReason.${row.original.reasonCode}`)}
+              </span>
+            ) : null}
+            <div>{row.original.notes || '—'}</div>
+          </div>
+        ),
+      },
       {
         header: t('inventory.ledger.by'),
         accessorKey: 'createdByUserName',
@@ -230,12 +262,30 @@ export function StockLedgerPage() {
         hasActiveFilters={hasActiveFilters}
         onClear={() => {
           setBranchId('');
+          setProductId('');
           setType('');
           setFrom('');
           setTo('');
           setPage(1);
         }}
       >
+        <Combobox
+          className="h-9 w-[220px]"
+          value={productId}
+          onChange={setProductId}
+          placeholder={t('inventory.ledger.allProducts')}
+          searchPlaceholder={t('inventory.transfer.searchProduct')}
+          emptyText={t('inventory.transfer.noProductMatch')}
+          aria-label={t('inventory.col.product')}
+          options={[
+            { value: '', label: t('inventory.ledger.allProducts') },
+            ...(productOptions?.items ?? []).map((p) => ({
+              value: p.id,
+              label: p.name,
+              description: `${p.sku} · ${p.branchName}`,
+            })),
+          ]}
+        />
         <Select
           className="h-9 w-[170px]"
           value={branchId}
@@ -303,6 +353,32 @@ export function StockLedgerPage() {
               {t('inventory.showing', { shown: data?.items.length ?? 0, total: data?.total ?? 0 })}
             </span>
           </div>
+          <InventoryExportButton<StockMovementView>
+            base="/stock-movements"
+            params={{
+              productId: productId || undefined,
+              branchId: branchId || undefined,
+              type: type || undefined,
+              from: from || undefined,
+              to: to || undefined,
+            }}
+            filename="stock-ledger"
+            columns={[
+              { header: t('inventory.ledger.when'), value: (m) => m.createdAt },
+              { header: t('inventory.col.product'), value: (m) => m.productName },
+              { header: t('inventory.col.branch'), value: (m) => m.branchName },
+              { header: t('inventory.ledger.type'), value: (m) => t(`inventory.movement.${m.type}`) },
+              { header: t('inventory.ledger.qty'), value: (m) => signedQty(m) },
+              { header: t('inventory.ledger.balance'), value: (m) => m.balanceAfter },
+              { header: t('inventory.lot.title'), value: (m) => m.lotNumber ?? '' },
+              { header: t('inventory.ledger.unitCost'), value: (m) => m.unitCost ?? '' },
+              { header: t('inventory.ledger.valueChange'), value: (m) => m.valueChange ?? '' },
+              { header: t('inventory.adjustReason'), value: (m) => (m.reasonCode ? t(`inventory.adjReason.${m.reasonCode}`) : '') },
+              { header: t('inventory.ledger.note'), value: (m) => m.notes ?? '' },
+              { header: t('inventory.ledger.by'), value: (m) => m.createdByUserName ?? t('inventory.ledger.system') },
+              { header: t('inventory.ledger.detail.reference'), value: (m) => m.refId ?? '' },
+            ]}
+          />
         </div>
         <div className="p-2 sm:p-3">
           <DataTable

@@ -213,9 +213,15 @@
     font-weight: 600;
   }
 
+  /* Page titles use the sans stack in every locale (matches the Dashboard header). Declared for
+     `:lang(lo) h1` too so it isn't overridden by the Lao display rule below. */
+  h1,
+  :lang(lo) h1 {
+    font-family: theme('fontFamily.sans');
+  }
+
   /* Same digit-mismatch fix as above, scoped to the serif display font so Lao headings keep their
      serif treatment (Noto Serif Lao) instead of jumping to the sans family for just the numbers. */
-  :lang(lo) h1,
   :lang(lo) h2,
   :lang(lo) h3 {
     font-family: theme('fontFamily.display-lao');
@@ -226,6 +232,14 @@
     outline: none;
     box-shadow: 0 0 0 3px hsl(var(--ring) / 0.4);
     border-radius: 4px;
+  }
+
+  /* Whole-page Noto Serif Lao (public /site + /portal). The font ships a Latin subset, so English
+     copy renders in it too. `*` + !important beats the h1/h2/h3 and `:lang(lo)` rules above and any
+     font-display/font-sans utility inside the page. */
+  .font-serif-all,
+  .font-serif-all * {
+    font-family: 'Noto Serif Lao', Georgia, serif !important;
   }
 
   /* Numeric alignment in data-dense views (design.md §9) */
@@ -242,6 +256,70 @@
       transition-duration: 0.01ms !important;
       scroll-behavior: auto !important;
     }
+  }
+}
+
+/* Public site flourishes (features/site). Motion is off under reduced-motion via the global rule. */
+@layer components {
+  /* Cursor-following highlight — pair with useSpotlight() which sets --mx/--my. */
+  .spotlight {
+    position: relative;
+    isolation: isolate;
+  }
+  .spotlight::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: radial-gradient(
+      320px circle at var(--mx, 50%) var(--my, 50%),
+      hsl(var(--primary) / 0.1),
+      transparent 65%
+    );
+    opacity: 0;
+    transition: opacity 250ms ease-out;
+    pointer-events: none;
+  }
+  .spotlight:hover::before {
+    opacity: 1;
+  }
+
+  /* Diagonal light sweep for primary CTAs. */
+  .shine {
+    position: relative;
+    overflow: hidden;
+  }
+  .shine::after {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 40%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+    animation: site-shine 3.6s ease-in-out infinite;
+    pointer-events: none;
+  }
+  @keyframes site-shine {
+    0% {
+      transform: translateX(-120%) skewX(-20deg);
+    }
+    60%,
+    100% {
+      transform: translateX(260%) skewX(-20deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .shine::after {
+      display: none;
+    }
+  }
+
+  /* Gold gradient text for accent words. */
+  .text-gradient-gold {
+    background: linear-gradient(100deg, hsl(var(--primary)) 0%, hsl(var(--primary-hover)) 45%, hsl(var(--accent)) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
   }
 }
 

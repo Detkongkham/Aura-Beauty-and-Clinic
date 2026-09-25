@@ -31,9 +31,13 @@ import { waitlistQueue } from '../../jobs/queues.js';
 import { mirrorTicketFromAppointment } from '../queue/queue.service.js';
 import { earnPoints } from '../loyalty/loyalty.service.js';
 import { consumeServiceStock } from '../inventory/inventory.service.js';
+import { syncAppointmentReservations } from '../inventory/reservation.service.js';
 import { rewardReferralOnComplete } from '../referral/referral.service.js';
 import { syncTripOnAppointmentStatus } from '../home-service/home-service.service.js';
 import { restorePackageUnit } from '../booking/booking.service.js';
+import { accrueCommission } from '../payroll/commission.js';
+import { applyCancellationFee, isLateCancel } from '../finance-ledger/fees.js';
+import { getCachedSettings } from '../settings/settings.service.js';
 
 function toAdminDetailView(
   a: AdminAppointmentRow,
@@ -653,6 +657,8 @@ export async function updateAppointmentStatus(
       ? { startAt: new Date(), endAt: addMinutes(new Date(), existing.service.durationMinutes) }
       : {};
 
+  const cancelWindowHours = Number((await getCachedSettings()).cancellationWindowHours) || 0;
+
   const row = await prisma.$transaction(async (tx) => {
     const updated = await tx.appointment.update({
       where: { id },
@@ -665,6 +671,12 @@ export async function updateAppointmentStatus(
     });
     await mirrorTicketFromAppointment(tx, id, input.status);
     await syncTripOnAppointmentStatus(tx, id, input.status);
+    // Wave 11 (F-20) — ບໍ່ມາ / ຍົກເລີກຫຼັງເສັ້ນຕາຍ → ຢຶດ % ຂອງມັດຈຳເປັນຄ່າປັບ (ເວັ້ນແຕ່ໜ້າຮ້ານເລືອກຍົກເວັ້ນ).
+    if ((input.status === 'NO_SHOW' || input.status === 'CANCELLED') && existing.status !== input.status && !input.waiveFee) {
+      const feeKind =
+        input.status === 'NO_SHOW' ? 'NO_SHOW' : isLateCancel(updated.startAt, cancelWindowHours) ? 'LATE_CANCEL' : null;
+      if (feeKind) await applyCancellationFee(tx, id, feeKind);
+    }
     // ຍົກເລີກນັດທີ່ໃຊ້ແພັກເກັດ → ຄືນສິດ 1 ຄັ້ງ (ສະເພາະຕອນປ່ຽນເຂົ້າ CANCELLED ຄັ້ງທຳອິດ).
     if (input.status === 'CANCELLED' && existing.status !== 'CANCELLED') {
       await restorePackageUnit(tx, updated.userPackageItemId);
@@ -682,32 +694,12 @@ export async function updateAppointmentStatus(
       // ໂມດູນ 33 — ໃຫ້ລາງວັນຜູ້ແນະນຳ (idempotent ຕໍ່ rewardClaimed).
       await rewardReferralOnComplete(tx, id);
 
-      // ໂມດູນ 09 — ບັນທຶກຄ່າຄອມມິດຊັນ (idempotent ຕໍ່ appointmentId unique).
+      // ໂມດູນ 09 — ບັນທຶກຄ່າຄອມມິດຊັນ (idempotent ຕໍ່ appointmentId unique, ບໍ່ລວມຄ່າເດີນທາງ).
       // ໜ້າຮ້ານ/ຜູ້ຈັດການປິດຄິວເອງກໍ່ຕ້ອງໄດ້ commission ຄືກັບຕອນຊ່າງປິດຜ່ານແອັບ.
-      const staffProfile = await tx.staffProfile.findUnique({
-        where: { id: updated.staffProfileId },
-        select: { commissionRate: true },
-      });
-      if (staffProfile) {
-        const payout =
-          Math.round(updated.totalAmount.toNumber() * staffProfile.commissionRate * 100) / 100;
-        await tx.staffCommission.upsert({
-          where: { appointmentId: id },
-          update: {
-            serviceAmount: updated.totalAmount,
-            commissionRate: staffProfile.commissionRate,
-            payoutAmount: new Prisma.Decimal(payout.toFixed(2)),
-          },
-          create: {
-            appointmentId: id,
-            staffProfileId: updated.staffProfileId,
-            serviceAmount: updated.totalAmount,
-            commissionRate: staffProfile.commissionRate,
-            payoutAmount: new Prisma.Decimal(payout.toFixed(2)),
-          },
-        });
-      }
+      await accrueCommission(tx, id);
     }
+    // H7 — ຈອງ (CONFIRMED/IN_PROGRESS) / ປົດ (CANCELLED/NO_SHOW/PENDING) / CONSUMED (COMPLETED) consumable ຂອງ BOM.
+    await syncAppointmentReservations(tx, id);
     return updated;
   });
 

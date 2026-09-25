@@ -38,11 +38,14 @@ export type ServiceInput = Partial<
     | 'durationMinutes'
     | 'imageUrl'
     | 'highlights'
+    | 'steps'
     | 'requireDeposit'
     | 'depositAmount'
     | 'isActive'
-  > & { consumables: Pick<Service['consumables'][number], 'productId' | 'productName' | 'qtyPerUse' | 'unit'>[] }
+  > & { consumables: Pick<Service['consumables'][number], 'productId' | 'productName' | 'qtyPerUse' | 'unit' | 'uomId'>[] }
 >;
+
+export type CategoryInput = { name: string; imageUrl?: string | null };
 
 export const servicesApi = {
   async list(params: ServiceListParams): Promise<Paginated<Service>> {
@@ -68,15 +71,27 @@ export const servicesApi = {
   async remove(id: string): Promise<void> {
     await http.delete(`/services/${id}`);
   },
+  /** Stores an image and returns its URL — the form then saves it as `imageUrl`. */
+  async uploadImage(input: {
+    contentType: 'image/jpeg' | 'image/png' | 'image/webp';
+    dataBase64: string;
+  }): Promise<{ url: string }> {
+    const { data } = await http.post<Envelope<{ url: string }>>('/services/images', input);
+    return data.data;
+  },
+  /** Deletes an uploaded image the form ended up not saving — the server skips it if anything uses it. */
+  async discardImage(url: string): Promise<void> {
+    await http.post('/services/images/discard', { url });
+  },
   async categories(): Promise<ServiceCategory[]> {
     const { data } = await http.get<Envelope<{ items: ServiceCategory[] }>>('/service-categories');
     return data.data.items;
   },
-  async createCategory(input: { name: string }): Promise<ServiceCategory> {
+  async createCategory(input: CategoryInput): Promise<ServiceCategory> {
     const { data } = await http.post<Envelope<ServiceCategory>>('/service-categories', input);
     return data.data;
   },
-  async updateCategory(id: string, input: { name: string }): Promise<ServiceCategory> {
+  async updateCategory(id: string, input: CategoryInput): Promise<ServiceCategory> {
     const { data } = await http.patch<Envelope<ServiceCategory>>(
       `/service-categories/${id}`,
       input,
@@ -123,6 +138,14 @@ export function useSaveService(id?: string) {
   });
 }
 
+export function useUploadServiceImage() {
+  return useMutation({ mutationFn: servicesApi.uploadImage });
+}
+
+export function useDiscardServiceImage() {
+  return useMutation({ mutationFn: servicesApi.discardImage });
+}
+
 export function useDeleteService() {
   const qc = useQueryClient();
   return useMutation({
@@ -145,7 +168,7 @@ export function useCreateCategory() {
 export function useSaveCategory(id?: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { name: string }) =>
+    mutationFn: (input: CategoryInput) =>
       id ? servicesApi.updateCategory(id, input) : servicesApi.createCategory(input),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['service-categories'] });

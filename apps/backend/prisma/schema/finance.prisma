@@ -84,6 +84,13 @@ model Payment {
   voidedAt       DateTime?
   voidReason     String?
   voidedById     String?
+  /// Wave 11 (F-19) — ຄ່າບໍລິການ (service charge) % ຈາກ `finance.policy` ທີ່ຢຸດໄວ້ຕອນສ້າງບິນ; ລວມຢູ່ໃນ totalAmount ແລ້ວ.
+  serviceChargeRate   Decimal?  @db.Decimal(6, 4)
+  serviceChargeAmount Decimal   @default(0.0) @db.Decimal(16, 2)
+  /// Wave 11 (F-20) — ມັດຈຳທີ່ຖືກຢຶດເປັນຄ່າປັບ no-show / ຍົກເລີກຊ້າ (ຮັບຮູ້ເປັນລາຍຮັບ; ຫັກອອກຈາກຍອດທີ່ຄືນໄດ້).
+  forfeitedAmount     Decimal   @default(0.0) @db.Decimal(16, 2)
+  forfeitKind         CancellationFeeKind?
+  forfeitedAt         DateTime?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
@@ -95,9 +102,12 @@ model Payment {
   giftCardPurchase GiftCard?
   /// ບິນຊື້ແພັກເກັດເອງໃນແອັບ — activate UserPackage ເມື່ອ FULLY_PAID.
   packagePurchase  UserPackage?
+  /// M13 (inventory 9D) — ບິນຂາຍສິນຄ້າໜ້າຮ້ານ (retail/OTC) — ຕັດສະຕັອກ SOLD ເມື່ອ FULLY_PAID.
+  retailSale       RetailSale?
   providerIntents  ProviderIntent[]
   refunds          Refund[]
   slips            PaymentSlip[]
+  gratuities       Gratuity[]
 
   @@index([paymentStatus, paidAt])
   @@map("payments")
@@ -143,12 +153,16 @@ model StaffCommission {
   commissionRate Float
   payoutAmount   Decimal  @db.Decimal(16, 2)
   isPaid         Boolean  @default(false)
+  /// Payroll C3 — ຫຼັກຖານການຈ່າຍ (null ເມື່ອຍັງບໍ່ຈ່າຍ / ຖືກຍົກເລີກການຈ່າຍ).
+  paidAt         DateTime?
+  paidById       String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   staffProfile StaffProfile @relation(fields: [staffProfileId], references: [id])
   appointment  Appointment  @relation(fields: [appointmentId], references: [id])
 
+  @@index([staffProfileId])
   @@map("staff_commissions")
 }
 
@@ -192,6 +206,9 @@ model GiftCard {
   /// admin ອອກດ້ວຍມື (free issue) — null = ລູກຄ້າຊື້ເອງ.
   issuedByUserId    String?
   issueReason       String?
+  /// Wave 11 (F-12) — ຍອດຄົງເຫຼືອທີ່ຮັບຮູ້ເປັນລາຍຮັບ breakage ຕອນບັດໝົດອາຍຸ (job ປະຈຳວັນ).
+  breakageAmount    Decimal        @default(0.0) @db.Decimal(16, 2)
+  expiredAt         DateTime?
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 
@@ -213,6 +230,8 @@ model GiftCardTransaction {
   paymentTransactionId String?
   amount               Decimal  @db.Decimal(16, 2)
   balanceAfter         Decimal  @db.Decimal(16, 2)
+  /// Wave 11 (F-12) — true = ແຖວລ້າງຍອດຕອນໝົດອາຍຸ (breakage), ບໍ່ແມ່ນການໃຊ້ບັດ.
+  isBreakage           Boolean  @default(false)
   createdAt            DateTime @default(now())
 
   giftCard           GiftCard            @relation(fields: [giftCardId], references: [id], onDelete: Cascade)
@@ -381,4 +400,49 @@ model DocumentSequence {
 
   @@id([branchId, docType, year])
   @@map("document_sequences")
+}
+
+/// Wave 11 (F-20) — ປະເພດຄ່າປັບທີ່ຢຶດຈາກມັດຈຳ.
+enum CancellationFeeKind {
+  NO_SHOW
+  LATE_CANCEL
+}
+
+/// Wave 11 (F-19) — ທິບ (gratuity) ທີ່ລູກຄ້າໃຫ້: ບໍ່ແມ່ນລາຍຮັບຂອງຮ້ານ (ໜີ້ສິນຕໍ່ພະນັກງານ) → ແຍກອອກຈາກ
+/// Payment.totalAmount/PaymentTransaction ເພື່ອບໍ່ໃຫ້ VAT, ຄ່າຄອມ, ສະຖານະບິນ ແລະ ການຄືນເງິນ ປ່ຽນ.
+model Gratuity {
+  id            String        @id @default(uuid())
+  paymentId     String
+  branchId      String
+  method        PaymentMethod
+  amount        Decimal       @db.Decimal(16, 2)
+  note          String?
+  collectedById String
+  createdAt     DateTime      @default(now())
+
+  payment     Payment         @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  branch      Branch          @relation(fields: [branchId], references: [id])
+  collectedBy User            @relation("GratuityCollectedBy", fields: [collectedById], references: [id])
+  shares      GratuityShare[]
+
+  @@index([branchId, createdAt])
+  @@index([paymentId])
+  @@map("gratuities")
+}
+
+/// ສ່ວນແບ່ງທິບຕໍ່ພະນັກງານ — paidOutAt null = ຍັງຄ້າງຈ່າຍ (Tips payable).
+model GratuityShare {
+  id             String    @id @default(uuid())
+  gratuityId     String
+  staffProfileId String
+  amount         Decimal   @db.Decimal(16, 2)
+  paidOutAt      DateTime?
+  paidOutById    String?
+
+  gratuity     Gratuity     @relation(fields: [gratuityId], references: [id], onDelete: Cascade)
+  staffProfile StaffProfile @relation(fields: [staffProfileId], references: [id])
+  paidOutBy    User?        @relation("GratuityPaidOutBy", fields: [paidOutById], references: [id])
+
+  @@index([staffProfileId, paidOutAt])
+  @@map("gratuity_shares")
 }

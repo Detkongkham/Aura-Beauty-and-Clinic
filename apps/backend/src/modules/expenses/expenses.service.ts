@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type {
   AccessTokenPayload,
+  ApproveExpenseInput,
   BulkExpenseActionInput,
   BulkExpenseActionResult,
   CashFundCountInput,
@@ -41,12 +42,16 @@ import type {
   UpdateRecurringExpenseInput,
   UploadExpenseAttachmentInput,
 } from '@abcp/shared-types';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import { storage } from '../../storage/index.js';
 import { ApiError } from '../../utils/ApiError.js';
 import { vientianeDateKey, vientianeDayStart } from '../../utils/dateHelpers.js';
 import { dec, toNum } from '../../utils/money.js';
+import { resolveFxRate } from '../../utils/fxRate.js';
+import { inventoryCostsBetween } from '../inventory/inventory.service.js';
+import { computePoMatch, poMatchSummaries } from '../inventory/procurement.service.js';
+import { ErrorCode } from '../../constants/errorCodes.js';
 import { getPayrollReport } from '../payroll/payroll.service.js';
 import { notifyUser } from '../../services/push.js';
 import { logger } from '../../config/logger.js';
@@ -393,9 +398,15 @@ export async function listExpenses(
     }),
     getApprovalLimit(),
   ]);
-  const matches = await bankMatches(rows.map((r) => r.id));
+  const [matches, poMatches] = await Promise.all([
+    bankMatches(rows.map((r) => r.id)),
+    poMatchSummaries(rows.map((r) => r.purchaseOrderId).filter((v): v is string => !!v)),
+  ]);
   return {
-    items: rows.map((r) => toView(r, limit, matches.get(r.id) ?? null)),
+    items: rows.map((r) => ({
+      ...toView(r, limit, matches.get(r.id) ?? null),
+      poMatch: r.purchaseOrderId ? (poMatches.get(r.purchaseOrderId) ?? null) : null,
+    })),
     page: query.page,
     pageSize: query.pageSize,
     total,
@@ -405,7 +416,8 @@ export async function listExpenses(
 
 export async function getExpense(auth: AccessTokenPayload, id: string): Promise<ExpenseView> {
   const [row, limit, matches] = await Promise.all([loadExpense(auth, id), getApprovalLimit(), bankMatches([id])]);
-  return toView(row, limit, matches.get(id) ?? null);
+  const poMatch = row.purchaseOrderId ? (await poMatchSummaries([row.purchaseOrderId])).get(row.purchaseOrderId) ?? null : null;
+  return { ...toView(row, limit, matches.get(id) ?? null), poMatch };
 }
 
 export async function createExpense(auth: AccessTokenPayload, input: CreateExpenseInput): Promise<ExpenseView> {
@@ -536,7 +548,11 @@ export async function submitExpense(auth: AccessTokenPayload, id: string): Promi
   return view;
 }
 
-export async function approveExpense(auth: AccessTokenPayload, id: string): Promise<ExpenseView> {
+export async function approveExpense(
+  auth: AccessTokenPayload,
+  id: string,
+  input: ApproveExpenseInput = {},
+): Promise<ExpenseView> {
   const existing = await loadExpense(auth, id);
   if (existing.status !== 'SUBMITTED') throw ApiError.conflict('ອະນຸມັດໄດ້ສະເພາະລາຍຈ່າຍທີ່ລໍຖ້າອະນຸມັດ');
   // ແຍກໜ້າທີ່: ຜູ້ສ້າງອະນຸມັດຂອງຕົນເອງບໍ່ໄດ້ (ຍົກເວັ້ນ SUPER_ADMIN — ເຈົ້າຂອງຮ້ານດຽວ).
@@ -547,6 +563,34 @@ export async function approveExpense(auth: AccessTokenPayload, id: string): Prom
   const limit = await getApprovalLimit();
   if (limit != null && toNum(existing.amountBase) > limit && auth.role !== 'SUPER_ADMIN') {
     throw ApiError.forbidden(`ຍອດເກີນເພດານອະນຸມັດ (${limit.toLocaleString('en-US')} LAK) — ຕ້ອງໃຫ້ເຈົ້າຂອງອະນຸມັດ`);
+  }
+  // Inventory 9D — 3-way match: ໃບເກັບເງິນທີ່ຜູກ PO ຕ້ອງບໍ່ເກີນມູນຄ່າທີ່ຮັບຈິງ (+ພາສີ, tolerance). ບໍ່ຜ່ານ → 409,
+  // ຍົກເວັ້ນ SUPER_ADMIN ສົ່ງ overrideMatch + ເຫດຜົນ (ບັນທຶກ audit APPROVE_MATCH_OVERRIDE).
+  if (existing.purchaseOrderId) {
+    const match = await computePoMatch(prisma, existing.purchaseOrderId);
+    if (match.status === 'OVER_INVOICED' || match.status === 'UNDER_RECEIVED') {
+      const summary = {
+        purchaseOrderId: match.purchaseOrderId,
+        poNumber: match.poNumber,
+        status: match.status,
+        netInvoiced: match.netInvoiced,
+        expected: match.expected,
+        variance: match.variance,
+        tolerancePct: match.tolerancePct,
+      };
+      if (!input.overrideMatch) {
+        throw new ApiError(
+          409,
+          ErrorCode.CONFLICT,
+          `3-way match ບໍ່ຜ່ານ (${match.status}) — ໃບເກັບເງິນ ${match.netInvoiced.toLocaleString('en-US')} LAK ທຽບກັບມູນຄ່າທີ່ຮັບ ${match.expected.toLocaleString('en-US')} LAK`,
+          { poMatch: summary },
+        );
+      }
+      if (auth.role !== 'SUPER_ADMIN') throw ApiError.forbidden('ຂ້າມການກວດ 3-way match ໄດ້ສະເພາະ SUPER_ADMIN');
+      await auditExpense(auth, 'APPROVE_MATCH_OVERRIDE', existing.branchId, id, { poMatch: summary }, {
+        reason: input.overrideReason,
+      });
+    }
   }
   const ok = await transition(id, ['SUBMITTED'], {
     status: 'APPROVED',
@@ -918,6 +962,16 @@ export async function updateCashFund(auth: AccessTokenPayload, id: string, input
 export async function moveCashFund(auth: AccessTokenPayload, id: string, input: CashFundMovementInput): Promise<CashFundView> {
   const f = await loadFund(auth, id);
   if (!f.isActive) throw ApiError.conflict('ກ່ອງເງິນສົດນີ້ຖືກປິດໃຊ້ງານ');
+  // Wave 11 — ເຕີມຈາກ/ຖອນເຂົ້າ ບັນຊີທະນາຄານ → ຝັ່ງລະບົບຂອງການກະທົບຍອດເຫັນເປັນ DEBIT/CREDIT ຂອງບັນຊີນັ້ນ.
+  if (input.bankAccountId) {
+    if (input.type !== 'TOPUP') throw ApiError.badRequest('ລະບຸບັນຊີທະນາຄານໄດ້ສະເພາະການເຕີມເງິນ (TOPUP)');
+    const account = await prisma.bankAccount.findUnique({ where: { id: input.bankAccountId } });
+    if (!account || !account.isActive) throw ApiError.badRequest('ບັນຊີທະນາຄານບໍ່ຖືກຕ້ອງ ຫຼື ຖືກປິດໃຊ້ງານ');
+    if (account.branchId !== f.branchId) throw ApiError.badRequest('ບັນຊີທະນາຄານຕ້ອງເປັນຂອງສາຂາດຽວກັນກັບກ່ອງເງິນສົດ');
+    if (account.currency !== f.currency) {
+      throw ApiError.badRequest(`ສະກຸນເງິນບັນຊີ (${account.currency}) ບໍ່ກົງກັບກ່ອງເງິນສົດ (${f.currency})`);
+    }
+  }
   await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM cash_funds WHERE id = ${id} FOR UPDATE`;
     if (input.type === 'WITHDRAW') {
@@ -930,11 +984,20 @@ export async function moveCashFund(auth: AccessTokenPayload, id: string, input: 
         type: input.type,
         amount: dec(input.type === 'WITHDRAW' ? -input.amount : input.amount),
         note: input.note,
+        bankAccountId: input.bankAccountId ?? null,
         createdById: auth.sub,
       },
     });
   });
-  await auditExpense(auth, input.type, f.branchId, id, null, { amount: input.amount, note: input.note ?? null }, 'CashFund');
+  await auditExpense(
+    auth,
+    input.type,
+    f.branchId,
+    id,
+    null,
+    { amount: input.amount, note: input.note ?? null, bankAccountId: input.bankAccountId ?? null },
+    'CashFund',
+  );
   return fundView(auth, id);
 }
 
@@ -966,7 +1029,11 @@ export async function cashFundEntries(auth: AccessTokenPayload, id: string, limi
   const all = await prisma.cashFundEntry.findMany({
     where: { fundId: id },
     orderBy: { createdAt: 'asc' },
-    include: { createdBy: { select: { name: true } }, expense: { select: { id: true, title: true } } },
+    include: {
+      createdBy: { select: { name: true } },
+      expense: { select: { id: true, title: true } },
+      bankAccount: { select: { id: true, accountName: true, accountNumber: true, bank: { select: { code: true } } } },
+    },
   });
   let running = 0;
   const out = all.map((e) => {
@@ -978,6 +1045,9 @@ export async function cashFundEntries(auth: AccessTokenPayload, id: string, limi
       countedAmount: e.countedAmount == null ? null : toNum(e.countedAmount),
       balanceAfter: running,
       expense: e.expense,
+      bankAccount: e.bankAccount
+        ? { id: e.bankAccount.id, label: `${e.bankAccount.bank.code} · ${e.bankAccount.accountNumber.slice(-4)} ${e.bankAccount.accountName}` }
+        : null,
       note: e.note,
       createdBy: e.createdBy.name,
       createdAt: e.createdAt.toISOString(),
@@ -987,17 +1057,7 @@ export async function cashFundEntries(auth: AccessTokenPayload, id: string, limi
 }
 
 // ── E1 ອັດຕາ / E3 ເພດານ / ການຕັ້ງຄ່າ ────────────────────────────────
-
-/** 1 ໜ່ວຍ `currency` = ? LAK. ໃຊ້ຄ່າທີ່ຜູ້ໃຊ້ໃສ່ ຖ້າມີ; ບໍ່ດັ່ງນັ້ນອັດຕາບັນທຶກບັນຊີ (ExchangeRate). */
-async function resolveFxRate(currency: string, override?: number): Promise<number> {
-  if (currency === 'LAK') return 1;
-  if (override != null) return override;
-  const r = await prisma.exchangeRate.findUnique({
-    where: { baseCurrency_targetCurrency: { baseCurrency: currency, targetCurrency: 'LAK' } },
-  });
-  if (!r) throw ApiError.badRequest(`ຍັງບໍ່ໄດ້ຕັ້ງອັດຕາ ${currency} → LAK — ໃສ່ອັດຕາເອງ ຫຼື ຕັ້ງໃນການຕັ້ງຄ່າລາຍຈ່າຍ`);
-  return r.rate.toNumber();
-}
+// E1 resolveFxRate ຍ້າຍໄປ utils/fxRate.ts (ໃຊ້ຮ່ວມກັບ PO — inventory M10).
 
 function assertTax(tax: number | null | undefined, amount: number): void {
   if (tax != null && tax > amount) throw ApiError.badRequest('ພາສີຕ້ອງບໍ່ເກີນຈຳນວນເງິນ');
@@ -1559,7 +1619,8 @@ function monthWindow(y: number, m0: number): MonthWindow {
 
 /**
  * P&L ລາຍເດືອນ:
- *   ລາຍຮັບ(ເກັບໄດ້ຈິງ) − ຄືນເງິນ − COGS(ຕັດສະຕັອກ) − ຄ່າແຮງ(ຄອມ+ໂບນັດ, ເງິນເດືອນນອກລະບົບ) − ລາຍຈ່າຍດຳເນີນງານ.
+ *   ລາຍຮັບ(ເກັບໄດ້ຈິງ) − ຄືນເງິນ − COGS(valued ledger) = ກຳໄລຂັ້ນຕົ້ນ
+ *   − ການສູນເສຍສະຕັອກ(shrinkage) − ຄ່າແຮງ(ຄອມ+ໂບນັດ, ເງິນເດືອນນອກລະບົບ) − ລາຍຈ່າຍດຳເນີນງານ = ກຳໄລສຸດທິ.
  * ລາຍຈ່າຍໝວດ INVENTORY ບໍ່ນັບ (COGS ນັບຈາກການຕັດສະຕັອກແລ້ວ) — ສະແດງເປັນ memo ເທົ່ານັ້ນ.
  */
 export async function profitLoss(auth: AccessTokenPayload, query: ProfitLossQuery): Promise<ProfitLossView> {
@@ -1583,20 +1644,26 @@ export async function profitLoss(auth: AccessTokenPayload, query: ProfitLossQuer
     const w = monthWindow(mo.y, mo.m0);
     const paymentBranch = branchId ? { payment: { branchId } } : {};
 
-    const [revAgg, refundAgg, consumed, expenseGroups, payroll] = await Promise.all([
+    const [revAgg, retailRevAgg, refundAgg, invCosts, expenseGroups, payroll] = await Promise.all([
       prisma.paymentTransaction.aggregate({
         _sum: { amount: true },
         where: { status: 'SUCCESS', createdAt: { gte: w.gte, lt: w.lt }, ...paymentBranch },
+      }),
+      // M13 — ລາຍຮັບຂາຍໜ້າຮ້ານ (ສ່ວນໜຶ່ງຂອງ revenue): tender ຂອງບິນທີ່ຜູກ RetailSale.
+      prisma.paymentTransaction.aggregate({
+        _sum: { amount: true },
+        where: {
+          status: 'SUCCESS',
+          createdAt: { gte: w.gte, lt: w.lt },
+          payment: { retailSale: { isNot: null }, ...(branchId ? { branchId } : {}) },
+        },
       }),
       prisma.refund.aggregate({
         _sum: { amount: true },
         where: { status: 'PAID', updatedAt: { gte: w.gte, lt: w.lt }, ...paymentBranch },
       }),
-      prisma.stockMovement.groupBy({
-        by: ['productId'],
-        where: { type: 'SERVICE_CONSUMED', createdAt: { gte: w.gte, lt: w.lt }, ...(branchId ? { branchId } : {}) },
-        _sum: { qty: true },
-      }),
+      // M12-lite — COGS ຈາກ valued ledger (C4) + shrinkage ຈາກ reason code (H2).
+      inventoryCostsBetween(w, branchId),
       prisma.expense
         .findMany({
           where: {
@@ -1614,16 +1681,7 @@ export async function profitLoss(auth: AccessTokenPayload, query: ProfitLossQuer
       getPayrollReport({ monthYear: mo.label, ...(branchId ? { branchId } : {}) }),
     ]);
 
-    const costs = consumed.length
-      ? await prisma.product.findMany({
-          where: { id: { in: consumed.map((c) => c.productId) } },
-          select: { id: true, costPrice: true },
-        })
-      : [];
-    const costById = new Map(costs.map((p) => [p.id, p.costPrice.toNumber()]));
-    const cogs = Math.round(
-      consumed.reduce((s, c) => s + Math.abs(c._sum.qty?.toNumber() ?? 0) * (costById.get(c.productId) ?? 0), 0),
-    );
+    const { cogs, shrinkage, retailCogs } = invCosts;
 
     let labourOther = 0;
     let operating = 0;
@@ -1647,10 +1705,13 @@ export async function profitLoss(auth: AccessTokenPayload, query: ProfitLossQuer
       revenue,
       refunds,
       cogs,
+      retailRevenue: toNum(retailRevAgg._sum.amount),
+      retailCogs,
+      shrinkage,
       labourCommission,
       labourOther,
       operatingExpenses: operating,
-      netProfit: revenue - refunds - cogs - labourCommission - labourOther - operating,
+      netProfit: revenue - refunds - cogs - shrinkage - labourCommission - labourOther - operating,
     });
   }
 
@@ -1659,6 +1720,7 @@ export async function profitLoss(auth: AccessTokenPayload, query: ProfitLossQuer
   const refunds = sum((m) => m.refunds);
   const netRevenue = revenue - refunds;
   const cogs = sum((m) => m.cogs);
+  const shrinkage = sum((m) => m.shrinkage);
   const commission = sum((m) => m.labourCommission);
   const otherPayroll = sum((m) => m.labourOther);
   const operatingTotal = sum((m) => m.operatingExpenses);
@@ -1672,7 +1734,10 @@ export async function profitLoss(auth: AccessTokenPayload, query: ProfitLossQuer
     refunds,
     netRevenue,
     cogs,
+    retailRevenue: sum((m) => m.retailRevenue),
+    retailCogs: sum((m) => m.retailCogs),
     grossProfit: netRevenue - cogs,
+    shrinkage,
     labour: { commissionAndBonus: commission, otherPayroll, total: commission + otherPayroll },
     operating: {
       total: operatingTotal,
@@ -1697,8 +1762,37 @@ const RECURRING_INCLUDE = {
   category: { select: { id: true, code: true, nameLo: true, nameEn: true } },
 } satisfies Prisma.RecurringExpenseInclude;
 
+type AllocTemplate = { branchId: string; percent: number }[];
+
+/** Wave 11 — template ແບ່ງຄ່າໃຊ້ຈ່າຍທີ່ເກັບເປັນ JSON ໃນ RecurringExpense.allocations. */
+function allocTemplateOf(json: Prisma.JsonValue | null): AllocTemplate {
+  if (!Array.isArray(json)) return [];
+  return json.flatMap((x) => {
+    const o = x as { branchId?: unknown; percent?: unknown };
+    return typeof o.branchId === 'string' && typeof o.percent === 'number' ? [{ branchId: o.branchId, percent: o.percent }] : [];
+  });
+}
+
+/** ກວດ template (ສິດ + ສາຂາ) ດ້ວຍກົດດຽວກັບລາຍຈ່າຍ; ຄືນ null = ບໍ່ແບ່ງ. */
+async function normalizeAllocTemplate(
+  auth: AccessTokenPayload,
+  branchId: string,
+  input: AllocTemplate | undefined,
+): Promise<AllocTemplate | null> {
+  const plan = await planAllocations(auth, branchId, 0, input);
+  return plan.length ? input! : null;
+}
+
+async function branchNameMap(rows: { allocations: Prisma.JsonValue | null }[]): Promise<Map<string, string>> {
+  const ids = [...new Set(rows.flatMap((r) => allocTemplateOf(r.allocations).map((a) => a.branchId)))];
+  if (!ids.length) return new Map();
+  const bs = await prisma.branch.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
+  return new Map(bs.map((b) => [b.id, b.name]));
+}
+
 function toRecurringView(
   r: Prisma.RecurringExpenseGetPayload<{ include: typeof RECURRING_INCLUDE }>,
+  names: Map<string, string> = new Map(),
 ): RecurringExpenseView {
   return {
     id: r.id,
@@ -1713,6 +1807,7 @@ function toRecurringView(
     isActive: r.isActive,
     lastGeneratedPeriod: r.lastGeneratedPeriod,
     nextDueDate: nextRecurringDate(r.dayOfMonth, r.lastGeneratedPeriod),
+    allocations: allocTemplateOf(r.allocations).map((a) => ({ ...a, branchName: names.get(a.branchId) ?? '—' })),
   };
 }
 
@@ -1735,7 +1830,8 @@ export async function listRecurring(
     include: RECURRING_INCLUDE,
     orderBy: [{ isActive: 'desc' }, { dayOfMonth: 'asc' }, { title: 'asc' }],
   });
-  return rows.map(toRecurringView);
+  const names = await branchNameMap(rows);
+  return rows.map((r) => toRecurringView(r, names));
 }
 
 export async function createRecurring(
@@ -1745,11 +1841,13 @@ export async function createRecurring(
   scopeBranchId(auth, input.branchId);
   if (!(await prisma.branch.findUnique({ where: { id: input.branchId } }))) throw ApiError.notFound('ບໍ່ພົບສາຂາ');
   await assertActiveCategory(input.categoryId);
+  const { allocations, ...rest } = input;
+  const template = await normalizeAllocTemplate(auth, input.branchId, allocations);
   const row = await prisma.recurringExpense.create({
-    data: { ...input, amount: dec(input.amount), createdById: auth.sub },
+    data: { ...rest, amount: dec(input.amount), createdById: auth.sub, allocations: template ?? Prisma.DbNull },
     include: RECURRING_INCLUDE,
   });
-  const view = toRecurringView(row);
+  const view = toRecurringView(row, await branchNameMap([row]));
   await auditExpense(auth, 'CREATE', row.branchId, row.id, null, view, 'RecurringExpense');
   return view;
 }
@@ -1763,16 +1861,20 @@ export async function updateRecurring(
   if (!existing) throw ApiError.notFound('ບໍ່ພົບກົດລາຍຈ່າຍຊ້ຳ');
   scopeBranchId(auth, existing.branchId);
   if (input.categoryId) await assertActiveCategory(input.categoryId);
+  const { allocations, ...rest } = input;
+  const template = allocations !== undefined ? await normalizeAllocTemplate(auth, existing.branchId, allocations) : undefined;
   const row = await prisma.recurringExpense.update({
     where: { id },
     data: {
-      ...input,
+      ...rest,
       ...(input.amount !== undefined ? { amount: dec(input.amount) } : {}),
+      ...(template !== undefined ? { allocations: template ?? Prisma.DbNull } : {}),
     },
     include: RECURRING_INCLUDE,
   });
-  const view = toRecurringView(row);
-  await auditExpense(auth, 'UPDATE', row.branchId, id, toRecurringView(existing), view, 'RecurringExpense');
+  const names = await branchNameMap([row, existing]);
+  const view = toRecurringView(row, names);
+  await auditExpense(auth, 'UPDATE', row.branchId, id, toRecurringView(existing, names), view, 'RecurringExpense');
   return view;
 }
 
@@ -1803,6 +1905,10 @@ export async function generateDueRecurringExpenses(now: Date = new Date()): Prom
       return 1;
     });
     const expenseDate = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), r.dayOfMonth));
+    const amountBase = Math.round(r.amount.toNumber() * fxRate * 100) / 100;
+    // Wave 11 — template ແບ່ງຄ່າໃຊ້ຈ່າຍ ຕິດໄປກັບທຸກລາຍຈ່າຍທີ່ສ້າງ (ສາຂາທີ່ຖືກລຶບໄປແລ້ວ ຈະບໍ່ຢູ່ໃນ FK → ຂ້າມ template).
+    const template = allocTemplateOf(r.allocations);
+    const alloc = template.length ? splitByPercent(amountBase, template) : [];
     try {
       await prisma.$transaction([
         prisma.expense.create({
@@ -1813,12 +1919,13 @@ export async function generateDueRecurringExpenses(now: Date = new Date()): Prom
             amount: r.amount,
             currency: r.currency,
             fxRate: dec(fxRate),
-            amountBase: dec(Math.round(r.amount.toNumber() * fxRate * 100) / 100),
+            amountBase: dec(amountBase),
             expenseDate,
             notes: r.notes,
             createdById: r.createdById,
             recurringExpenseId: r.id,
             recurringPeriod: period,
+            ...(alloc.length ? { allocations: { create: alloc } } : {}),
           },
         }),
         prisma.recurringExpense.update({ where: { id: r.id }, data: { lastGeneratedPeriod: period } }),

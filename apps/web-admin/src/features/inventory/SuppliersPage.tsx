@@ -4,6 +4,10 @@ import {
   AlertTriangle,
   Building2,
   ClipboardList,
+  Clock,
+  Landmark,
+  ListOrdered,
+  Receipt,
   Mail,
   MapPin,
   Pencil,
@@ -32,7 +36,10 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
+import { useBranches } from '@/features/branches/branches.api';
 import { useAuth } from '@/features/auth/useAuth';
 import { useConfirm } from '@/hooks/useConfirm';
 import { NormalizedApiError } from '@/services/apiError';
@@ -41,6 +48,7 @@ import { cn } from '@/lib/utils';
 import { InventoryStatCard } from './InventoryStatCard';
 import { InventoryTabs } from './InventoryTabs';
 import { SupplierLeaderboard } from './SupplierLeaderboard';
+import { SupplierPriceListDialog } from './SupplierPriceListDialog';
 import { useDeleteSupplier, useSaveSupplier, useSuppliers } from './inventory.api';
 
 export function SuppliersPage() {
@@ -55,6 +63,7 @@ export function SuppliersPage() {
   const [pageSize, setPageSize] = useState(20);
   const [editing, setEditing] = useState<SupplierView | null>(null);
   const [creating, setCreating] = useState(false);
+  const [priceListFor, setPriceListFor] = useState<SupplierView | null>(null);
 
   const { data, isLoading } = useSuppliers({ q: q || undefined, page, pageSize });
   const items = data?.items ?? [];
@@ -89,6 +98,19 @@ export function SuppliersPage() {
               <p className="truncate text-xs text-muted-foreground">
                 {row.original.contactPerson || t('inventory.supplier.noContact')}
               </p>
+              <div className="mt-0.5 flex flex-wrap gap-1">
+                <span className="rounded-full bg-muted px-1.5 py-px text-[11px] text-muted-foreground">
+                  {row.original.branchName ?? t('inventory.supplier.shared')}
+                </span>
+                {row.original.currency !== 'LAK' ? (
+                  <span className="rounded-full bg-primary/10 px-1.5 py-px text-[11px] text-primary">{row.original.currency}</span>
+                ) : null}
+                {!row.original.isActive ? (
+                  <span className="rounded-full bg-warning/15 px-1.5 py-px text-[11px] text-warning">
+                    {t('inventory.supplier.inactive')}
+                  </span>
+                ) : null}
+              </div>
             </div>
           </div>
         ),
@@ -171,6 +193,19 @@ export function SuppliersPage() {
                 className="h-7 gap-1 px-2 text-xs"
                 onClick={(e) => {
                   e.stopPropagation();
+                  setPriceListFor(row.original);
+                }}
+              >
+                <ListOrdered className="h-3 w-3" aria-hidden="true" />
+                {t('inventory.supplier.priceList')}
+                <span className="tabular-nums text-muted-foreground">{row.original.priceListCount}</span>
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="h-7 gap-1 px-2 text-xs"
+                onClick={(e) => {
+                  e.stopPropagation();
                   setEditing(row.original);
                 }}
               >
@@ -183,7 +218,14 @@ export function SuppliersPage() {
                 className="h-7 gap-1 px-2 text-xs border-destructive/25 bg-destructive/5 text-destructive hover:border-destructive/40 hover:bg-destructive/10"
                 onClick={async (e) => {
                   e.stopPropagation();
-                  if (!(await confirm({ title: t('inventory.supplier.deleteConfirm') }))) return;
+                  if (
+                    !(await confirm({
+                      title: t('inventory.supplier.deleteConfirm'),
+                      description:
+                        row.original.purchaseOrderCount > 0 ? t('inventory.supplier.softDeleteHint') : undefined,
+                    }))
+                  )
+                    return;
                   del.mutate(row.original.id, {
                     onSuccess: () => toast.success(t('common.deleted')),
                     onError: (err) =>
@@ -328,6 +370,11 @@ export function SuppliersPage() {
           setEditing(null);
         }}
       />
+      <SupplierPriceListDialog
+        supplier={priceListFor}
+        canManage={canManage}
+        onClose={() => setPriceListFor(null)}
+      />
     </div>
   );
 }
@@ -342,6 +389,9 @@ function SupplierDialog({
   onClose: () => void;
 }) {
   const { t } = useTranslation();
+  const { role, user } = useAuth();
+  const isSuperAdmin = role === 'SUPER_ADMIN';
+  const { data: branches } = useBranches();
   const save = useSaveSupplier();
   const isEdit = Boolean(supplier);
 
@@ -353,9 +403,22 @@ function SupplierDialog({
       phone: supplier?.phone ?? '',
       email: supplier?.email ?? '',
       address: supplier?.address ?? '',
+      taxId: supplier?.taxId ?? '',
+      paymentTermsDays: supplier?.paymentTermsDays ?? null,
+      leadTimeDays: supplier?.leadTimeDays ?? null,
+      currency: (supplier?.currency as SupplierWriteInput['currency']) ?? 'LAK',
+      bankName: supplier?.bankName ?? '',
+      bankAccountName: supplier?.bankAccountName ?? '',
+      bankAccountNo: supplier?.bankAccountNo ?? '',
+      isActive: supplier?.isActive ?? true,
+      // M9 — BRANCH_ADMIN ສ້າງໄດ້ສະເພາະສາຂາຕົນ (backend ບັງຄັບ); SUPER_ADMIN ເລືອກ "ໃຊ້ຮ່ວມ" ຫຼື ສາຂາ.
+      branchId: supplier ? supplier.branchId : isSuperAdmin ? null : (user?.branchId ?? null),
     },
   });
   const errors = form.formState.errors;
+  const isActive = form.watch('isActive') ?? true;
+  const branchValue = form.watch('branchId');
+  const optionalInt = { setValueAs: (v: unknown) => (v === '' || v == null ? null : Number(v)) };
 
   function submit(values: SupplierWriteInput) {
     save.mutate(
@@ -443,6 +506,75 @@ function SupplierDialog({
                 error={errors.address?.message}
               >
                 <Input id="s-address" {...form.register('address')} />
+              </Field>
+            </section>
+
+            <section className="space-y-4">
+              <SectionLabel>{t('inventory.supplier.form.sectionPurchasing')}</SectionLabel>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field htmlFor="s-tax" label={t('inventory.supplier.taxId')} icon={Receipt}>
+                  <Input id="s-tax" {...form.register('taxId')} />
+                </Field>
+                <Field htmlFor="s-currency" label={t('inventory.supplier.currency')}>
+                  <Select
+                    id="s-currency"
+                    {...form.register('currency')}
+                    options={['LAK', 'THB', 'USD'].map((c) => ({ value: c, label: c }))}
+                  />
+                </Field>
+                <Field
+                  htmlFor="s-terms"
+                  label={t('inventory.supplier.paymentTerms')}
+                  icon={Clock}
+                  error={errors.paymentTermsDays?.message}
+                >
+                  <Input id="s-terms" type="number" min={0} inputMode="numeric" {...form.register('paymentTermsDays', optionalInt)} />
+                </Field>
+                <Field
+                  htmlFor="s-lead"
+                  label={t('inventory.supplier.leadTime')}
+                  icon={Truck}
+                  error={errors.leadTimeDays?.message}
+                >
+                  <Input id="s-lead" type="number" min={0} inputMode="numeric" {...form.register('leadTimeDays', optionalInt)} />
+                </Field>
+              </div>
+              <Field htmlFor="s-branch" label={t('inventory.col.branch')} icon={Building2}>
+                <Select
+                  id="s-branch"
+                  disabled={!isSuperAdmin}
+                  value={branchValue ?? ''}
+                  onChange={(e) => form.setValue('branchId', e.target.value || null, { shouldDirty: true })}
+                  options={[
+                    ...(isSuperAdmin || branchValue == null ? [{ value: '', label: t('inventory.supplier.shared') }] : []),
+                    ...(branches ?? []).map((b) => ({ value: b.id, label: b.name })),
+                  ]}
+                />
+              </Field>
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
+                <Label htmlFor="s-active" className="text-sm">
+                  {t('inventory.supplier.activeLabel')}
+                </Label>
+                <Switch
+                  id="s-active"
+                  checked={isActive}
+                  onCheckedChange={(v) => form.setValue('isActive', v, { shouldDirty: true })}
+                />
+              </div>
+            </section>
+
+            <section className="space-y-4">
+              <SectionLabel>{t('inventory.supplier.form.sectionBank')}</SectionLabel>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field htmlFor="s-bank" label={t('inventory.supplier.bankName')} icon={Landmark}>
+                  <Input id="s-bank" {...form.register('bankName')} />
+                </Field>
+                <Field htmlFor="s-bank-no" label={t('inventory.supplier.bankAccountNo')}>
+                  <Input id="s-bank-no" {...form.register('bankAccountNo')} />
+                </Field>
+              </div>
+              <Field htmlFor="s-bank-name" label={t('inventory.supplier.bankAccountName')}>
+                <Input id="s-bank-name" {...form.register('bankAccountName')} />
               </Field>
             </section>
           </div>

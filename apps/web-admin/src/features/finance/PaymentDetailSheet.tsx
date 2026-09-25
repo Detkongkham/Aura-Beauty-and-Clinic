@@ -48,6 +48,7 @@ import { usePayment } from './finance.api';
 import { ReceiptDialog } from './ReceiptDialog';
 import { RecordPaymentPanel } from './RecordPaymentPanel';
 import { RefundPanel } from './RefundPanel';
+import { BillExtrasPanel } from './BillExtrasPanel';
 import { PAYMENT_STATUS_VARIANT, paymentMethodKey, paymentMethodsOf, paymentStatusKey } from './finance.lib';
 import { METHOD_COLOR, METHOD_ICON } from './finance.methods';
 
@@ -145,6 +146,7 @@ export function PaymentDetailSheet({ paymentId, onClose }: Props) {
                 <RecordPaymentPanel key={data.id} payment={data} />
               ) : null}
               <DetailBody payment={data} copied={copied} copy={copy} />
+              <BillExtrasPanel key={`x-${data.id}`} payment={data} />
               <RefundPanel key={`r-${data.id}`} payment={data} />
             </div>
           )}

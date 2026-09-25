@@ -14,6 +14,9 @@ import { processSlipSla } from './slip-sla.job.js';
 import { processRecurringExpense } from './recurring-expense.job.js';
 import { processReconReminder } from './reconciliation-reminder.job.js';
 import { processLotExpiry } from './lot-expiry.job.js';
+import { processReorderPoint } from './reorder-point.job.js';
+import { processFinanceDaily } from './finance-daily.job.js';
+import { processUploadGc } from './upload-gc.job.js';
 
 /** Bootstrap ທຸກ BullMQ worker. ຮຽກຈາກ src/jobs/main.ts (process ແຍກ). */
 export function startWorkers(): Worker[] {
@@ -53,7 +56,14 @@ export function startWorkers(): Worker[] {
 
   const lotExpiryWorker = new Worker(QueueName.LOT_EXPIRY, processLotExpiry, { connection, concurrency: 1 });
 
+  const reorderPointWorker = new Worker(QueueName.REORDER_POINT, processReorderPoint, { connection, concurrency: 1 });
+
+  const uploadGcWorker = new Worker(QueueName.UPLOAD_GC, processUploadGc, { connection, concurrency: 1 });
+
+  const financeDailyWorker = new Worker(QueueName.FINANCE_DAILY, processFinanceDaily, { connection, concurrency: 1 });
+
   const workers = [
+    financeDailyWorker,
     reminderWorker,
     waitlistWorker,
     marketingWorker,
@@ -66,6 +76,8 @@ export function startWorkers(): Worker[] {
     slipOcrWorker,
     slipSlaWorker,
     lotExpiryWorker,
+    reorderPointWorker,
+    uploadGcWorker,
   ];
   for (const w of workers) {
     w.on('failed', (job, err) => logger.error({ jobId: job?.id, err }, `${w.name} job failed`));
@@ -75,7 +87,7 @@ export function startWorkers(): Worker[] {
   void registerRepeatableJobs();
 
   logger.info(
-    '⚙️  BullMQ workers ເລີ່ມແລ້ວ (reminder, waitlist, marketing, chat-lock, home-service SLA, stock reconcile, payment expiry, recurring expense, slip OCR, slip SLA, lot expiry)',
+    '⚙️  BullMQ workers ເລີ່ມແລ້ວ (reminder, waitlist, marketing, chat-lock, home-service SLA, stock reconcile, payment expiry, recurring expense, slip OCR, slip SLA, lot expiry, reorder point, upload gc)',
   );
   return workers;
 }

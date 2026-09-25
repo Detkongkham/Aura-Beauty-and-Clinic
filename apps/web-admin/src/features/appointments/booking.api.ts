@@ -37,6 +37,9 @@ export interface CreateAppointmentInput {
   destLatitude?: number;
   destLongitude?: number;
   customerNotes?: string;
+  /** 7C.1 — optional room / equipment; must belong to `branchId` and be in service. */
+  roomId?: string;
+  equipmentId?: string;
 }
 
 export const bookingApi = {

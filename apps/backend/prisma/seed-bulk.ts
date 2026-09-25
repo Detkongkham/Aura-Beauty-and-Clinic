@@ -246,7 +246,8 @@ async function main(): Promise<void> {
       });
     }
   }
-  await createManyBatched('StaffKpiGoal', kpiGoals, (b) => prisma.staffKpiGoal.createMany({ data: b }));
+  // skipDuplicates: setMonth() ລົ້ນວັນທີ 31 ໃຫ້ເດືອນຊ້ຳໄດ້ — ແຖວຊ້ຳຖືກກັນດ້ວຍ unique (staffProfileId, monthYear).
+  await createManyBatched('StaffKpiGoal', kpiGoals, (b) => prisma.staffKpiGoal.createMany({ data: b, skipDuplicates: true }));
 
   // ---- ວັດຖຸດິບ / ຜູ້ສະໜອງ / ການສັ່ງຊື້ / ສາງ --------------------------------
   const suppliers = Array.from({ length: N_SUPPLIERS }, (_, i) => ({

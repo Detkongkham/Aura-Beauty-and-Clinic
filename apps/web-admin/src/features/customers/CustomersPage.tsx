@@ -8,7 +8,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 
@@ -49,6 +49,11 @@ export function CustomersPage() {
   const navigate = useNavigate();
 
   const [search, setSearch] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
+  // ?focus=search (portal quick action) lands the cursor in the search box.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('focus') === 'search') searchRef.current?.focus();
+  }, []);
   const [tier, setTier] = useState('');
   const debouncedSearch = useDebounce(search, 300);
   const pagination = usePagination();
@@ -308,6 +313,7 @@ export function CustomersPage() {
                 aria-hidden="true"
               />
               <input
+                ref={searchRef}
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}

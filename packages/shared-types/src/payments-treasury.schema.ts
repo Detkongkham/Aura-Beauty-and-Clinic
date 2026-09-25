@@ -473,7 +473,7 @@ export type ReconciliationCreditLine = {
 export type ReconciliationDebitLine = {
   id: string;
   /** G7 — EXPENSE = ລາຍຈ່າຍ, REFUND = ໂອນເງິນຄືນລູກຄ້າ. */
-  kind: 'EXPENSE' | 'REFUND';
+  kind: 'EXPENSE' | 'REFUND' | 'CASH_FUND';
   matchedLineId: string | null;
   at: string;
   amount: number;
@@ -506,7 +506,7 @@ export type ReconciliationLineView = {
   description: string | null;
   reference: string | null;
   matchStatus: 'UNMATCHED' | 'MATCHED' | 'IGNORED';
-  matchedKind: 'TX' | 'EXPENSE' | 'REFUND' | null;
+  matchedKind: 'TX' | 'EXPENSE' | 'REFUND' | 'CASH_FUND' | null;
   matchedId: string | null;
   /** true = ຈັບຄູ່ອັດຕະໂນມັດ. */
   autoMatched: boolean;
@@ -596,7 +596,7 @@ export type StatementImportResult = {
 };
 
 export const matchLineSchema = z.object({
-  kind: z.enum(['TX', 'EXPENSE', 'REFUND']),
+  kind: z.enum(['TX', 'EXPENSE', 'REFUND', 'CASH_FUND']),
   id: z.string().uuid(),
 });
 export type MatchLineInput = z.infer<typeof matchLineSchema>;

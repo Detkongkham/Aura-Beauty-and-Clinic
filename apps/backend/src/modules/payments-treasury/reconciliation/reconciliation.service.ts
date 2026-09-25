@@ -212,7 +212,7 @@ async function computeRows(accounts: RowAccount[], fromKey: string, toKey: strin
   const rangeStart = vientianeDayStart(fromDate);
   const rangeEnd = new Date(vientianeDayStart(toDate).getTime() + DAY_MS);
 
-  const [txs, expenses, refunds, statements, prevClosings, lineGroups] = await Promise.all([
+  const [txs, expenses, refunds, statements, prevClosings, lineGroups, fundMoves] = await Promise.all([
     prisma.paymentTransaction.findMany({
       where: {
         bankAccountId: { in: accountIds },
@@ -250,6 +250,11 @@ async function computeRows(accounts: RowAccount[], fromKey: string, toKey: strin
       where: { bankAccountId: { in: accountIds }, statementDate: { gte: fromDate, lte: toDate } },
       _count: { _all: true },
     }),
+    // Wave 11 — ເຕີມກ່ອງເງິນສົດຍ່ອຍຈາກບັນຊີທະນາຄານ = ເງິນອອກຈາກທະນາຄານ (DEBIT).
+    prisma.cashFundEntry.findMany({
+      where: { bankAccountId: { in: accountIds }, type: 'TOPUP', createdAt: { gte: rangeStart, lt: rangeEnd } },
+      select: { bankAccountId: true, amount: true, createdAt: true },
+    }),
   ]);
 
   const buckets = new Map<string, Bucket>();
@@ -275,6 +280,11 @@ async function computeRows(accounts: RowAccount[], fromKey: string, toKey: strin
   for (const r of refunds) {
     const b = bucketOf(r.bankAccountId!, dateToKey(vientianeDateKey(r.paidAt!)));
     b.debit += toNum(r.amount);
+    b.debitN += 1;
+  }
+  for (const m of fundMoves) {
+    const b = bucketOf(m.bankAccountId!, dateToKey(vientianeDateKey(m.createdAt)));
+    b.debit += Math.abs(toNum(m.amount));
     b.debitN += 1;
   }
   const stmtByKey = new Map(statements.map((s) => [`${dateToKey(s.statementDate)}|${s.bankAccountId}`, s]));
@@ -434,7 +444,7 @@ export async function getReconciliationDay(
   const dayStart = vientianeDayStart(fromDate);
   const dayEnd = new Date(dayStart.getTime() + DAY_MS);
 
-  const [rows, txs, expenses, refunds, slipRows, lines] = await Promise.all([
+  const [rows, txs, expenses, refunds, slipRows, lines, fundTopups] = await Promise.all([
     computeRows([acct], query.date, query.date),
     prisma.paymentTransaction.findMany({
       where: { bankAccountId: acct.id, status: 'SUCCESS', method: { in: [...BANK_TENDERS] }, createdAt: { gte: dayStart, lt: dayEnd } },
@@ -496,11 +506,17 @@ export async function getReconciliationDay(
       where: { bankAccountId: acct.id, statementDate: fromDate },
       orderBy: [{ postedAt: 'asc' }, { seq: 'asc' }],
     }),
+    prisma.cashFundEntry.findMany({
+      where: { bankAccountId: acct.id, type: 'TOPUP', createdAt: { gte: dayStart, lt: dayEnd } },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, amount: true, note: true, createdAt: true, fund: { select: { name: true } } },
+    }),
   ]);
 
   const lineByTx = new Map(lines.filter((l) => l.matchedTxId).map((l) => [l.matchedTxId!, l.id]));
   const lineByExp = new Map(lines.filter((l) => l.matchedExpenseId).map((l) => [l.matchedExpenseId!, l.id]));
   const lineByRefund = new Map(lines.filter((l) => l.matchedRefundId).map((l) => [l.matchedRefundId!, l.id]));
+  const lineByFund = new Map(lines.filter((l) => l.matchedCashFundEntryId).map((l) => [l.matchedCashFundEntryId!, l.id]));
   // ແຖວ statement ທີ່ຈັບຄູ່ກັບລາຍການມື້ອື່ນ (±1) ກໍສະແດງ matchedLineId ຂອງລາຍການມື້ນີ້ຖ້າຢູ່ມື້ອື່ນ.
   const crossDay = await prisma.bankStatementLine.findMany({
     where: {
@@ -510,11 +526,13 @@ export async function getReconciliationDay(
         { matchedTxId: { in: txs.map((t) => t.id) } },
         { matchedExpenseId: { in: expenses.map((e) => e.id) } },
         { matchedRefundId: { in: refunds.map((r) => r.id) } },
+        { matchedCashFundEntryId: { in: fundTopups.map((f) => f.id) } },
       ],
     },
-    select: { id: true, matchedTxId: true, matchedExpenseId: true, matchedRefundId: true },
+    select: { id: true, matchedTxId: true, matchedExpenseId: true, matchedRefundId: true, matchedCashFundEntryId: true },
   });
   for (const l of crossDay) {
+    if (l.matchedCashFundEntryId) lineByFund.set(l.matchedCashFundEntryId, l.id);
     if (l.matchedTxId) lineByTx.set(l.matchedTxId, l.id);
     if (l.matchedExpenseId) lineByExp.set(l.matchedExpenseId, l.id);
     if (l.matchedRefundId) lineByRefund.set(l.matchedRefundId, l.id);
@@ -573,6 +591,18 @@ export async function getReconciliationDay(
         supplierName: null,
         reference: r.providerRef,
       })),
+      ...fundTopups.map((f) => ({
+        id: f.id,
+        kind: 'CASH_FUND' as const,
+        matchedLineId: lineByFund.get(f.id) ?? null,
+        at: f.createdAt.toISOString(),
+        amount: Math.abs(toNum(f.amount)),
+        title: f.note ?? f.fund.name,
+        categoryLo: `ເຕີມເງິນສົດຍ່ອຍ · ${f.fund.name}`,
+        categoryEn: `Petty cash top-up · ${f.fund.name}`,
+        supplierName: null,
+        reference: null,
+      })),
     ].sort((a, b) => a.at.localeCompare(b.at)),
     lines: lines.map((l) => ({
       id: l.id,
@@ -584,8 +614,16 @@ export async function getReconciliationDay(
       description: l.description,
       reference: l.reference,
       matchStatus: l.matchStatus,
-      matchedKind: l.matchedTxId ? 'TX' : l.matchedExpenseId ? 'EXPENSE' : l.matchedRefundId ? 'REFUND' : null,
-      matchedId: l.matchedTxId ?? l.matchedExpenseId ?? l.matchedRefundId ?? null,
+      matchedKind: l.matchedTxId
+        ? 'TX'
+        : l.matchedExpenseId
+          ? 'EXPENSE'
+          : l.matchedRefundId
+            ? 'REFUND'
+            : l.matchedCashFundEntryId
+              ? 'CASH_FUND'
+              : null,
+      matchedId: l.matchedTxId ?? l.matchedExpenseId ?? l.matchedRefundId ?? l.matchedCashFundEntryId ?? null,
       autoMatched: l.matchStatus === 'MATCHED' && !l.matchedById,
     })),
     slips: slipRows.map((s) => ({
@@ -1249,11 +1287,20 @@ export async function matchLine(auth: AccessTokenPayload, lineId: string, input:
       ? await prisma.paymentTransaction.findUnique({ where: { id: input.id }, select: { bankAccountId: true } })
       : input.kind === 'EXPENSE'
         ? await prisma.expense.findUnique({ where: { id: input.id }, select: { paidFromAccountId: true } }).then((e) => (e ? { bankAccountId: e.paidFromAccountId } : null))
-        : await prisma.refund.findUnique({ where: { id: input.id }, select: { bankAccountId: true } });
+        : input.kind === 'REFUND'
+          ? await prisma.refund.findUnique({ where: { id: input.id }, select: { bankAccountId: true } })
+          : await prisma.cashFundEntry.findFirst({ where: { id: input.id, type: 'TOPUP' }, select: { bankAccountId: true } });
   if (!owner) throw ApiError.notFound('ບໍ່ພົບລາຍການໃນລະບົບ');
   if (owner.bankAccountId !== line.bankAccountId) throw ApiError.badRequest('ລາຍການນີ້ບໍ່ແມ່ນຂອງບັນຊີດຽວກັນ');
   const taken = await prisma.bankStatementLine.findFirst({
-    where: input.kind === 'TX' ? { matchedTxId: input.id } : input.kind === 'EXPENSE' ? { matchedExpenseId: input.id } : { matchedRefundId: input.id },
+    where:
+      input.kind === 'TX'
+        ? { matchedTxId: input.id }
+        : input.kind === 'EXPENSE'
+          ? { matchedExpenseId: input.id }
+          : input.kind === 'REFUND'
+            ? { matchedRefundId: input.id }
+            : { matchedCashFundEntryId: input.id },
     select: { id: true },
   });
   if (taken && taken.id !== lineId) throw ApiError.conflict('ລາຍການນີ້ຖືກຈັບຄູ່ກັບແຖວ statement ອື່ນແລ້ວ');
@@ -1264,6 +1311,7 @@ export async function matchLine(auth: AccessTokenPayload, lineId: string, input:
       matchedTxId: input.kind === 'TX' ? input.id : null,
       matchedExpenseId: input.kind === 'EXPENSE' ? input.id : null,
       matchedRefundId: input.kind === 'REFUND' ? input.id : null,
+      matchedCashFundEntryId: input.kind === 'CASH_FUND' ? input.id : null,
       matchedById: auth.sub,
       matchedAt: new Date(),
     },
@@ -1289,6 +1337,7 @@ export async function setLineStatus(auth: AccessTokenPayload, lineId: string, st
       matchedTxId: null,
       matchedExpenseId: null,
       matchedRefundId: null,
+      matchedCashFundEntryId: null,
       matchedById: status === 'IGNORED' ? auth.sub : null,
       matchedAt: status === 'IGNORED' ? new Date() : null,
     },

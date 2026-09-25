@@ -19,6 +19,8 @@ interface BranchListPanelProps {
   onSelectProvince: (id: LaoProvinceId | null) => void;
   activeBranchId: string | null;
   onSelectBranch: (id: string) => void;
+  /** The page owns search (toolbar) — hide the panel's own field. */
+  hideSearch?: boolean;
 }
 
 const PROVINCE_ORDER = LAO_PROVINCES.map((p) => p.id);
@@ -32,6 +34,7 @@ export function BranchListPanel({
   onSelectProvince,
   activeBranchId,
   onSelectBranch,
+  hideSearch,
 }: BranchListPanelProps) {
   const { t, i18n } = useTranslation();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -70,8 +73,8 @@ export function BranchListPanel({
         className,
       )}
     >
-      <div className="border-b border-border p-3">
-        <div className="relative">
+      <div className={cn('border-b border-border p-3', hideSearch && !selectedProvince && 'hidden')}>
+        <div className={cn('relative', hideSearch && 'hidden')}>
           <Search
             className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
             aria-hidden="true"
@@ -88,7 +91,7 @@ export function BranchListPanel({
           <button
             type="button"
             onClick={() => onSelectProvince(null)}
-            className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+            className={cn('inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline', !hideSearch && 'mt-2')}
           >
             {t('branches.allProvinces')} · {provinceName(selectedProvince, i18n.language)} ✕
           </button>

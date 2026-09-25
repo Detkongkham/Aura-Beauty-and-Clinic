@@ -3,9 +3,8 @@ import { useTranslation } from 'react-i18next';
 
 import { toast } from '@/components/ui/sonner';
 import { useMyPreferences } from '@/features/account/account.api';
-import { emitLogout } from '@/services/http';
 
-import { useAuth } from './useAuth';
+import { signOut } from './signOut';
 
 /** Shared across tabs, so activity in one tab keeps the others signed in too. */
 const ACTIVITY_KEY = 'aura.lastActivity';
@@ -35,7 +34,6 @@ function writeShared(at: number): void {
  */
 export function useIdleLogout(enabled: boolean): void {
   const { t } = useTranslation();
-  const { logout } = useAuth();
   const { data } = useMyPreferences(enabled);
   const minutes = data?.policy.sessionTimeoutMinutes ?? 0;
 
@@ -68,8 +66,7 @@ export function useIdleLogout(enabled: boolean): void {
       if (idle >= limit) {
         clearInterval(timer);
         toast.dismiss('idle-warning');
-        logout();
-        emitLogout('idle');
+        signOut('idle');
       } else if (idle >= limit - WARN_BEFORE_MS && !warned) {
         warned = true;
         toast.warning(t('auth.idleWarning'), { id: 'idle-warning', duration: WARN_BEFORE_MS });
@@ -81,5 +78,5 @@ export function useIdleLogout(enabled: boolean): void {
       events.forEach((ev) => window.removeEventListener(ev, mark));
       window.removeEventListener('storage', onStorage);
     };
-  }, [enabled, minutes, logout, t]);
+  }, [enabled, minutes, t]);
 }

@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import type { StorageAdapter } from './index.js';
 
@@ -29,6 +29,25 @@ export class LocalDiskStorage implements StorageAdapter {
 
   async delete(key: string): Promise<void> {
     await rm(this.pathFor(key), { force: true });
+  }
+
+  async list(prefix: string): Promise<{ key: string; modifiedAt: Date }[]> {
+    const dir = prefix.replace(/^\/+|\/+$/g, '');
+    let entries;
+    try {
+      entries = await readdir(this.pathFor(dir), { withFileTypes: true, recursive: true });
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw err;
+    }
+    const files = entries.filter((e) => e.isFile());
+    return Promise.all(
+      files.map(async (e) => {
+        const abs = join(e.parentPath, e.name);
+        const key = abs.slice(this.root.length + 1).split(/[\\/]/).join('/');
+        return { key, modifiedAt: (await stat(abs)).mtime };
+      }),
+    );
   }
 
   url(key: string): string {

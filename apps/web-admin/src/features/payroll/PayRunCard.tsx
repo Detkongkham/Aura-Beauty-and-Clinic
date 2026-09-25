@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 
-import { deltaPct, monthLabel } from './payroll.lib';
+import { formatCurrency } from '@/lib/format';
+import { commissionPayableNow, deltaPct, monthLabel } from './payroll.lib';
 import { SegmentBar, SegmentLegend, Sparkline, type Segment } from './payroll.parts';
 
 interface Props {
@@ -212,14 +213,21 @@ export function PayRunCard({ report, loading, canManage, onPayAll, paying }: Pro
           {canManage ? (
             <Button
               className="w-full"
-              disabled={paying || totals.commissionUnpaid <= 0}
+              disabled={paying || commissionPayableNow(totals) <= 0}
               onClick={onPayAll}
             >
               <Banknote className="mr-1 h-4 w-4" aria-hidden="true" />
-              {totals.commissionUnpaid > 0
+              {commissionPayableNow(totals) > 0
                 ? t('payroll.payAllOutstanding', { count: totals.staffOwed })
-                : t('payroll.allPaid')}
+                : totals.commissionHeld > 0
+                  ? t('payroll.nothingCollected')
+                  : t('payroll.allPaid')}
             </Button>
+          ) : null}
+          {totals.commissionHeld > 0 ? (
+            <p className="text-center text-2xs text-muted-foreground" title={t('payroll.heldHint')}>
+              {t('payroll.heldTotal', { amount: formatCurrency(totals.commissionHeld) })}
+            </p>
           ) : null}
         </div>
       </div>

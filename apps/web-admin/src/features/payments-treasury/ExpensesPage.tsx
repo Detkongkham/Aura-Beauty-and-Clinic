@@ -119,6 +119,22 @@ export function ExpensesPage() {
   const [payTarget, setPayTarget] = useState<PayTarget | null>(null);
   const [exporting, setExporting] = useState(false);
 
+  // ?new=1 (portal quick action) opens the new-expense form once, then drops the flag.
+  useEffect(() => {
+    if (params.get('new') !== '1') return;
+    if (canManage) {
+      setTemplate(null);
+      setFormFor('new');
+    }
+    setParams(
+      (p) => {
+        p.delete('new');
+        return p;
+      },
+      { replace: true },
+    );
+  }, [params, setParams, canManage]);
+
   // `/` focuses search, `n` opens a new expense — matching the other consoles.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

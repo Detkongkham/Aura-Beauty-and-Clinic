@@ -108,7 +108,7 @@ async function main(): Promise<void> {
     create: {
       id: '33333333-0000-0000-0000-000000000001',
       categoryId: hairCat.id,
-      branchId: branch.id,
+      branchId: null, // Wave 11 — ເມນູທົ່ວເຄືອ: ທຸກສາຂາເຫັນ (catalog = branchId ຂອງສາຂາ ຫຼື null)
       name: 'ຕັດຜົມ + ສະຜົມ',
       price: new Prisma.Decimal(120000),
       compareAtPrice: new Prisma.Decimal(150000),
@@ -124,7 +124,7 @@ async function main(): Promise<void> {
     create: {
       id: '33333333-0000-0000-0000-000000000002',
       categoryId: skinCat.id,
-      branchId: branch.id,
+      branchId: null, // Wave 11 — ເມນູທົ່ວເຄືອ: ທຸກສາຂາເຫັນ (catalog = branchId ຂອງສາຂາ ຫຼື null)
       name: 'ບຳລຸງຜິວໜ້າພື້ນຖານ',
       price: new Prisma.Decimal(350000),
       durationMinutes: 60,
@@ -148,13 +148,32 @@ async function main(): Promise<void> {
       create: {
         id,
         categoryId,
-        branchId: branch.id,
+        branchId: null,
         name,
         price: new Prisma.Decimal(price),
         durationMinutes,
         imageUrl,
       },
     });
+  }
+
+  // ---- ໜ່ວຍນັບມາດຕະຖານ (M1, ຄື້ນ 9C) — idempotent, ຊຸດດຽວກັບ migration 20260925210000 ---------
+  const STANDARD_UOMS: [code: string, name: string, nameLo: string][] = [
+    ['piece', 'Piece', 'ອັນ'],
+    ['bottle', 'Bottle', 'ຕຸກ'],
+    ['box', 'Box', 'ກ່ອງ'],
+    ['ml', 'ml', 'ມລ'],
+    ['g', 'g', 'ກຣາມ'],
+    ['set', 'Set', 'ຊຸດ'],
+    ['pack', 'Pack', 'ແພັກ'],
+    ['sachet', 'Sachet', 'ຊອງ'],
+    ['tube', 'Tube', 'ຫຼອດ'],
+    ['jar', 'Jar', 'ກະປຸກ'],
+  ];
+  const uomId: Record<string, string> = {};
+  for (const [code, name, nameLo] of STANDARD_UOMS) {
+    const u = await prisma.uom.upsert({ where: { code }, update: {}, create: { code, name, nameLo } });
+    uomId[code] = u.id;
   }
 
   // ---- ວັດຖຸດິບ + BOM ------------------------------------------------
@@ -169,6 +188,7 @@ async function main(): Promise<void> {
       minStockQty: 10,
       costPrice: new Prisma.Decimal(85000),
       unit: 'ຕຸກ',
+      baseUomId: uomId.bottle,
     },
   });
   const serum = await prisma.product.upsert({
@@ -182,6 +202,7 @@ async function main(): Promise<void> {
       minStockQty: 5,
       costPrice: new Prisma.Decimal(210000),
       unit: 'ຫຼອດ',
+      baseUomId: uomId.tube,
     },
   });
 

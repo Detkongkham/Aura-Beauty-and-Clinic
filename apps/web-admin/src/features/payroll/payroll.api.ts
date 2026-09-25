@@ -93,7 +93,7 @@ export function usePayCommissions() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: CommissionPayInput) => {
-      const { data } = await http.post<Envelope<{ affected: number }>>(
+      const { data } = await http.post<Envelope<{ affected: number; amount: number; held: number }>>(
         '/payroll/commissions/pay',
         input,
       );
@@ -126,7 +126,9 @@ export function usePayCommissionsBulk() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: CommissionBulkPayInput) => {
-      const { data } = await http.post<Envelope<{ affected: number; staff: number }>>(
+      const { data } = await http.post<
+        Envelope<{ affected: number; amount: number; held: number; staff: number }>
+      >(
         '/payroll/commissions/pay-bulk',
         input,
       );

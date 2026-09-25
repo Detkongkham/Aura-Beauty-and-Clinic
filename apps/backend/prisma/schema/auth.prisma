@@ -57,6 +57,7 @@ model User {
   updatedAt              DateTime  @updatedAt
 
   branch                Branch?                    @relation(fields: [branchId], references: [id])
+  managedBranches       Branch[]                   @relation("ManagedBranches")
   roleRef               Role?                      @relation(fields: [roleRefId], references: [id])
   permissionOverrides   UserPermissionOverride[]
   staffProfile          StaffProfile?
@@ -76,9 +77,24 @@ model User {
   purchasedCards        GiftCard[]                 @relation("BuyerCards")
   redeemedCards         GiftCard[]                 @relation("RedeemedCards")
   issuedCards           GiftCard[]                 @relation("IssuedCards")
+  gratuitiesCollected   Gratuity[]                 @relation("GratuityCollectedBy")
+  gratuitySharesPaid    GratuityShare[]            @relation("GratuityPaidOutBy")
   auditLogs             AuditLog[]
   stockMovements        StockMovement[]
   stockTransfers        StockTransfer[]
+  stockAdjustRequested  StockAdjustmentRequest[]   @relation("StockAdjustRequestedBy")
+  stockAdjustReviewed   StockAdjustmentRequest[]   @relation("StockAdjustReviewedBy")
+  stockCountsCreated    StockCount[]               @relation("StockCountCreatedBy")
+  stockCountsCounted    StockCount[]               @relation("StockCountCountedBy")
+  stockCountsApproved   StockCount[]               @relation("StockCountApprovedBy")
+  posOrdered            PurchaseOrder[]            @relation("PoOrderedBy")
+  posApproved           PurchaseOrder[]            @relation("PoApprovedBy")
+  posClosed             PurchaseOrder[]            @relation("PoClosedBy")
+  goodsReceipts         GoodsReceipt[]             @relation("GoodsReceiptReceivedBy")
+  supplierReturnsMade   SupplierReturn[]           @relation("SupplierReturnCreatedBy")
+  supplierReturnsPosted SupplierReturn[]           @relation("SupplierReturnPostedBy")
+  retailPurchases       RetailSale[]               @relation("RetailSaleCustomer")
+  retailSalesMade       RetailSale[]               @relation("RetailSaleCreatedBy")
   expensesCreated       Expense[]                  @relation("ExpenseCreatedBy")
   expensesApproved      Expense[]                  @relation("ExpenseApprovedBy")
   recurringExpenses     RecurringExpense[]

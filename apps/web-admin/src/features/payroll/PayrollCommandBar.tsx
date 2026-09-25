@@ -3,6 +3,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
+  FileSpreadsheet,
   RefreshCw,
   Search,
   Table2,
@@ -35,6 +36,7 @@ const VIEW_ICON: Record<ViewMode, LucideIcon> = {
   roster: Table2,
   leaderboard: Trophy,
   insights: BarChart3,
+  runs: FileSpreadsheet,
 };
 
 function Segmented({ children, label }: { children: ReactNode; label: string }) {

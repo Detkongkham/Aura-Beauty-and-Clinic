@@ -94,8 +94,19 @@ export function AppointmentDetailPage() {
       });
       if (!okToGo) return;
     }
+    // Wave 11 — a paid deposit is kept as a fee per finance policy unless the desk waives it.
+    let waiveFee = false;
+    if ((next === 'NO_SHOW' || next === 'CANCELLED') && data.depositPaid > 0) {
+      const keep = await confirm({
+        title: t('appointments.feeTitle'),
+        description: t('appointments.feeBody', { amount: data.depositPaid.toLocaleString() }),
+        confirmLabel: t('appointments.feeKeep'),
+        cancelLabel: t('appointments.feeWaive'),
+      });
+      waiveFee = !keep;
+    }
     setStatus.mutate(
-      { id: data.id, status: next },
+      { id: data.id, status: next, waiveFee },
       {
         onSuccess: () => toast.success(t('appointments.statusUpdated')),
         onError: () => toast.error(t('services.saveError')),
@@ -147,7 +158,7 @@ export function AppointmentDetailPage() {
             <div className="flex min-w-0 items-center gap-3">
               <PersonAvatar name={data.customerName} size={44} />
               <div className="min-w-0">
-                <h1 className="truncate font-serif text-2xl font-semibold leading-tight">
+                <h1 className="truncate font-sans text-2xl font-semibold leading-tight">
                   {data.customerName}
                 </h1>
                 <p className="truncate text-xs text-muted-foreground">

@@ -1,9 +1,10 @@
 import { Suspense, useCallback, useEffect, useRef, useState, type UIEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 
 import { PageLoader } from '@/components/shared/PageLoader';
 import { useAuth } from '@/features/auth/useAuth';
+import { recordVisit } from '@/features/portal/portalModel';
 import { CommandPalette } from '@/features/search/CommandPalette';
 import { useApplySystemSettings } from '@/features/settings/useApplySystemSettings';
 import { cn } from '@/lib/utils';
@@ -30,6 +31,12 @@ function usePinBranchScope() {
   }, [ownBranchId, activeBranchId, setActiveBranch]);
 }
 
+/** Feeds the portal's "continue where you left off" row. */
+function useRecordVisits() {
+  const { pathname } = useLocation();
+  useEffect(() => recordVisit(pathname), [pathname]);
+}
+
 /** Authenticated layout — sidebar + topbar + scrollable content (design.md §8). */
 export function AppShell() {
   const { t } = useTranslation();
@@ -39,6 +46,7 @@ export function AppShell() {
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
   useApplySystemSettings();
   usePinBranchScope();
+  useRecordVisits();
 
   // See MainPaddingContext.tsx: `<main>`'s top padding can't be cancelled with
   // a negative margin on a `position: sticky` child, so StickyPageHeader asks

@@ -338,7 +338,13 @@ export async function adminListPackages(branchId?: string): Promise<PackageView[
   return rows.map(toPackageView);
 }
 
-export async function createPackage(input: CreatePackageInput): Promise<PackageView> {
+/** BRANCH_ADMIN ຈັດການໄດ້ສະເພາະແພັກເກັດຂອງສາຂາຕົນ (null = SUPER_ADMIN ບໍ່ຈຳກັດ). */
+function assertPackageScope(scopeBranchId: string | null | undefined, branchId: string): void {
+  if (scopeBranchId && scopeBranchId !== branchId) throw ApiError.forbidden('ຈັດການໄດ້ສະເພາະແພັກເກັດຂອງສາຂາຂອງທ່ານ');
+}
+
+export async function createPackage(input: CreatePackageInput, scopeBranchId?: string | null): Promise<PackageView> {
+  assertPackageScope(scopeBranchId, input.branchId);
   const branch = await prisma.branch.findUnique({ where: { id: input.branchId }, select: { id: true } });
   if (!branch) throw ApiError.notFound('ບໍ່ພົບສາຂາ');
   const id = await prisma.$transaction(async (tx) => {
@@ -362,9 +368,10 @@ export async function createPackage(input: CreatePackageInput): Promise<PackageV
 }
 
 /** ປ່ຽນ items = ແທນທີ່ທັງໝົດ. ຄອສທີ່ຂາຍໄປແລ້ວມີ UserPackageItem ຂອງຕົນເອງ → ບໍ່ກະທົບ. */
-export async function updatePackage(id: string, input: UpdatePackageInput): Promise<PackageView> {
-  const exists = await prisma.package.findUnique({ where: { id }, select: { id: true } });
+export async function updatePackage(id: string, input: UpdatePackageInput, scopeBranchId?: string | null): Promise<PackageView> {
+  const exists = await prisma.package.findUnique({ where: { id }, select: { id: true, branchId: true } });
   if (!exists) throw ApiError.notFound('ບໍ່ພົບແພັກເກັດ');
+  assertPackageScope(scopeBranchId, exists.branchId);
   await prisma.$transaction(async (tx) => {
     if (input.items) {
       await assertServicesExist(tx, input.items.map((i) => i.serviceId));

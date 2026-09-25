@@ -1,5 +1,7 @@
 import {
   ArrowLeftRight,
+  BookOpenCheck,
+  Package,
   Landmark,
   Receipt,
   Scale,
@@ -16,6 +18,7 @@ import {
   Gift,
   LayoutDashboard,
   LayoutGrid,
+  LayoutPanelTop,
   ListChecks,
   MapPin,
   Megaphone,
@@ -33,6 +36,7 @@ import {
   Users,
   UsersRound,
   Wallet,
+  Workflow,
   Zap,
   type LucideIcon,
 } from 'lucide-react';
@@ -75,6 +79,7 @@ export const NAV_GROUPS: NavGroup[] = [
         permission: 'dashboard:view',
         locked: true,
       },
+      { labelKey: 'portal', to: ROUTES.portal, icon: LayoutPanelTop },
       { labelKey: 'notifications', to: ROUTES.notifications, icon: Bell },
     ],
   },
@@ -103,6 +108,7 @@ export const NAV_GROUPS: NavGroup[] = [
     labelKey: 'catalog',
     items: [
       { labelKey: 'services', to: ROUTES.services, icon: Scissors, permission: 'services:view', end: true },
+      { labelKey: 'packages', to: ROUTES.servicePackages, icon: Package, permission: 'services:view' },
     ],
   },
   {
@@ -140,6 +146,7 @@ export const NAV_GROUPS: NavGroup[] = [
     labelKey: 'financeMarketing',
     items: [
       { labelKey: 'finance', to: ROUTES.finance, icon: Wallet, permission: 'finance:view', end: true },
+      { labelKey: 'accounting', to: ROUTES.financeAccounting, icon: BookOpenCheck, permission: 'finance:view' },
       { labelKey: 'loyalty', to: ROUTES.loyalty, icon: Gem, permission: 'finance:view' },
       { labelKey: 'giftCards', to: ROUTES.giftCards, icon: Gift, permission: 'finance:view' },
       { labelKey: 'marketing', to: ROUTES.marketing, icon: Megaphone, permission: 'marketing:view' },
@@ -214,6 +221,7 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: MessageCircle,
         permission: 'settings:view',
       },
+      { labelKey: 'systemMap', to: ROUTES.systemMap, icon: Workflow, permission: 'settings:view' },
     ],
   },
 ];

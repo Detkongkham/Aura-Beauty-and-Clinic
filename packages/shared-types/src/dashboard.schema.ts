@@ -143,6 +143,8 @@ export type DashboardStatsView = {
     unit: string;
     stockQty: number;
     minStockQty: number;
+    /** M11 — ເກນທີ່ໃຊ້ຈິງ = max(minStockQty, reorderPoint) (ຄືກັບລາຍການສິນຄ້າ). */
+    threshold: number;
     branchName: string;
   }>;
   rating: {

@@ -28,7 +28,12 @@ export async function voidPayment(auth: AccessTokenPayload, id: string, reason: 
       await tx.$queryRaw`SELECT "id" FROM "payments" WHERE "id" = ${id} FOR UPDATE`;
       const p = await tx.payment.findUnique({
         where: { id },
-        include: { transactions: true, giftCardPurchase: { select: { id: true } }, packagePurchase: { select: { id: true } } },
+        include: {
+          transactions: true,
+          giftCardPurchase: { select: { id: true } },
+          packagePurchase: { select: { id: true } },
+          retailSale: { select: { id: true } },
+        },
       });
       if (!p) throw ApiError.notFound('ບໍ່ພົບບິນ');
       if (auth.role === 'BRANCH_ADMIN' && auth.branchId !== p.branchId) throw ApiError.forbidden('ບໍ່ມີສິດຈັດການບິນຂອງສາຂາອື່ນ');
@@ -39,6 +44,10 @@ export async function voidPayment(auth: AccessTokenPayload, id: string, reason: 
       await tx.paymentTransaction.updateMany({ where: { paymentId: id, status: 'PENDING' }, data: { status: 'EXPIRED' } });
       if (p.giftCardPurchase) await tx.giftCard.update({ where: { id: p.giftCardPurchase.id }, data: { status: 'VOID' } });
       if (p.packagePurchase) await tx.userPackage.update({ where: { id: p.packagePurchase.id }, data: { status: 'VOID' } });
+      // M13 — ບິນຂາຍໜ້າຮ້ານ (ຍັງບໍ່ຈ່າຍ = ຍັງບໍ່ຕັດສະຕັອກ) → VOIDED.
+      if (p.retailSale) {
+        await tx.retailSale.update({ where: { id: p.retailSale.id }, data: { status: 'VOIDED', voidedAt: new Date(), voidReason: reason } });
+      }
       await tx.payment.update({
         where: { id },
         data: { paymentStatus: 'VOIDED', voidedAt: new Date(), voidReason: reason, voidedById: auth.sub },
@@ -72,11 +81,18 @@ export async function getReceipt(auth: AccessTokenPayload, id: string): Promise<
       },
       giftCardPurchase: { select: { buyerId: true, buyer: { select: { name: true } }, initialBalance: true } },
       packagePurchase: { select: { userId: true, user: { select: { name: true } }, package: { select: { name: true } } } },
+      retailSale: {
+        select: {
+          customerId: true,
+          customer: { select: { name: true } },
+          lines: { select: { uomQty: true, lineTotal: true, product: { select: { name: true } }, uom: { select: { code: true } } } },
+        },
+      },
     },
   });
   if (!p) throw ApiError.notFound('ບໍ່ພົບບິນ');
 
-  const ownerId = p.appointment?.customerId ?? p.bookingGroup?.payerId ?? p.giftCardPurchase?.buyerId ?? p.packagePurchase?.userId ?? null;
+  const ownerId = p.appointment?.customerId ?? p.bookingGroup?.payerId ?? p.giftCardPurchase?.buyerId ?? p.packagePurchase?.userId ?? p.retailSale?.customerId ?? null;
   const isStaff = auth.role === 'SUPER_ADMIN' || auth.role === 'BRANCH_ADMIN' || auth.role === 'STAFF';
   if (!isStaff && auth.sub !== ownerId) throw ApiError.forbidden('ບໍ່ມີສິດເຂົ້າເຖິງບິນນີ້');
 
@@ -90,6 +106,11 @@ export async function getReceipt(auth: AccessTokenPayload, id: string): Promise<
     lines.push({ label: 'Gift card', qty: 1, amount: toNum(p.totalAmount) });
   } else if (p.packagePurchase) {
     lines.push({ label: p.packagePurchase.package?.name ?? 'Package', qty: 1, amount: toNum(p.totalAmount) });
+  } else if (p.retailSale) {
+    // M13 — ແຖວສິນຄ້າ (ຈຳນວນເປັນໜ່ວຍທີ່ຂາຍ, ຍອດຫຼັງສ່ວນຫຼຸດ).
+    for (const l of p.retailSale.lines) {
+      lines.push({ label: l.uom ? `${l.product.name} (${l.uom.code})` : l.product.name, qty: toNum(l.uomQty), amount: toNum(l.lineTotal) });
+    }
   }
 
   const settings = await getSettings();
@@ -106,7 +127,7 @@ export async function getReceipt(auth: AccessTokenPayload, id: string): Promise<
       phone: settings.contactPhone,
     },
     branch: { name: p.branch.name, address: p.branch.address, phone: p.branch.phone },
-    customerName: p.appointment?.customer.name ?? p.bookingGroup?.payer.name ?? p.giftCardPurchase?.buyer?.name ?? p.packagePurchase?.user?.name ?? null,
+    customerName: p.appointment?.customer.name ?? p.bookingGroup?.payer.name ?? p.giftCardPurchase?.buyer?.name ?? p.packagePurchase?.user?.name ?? p.retailSale?.customer?.name ?? null,
     currency: p.currency,
     lines,
     total,

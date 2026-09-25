@@ -26,7 +26,7 @@ import { cn } from '@/lib/utils';
 
 import { usePurchaseOrders } from './inventory.api';
 
-const STATUSES: PoStatusValue[] = ['DRAFT', 'ORDERED', 'RECEIVED', 'CANCELLED'];
+const STATUSES: PoStatusValue[] = ['DRAFT', 'PENDING_APPROVAL', 'ORDERED', 'PARTIALLY_RECEIVED', 'RECEIVED', 'CANCELLED'];
 const DAYS = 14;
 
 // Distinct colour *and* distinct dash pattern per line (chart domain guidance:
@@ -37,7 +37,9 @@ const STATUS_STYLE: Record<
   { line: string; dash?: string; border: string; text: string }
 > = {
   DRAFT: { line: 'hsl(var(--muted-foreground))', dash: '5 4', border: 'dashed', text: 'text-muted-foreground' },
+  PENDING_APPROVAL: { line: 'hsl(var(--warning))', dash: '6 2 1.5 2', border: 'dashed', text: 'text-warning' },
   ORDERED: { line: 'hsl(var(--info))', border: 'solid', text: 'text-info' },
+  PARTIALLY_RECEIVED: { line: 'hsl(var(--primary))', dash: '8 3', border: 'dashed', text: 'text-primary' },
   RECEIVED: { line: 'hsl(var(--success))', border: 'solid', text: 'text-success' },
   CANCELLED: { line: 'hsl(var(--warning))', dash: '1.5 3.5', border: 'dotted', text: 'text-warning' },
 };
@@ -67,9 +69,16 @@ export function PoStatusChart({ branchId }: PoStatusChartProps) {
       dayjs().tz(APP_TIMEZONE).subtract(DAYS - 1 - i, 'day').format('YYYY-MM-DD'),
     );
     const buckets = new Map<string, DayBucket>(
-      days.map((date) => [date, { date, total: 0, DRAFT: 0, ORDERED: 0, RECEIVED: 0, CANCELLED: 0 }]),
+      days.map((date) => [date, { date, total: 0, DRAFT: 0, PENDING_APPROVAL: 0, ORDERED: 0, PARTIALLY_RECEIVED: 0, RECEIVED: 0, CANCELLED: 0 }]),
     );
-    const totalByStatus: Record<PoStatusValue, number> = { DRAFT: 0, ORDERED: 0, RECEIVED: 0, CANCELLED: 0 };
+    const totalByStatus: Record<PoStatusValue, number> = {
+      DRAFT: 0,
+      PENDING_APPROVAL: 0,
+      ORDERED: 0,
+      PARTIALLY_RECEIVED: 0,
+      RECEIVED: 0,
+      CANCELLED: 0,
+    };
     for (const po of data?.items ?? []) {
       const key = dayjs(po.orderDate).tz(APP_TIMEZONE).format('YYYY-MM-DD');
       const bucket = buckets.get(key);

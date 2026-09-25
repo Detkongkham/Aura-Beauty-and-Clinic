@@ -65,7 +65,8 @@ export type RefundAllocation = {
 };
 
 /** ປະເພດບິນທີ່ຖືກຄືນເງິນ — ກຳນົດກົດການຄືນ. */
-export type RefundBillKind = 'SERVICE' | 'GIFT_CARD_SALE' | 'PACKAGE_SALE';
+/** RETAIL_SALE — M13 ບິນຂາຍສິນຄ້າໜ້າຮ້ານ (ຄືນສິນຄ້າເຂົ້າສະຕັອກຜ່ານ POST /retail-sales/:id/returns). */
+export type RefundBillKind = 'SERVICE' | 'GIFT_CARD_SALE' | 'PACKAGE_SALE' | 'RETAIL_SALE';
 
 export type RefundView = {
   id: string;

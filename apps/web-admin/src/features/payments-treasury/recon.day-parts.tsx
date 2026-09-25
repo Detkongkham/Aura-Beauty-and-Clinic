@@ -188,7 +188,7 @@ export function StatementLinesSection({
   canReconcile: boolean;
   locked: boolean;
   /** Human label for the system record a line is matched to. */
-  describeMatch: (kind: 'TX' | 'EXPENSE' | 'REFUND', id: string) => string | null;
+  describeMatch: (kind: 'TX' | 'EXPENSE' | 'REFUND' | 'CASH_FUND', id: string) => string | null;
 }) {
   const { t } = useTranslation();
   const act = useLineAction();
@@ -321,8 +321,8 @@ function Candidates({
   lineId: string;
   currency: string;
   busy: boolean;
-  describe: (kind: 'TX' | 'EXPENSE' | 'REFUND', id: string) => string | null;
-  onPick: (kind: 'TX' | 'EXPENSE' | 'REFUND', id: string) => void;
+  describe: (kind: 'TX' | 'EXPENSE' | 'REFUND' | 'CASH_FUND', id: string) => string | null;
+  onPick: (kind: 'TX' | 'EXPENSE' | 'REFUND' | 'CASH_FUND', id: string) => void;
 }) {
   const { t } = useTranslation();
   const { data, isLoading } = useLineCandidates(lineId);

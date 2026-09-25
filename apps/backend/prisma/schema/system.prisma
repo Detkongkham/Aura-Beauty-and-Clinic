@@ -292,3 +292,71 @@ model SuppressionEntry {
   @@unique([identifier, channel])
   @@map("marketing_suppressions")
 }
+
+// --- web-admin /portal (2026-09-25) --------------------------------------------------
+// ບໍ່ຜູກ relation ກັບ User/Branch ໂດຍເຈດຕະນາ — ຊື່ຜູ້ຂຽນ/ສາຂາ ດຶງແຍກຕອນອ່ານ (ຂໍ້ມູນນ້ອຍ).
+
+enum AnnouncementKind {
+  ANNOUNCEMENT
+  CHANGELOG
+}
+
+enum AnnouncementSeverity {
+  INFO
+  SUCCESS
+  WARNING
+  CRITICAL
+}
+
+/// ປະກາດ / ບັນທຶກການອັບເດດລະບົບ ທີ່ admin ສົ່ງຫາທີມ — ສະແດງໃນ /portal.
+model Announcement {
+  id            String               @id @default(uuid())
+  title         String
+  body          String               @default("")
+  kind          AnnouncementKind     @default(ANNOUNCEMENT)
+  severity      AnnouncementSeverity @default(INFO)
+  /// ວ່າງ = ທຸກ role ພະນັກງານ.
+  audienceRoles UserRole[]           @default([])
+  /// null = ທຸກສາຂາ.
+  branchId      String?
+  pinned        Boolean              @default(false)
+  /// ອະນາຄົດ = ຕັ້ງເວລາໄວ້.
+  publishedAt   DateTime             @default(now())
+  expiresAt     DateTime?
+  createdById   String
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  deletedAt     DateTime?
+
+  reads AnnouncementRead[]
+
+  @@index([publishedAt])
+  @@map("announcements")
+}
+
+model AnnouncementRead {
+  announcementId String
+  userId         String
+  readAt         DateTime @default(now())
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+
+  @@id([announcementId, userId])
+  @@index([userId])
+  @@map("announcement_reads")
+}
+
+/// ລາຍການວຽກປະຈຳວັນ — ຕິກດ້ວຍມື (ວຽກທີ່ລະບົບກວດອັດຕະໂນມັດບໍ່ຕ້ອງມີແຖວ).
+/// scope = branchId ຫຼື "all" (Postgres unique ບໍ່ນັບ null ຊ້ຳ ຈຶ່ງບໍ່ໃຊ້ null).
+model DailyChecklistTick {
+  id       String   @id @default(uuid())
+  scope    String
+  /// YYYY-MM-DD ຕາມເວລາວຽງຈັນ.
+  day      String
+  taskKey  String
+  doneById String
+  doneAt   DateTime @default(now())
+
+  @@unique([scope, day, taskKey])
+  @@map("daily_checklist_ticks")
+}

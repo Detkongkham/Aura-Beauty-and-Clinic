@@ -1,4 +1,6 @@
-import { http } from 'msw';
+import { http, HttpResponse } from 'msw';
+
+import { HEALTH_URL } from '@/features/auth/useApiHealth';
 
 import { api, ok } from '../helpers';
 import { appointmentHandlers } from './appointments';
@@ -26,6 +28,8 @@ import { staffHandlers } from './staff';
  */
 export const handlers = [
   http.get(api('/health'), () => ok({ status: 'ok', mocked: true, ts: new Date().toISOString() })),
+  // The real liveness probe sits at the origin root (outside /api/v1) — polled by the sign-in screens.
+  http.get(HEALTH_URL, () => HttpResponse.json({ status: 'ok', mocked: true, ts: new Date().toISOString() })),
   ...authHandlers,
   ...branchHandlers,
   ...dashboardHandlers,

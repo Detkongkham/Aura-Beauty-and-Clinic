@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { useEffect } from 'react';
 import { readPersistedSession, useAuthStore } from '../../store/auth.store';
 import { apiMe } from './auth.api';
@@ -27,8 +28,11 @@ export function useAuthBootstrap(): void {
           return;
         }
         useAuthStore.getState().setSession({ tokens: persisted.tokens, user });
-      } catch {
-        if (!cancelled) useAuthStore.getState().clear();
+      } catch (e) {
+        // session ຕາຍແທ້ ຖືກລ້າງໂດຍ http interceptor ແລ້ວ. ເປີດແອັບຕອນບໍ່ມີເນັດ / server ລົ້ມ
+        // ຕ້ອງບໍ່ເຕະອອກ — ໃຊ້ session ທີ່ບັນທຶກໄວ້ຕໍ່.
+        const status = axios.isAxiosError(e) ? e.response?.status : undefined;
+        if (!cancelled && (status === 401 || status === 403)) useAuthStore.getState().clear();
       }
     })();
     return () => {

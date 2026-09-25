@@ -2,19 +2,20 @@ import axios, { type AxiosInstance, type AxiosRequestConfig } from 'axios';
 
 import { env } from '@/config/env';
 import { authStore, useAuthStore } from '@/features/auth/auth.store';
+import { signOut, type LogoutReason } from '@/features/auth/signOut';
 
 import { NormalizedApiError, normalizeError } from './apiError';
 
-/** Fired when the session is unrecoverable — the router listens and redirects to /login. */
-export const AUTH_LOGOUT_EVENT = 'aura:auth-logout';
+export type { LogoutReason } from '@/features/auth/signOut';
 
-/** Why the session ended — shown as a notice on /login (`?reason=`). */
-export type LogoutReason = 'idle' | 'mfa' | 'revoked';
+/**
+ * 401 codes that mean the *session* is gone. Other 401s (wrong 2FA code, wrong current
+ * password…) are about the input and must never sign anyone out.
+ */
+const SESSION_CODES = new Set(['UNAUTHORIZED', 'TOKEN_EXPIRED', 'TOKEN_INVALID', 'SESSION_IDLE', 'MFA_REQUIRED']);
 
-export function emitLogout(reason?: LogoutReason): void {
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent<LogoutReason | undefined>(AUTH_LOGOUT_EVENT, { detail: reason }));
-  }
+function isSessionError(e: NormalizedApiError): boolean {
+  return e.status === 401 && SESSION_CODES.has(e.code);
 }
 
 function logoutReason(code: string): LogoutReason {
@@ -66,32 +67,29 @@ http.interceptors.response.use(
 
     // Only the credential-exchange endpoints are exempt; /auth/me/* are ordinary authed calls.
     const isAuthEndpoint = typeof original?.url === 'string' && PUBLIC_AUTH_PATH.test(original.url);
-    // A wrong *current* password (change-password, PIN setup) is a 401 about the input, not the session.
-    if (normalized.code === 'INVALID_CREDENTIALS') throw normalized;
-    const canRetry =
-      normalized.status === 401 && original != null && !original._retried && !isAuthEndpoint;
+    if (isAuthEndpoint || !isSessionError(normalized)) throw normalized;
 
-    if (canRetry) {
+    if (original != null && !original._retried) {
       original._retried = true;
+      let newToken: string;
       try {
         refreshPromise ??= runRefresh().finally(() => {
           refreshPromise = null;
         });
-        const newToken = await refreshPromise;
-        original.headers = { ...original.headers, Authorization: `Bearer ${newToken}` };
-        return http(original);
+        newToken = await refreshPromise;
       } catch (refreshErr) {
-        useAuthStore.getState().clear();
-        emitLogout(logoutReason(normalizeError(refreshErr).code));
+        const e = normalizeError(refreshErr);
+        // Only a definitive "no" from the server ends the session. Offline, timeouts, 5xx or a
+        // restarting backend keep the user signed in — the next request simply tries again.
+        if (e.status === 401 || e.status === 403) signOut(logoutReason(e.code));
         throw normalized;
       }
+      original.headers = { ...original.headers, Authorization: `Bearer ${newToken}` };
+      return http(original);
     }
 
-    if (normalized.status === 401 && !isAuthEndpoint) {
-      useAuthStore.getState().clear();
-      emitLogout(logoutReason(normalized.code));
-    }
-
+    // Still refused with a freshly minted token: the session really is over.
+    signOut(logoutReason(normalized.code));
     throw normalized;
   },
 );

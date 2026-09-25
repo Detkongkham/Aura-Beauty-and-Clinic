@@ -190,7 +190,7 @@ export function AppointmentsCommandBar(props: Props) {
         {/* ── identity + page actions ─────────────────────────────── */}
         <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
           <div className="min-w-0">
-            <h1 className="truncate font-serif text-2xl font-semibold leading-tight">
+            <h1 className="truncate font-sans text-2xl font-semibold leading-tight">
               {t('nav.appointments')}
             </h1>
             <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">

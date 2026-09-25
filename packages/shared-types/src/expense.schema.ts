@@ -153,6 +153,22 @@ export const rejectExpenseSchema = z.object({
 });
 export type RejectExpenseInput = z.infer<typeof rejectExpenseSchema>;
 
+/**
+ * Inventory 9D — ອະນຸມັດລາຍຈ່າຍທີ່ຜູກ PO ແຕ່ 3-way match ບໍ່ຜ່ານ (OVER_INVOICED/UNDER_RECEIVED) → 409,
+ * ຍົກເວັ້ນ SUPER_ADMIN ສົ່ງ overrideMatch + ເຫດຜົນ (ບັນທຶກລົງ audit log).
+ */
+export const approveExpenseSchema = z
+  .object({
+    overrideMatch: z.boolean().optional(),
+    overrideReason: z.string().trim().max(500).optional(),
+  })
+  .refine((v) => !v.overrideMatch || !!v.overrideReason?.trim(), {
+    message: 'ຕ້ອງລະບຸເຫດຜົນເມື່ອຂ້າມການກວດ 3-way match',
+    path: ['overrideReason'],
+  })
+  .default({});
+export type ApproveExpenseInput = z.infer<typeof approveExpenseSchema>;
+
 /** E5 — ຍົກເລີກລາຍການ APPROVED/PAID (ຕ້ອງມີເຫດຜົນ). */
 export const voidExpenseSchema = z.object({
   reason: z.string().trim().min(1, 'ຕ້ອງລະບຸເຫດຜົນ').max(500),
@@ -249,6 +265,8 @@ export type ExpenseView = {
   voidReason: string | null;
   /** E3 — ຍອດ LAK ເກີນເພດານອະນຸມັດ → ຕ້ອງໃຫ້ SUPER_ADMIN ອະນຸມັດ. */
   needsOwnerApproval: boolean;
+  /** Inventory 9D — ຜົນ 3-way match ຂອງ PO ທີ່ຜູກ (null = ບໍ່ຜູກ PO). */
+  poMatch?: { status: 'MATCHED' | 'UNDER_RECEIVED' | 'OVER_INVOICED' | 'NO_INVOICE'; variance: number } | null;
   recurringExpenseId: string | null;
   attachments: ExpenseAttachmentView[];
   createdAt: string;
@@ -329,6 +347,11 @@ export type ProfitLossMonth = {
   revenue: number;
   refunds: number;
   cogs: number;
+  /** M13 — ລາຍຮັບຂາຍໜ້າຮ້ານ (ສ່ວນໜຶ່ງຂອງ revenue) + ຕົ້ນທຶນ retail (SOLD − SALE_RETURN, ສ່ວນໜຶ່ງຂອງ cogs). */
+  retailRevenue: number;
+  retailCogs: number;
+  /** ມູນຄ່າສະຕັອກທີ່ສູນເສຍ (ADJUSTMENT_DEDUCT ທີ່ reason ຢູ່ໃນ STOCK_SHRINKAGE_REASONS). */
+  shrinkage: number;
   labourCommission: number;
   labourOther: number;
   operatingExpenses: number;
@@ -343,9 +366,17 @@ export type ProfitLossView = {
   revenue: number;
   refunds: number;
   netRevenue: number;
-  /** ຕົ້ນທຶນສິນຄ້າທີ່ໃຊ້ (Σ SERVICE_CONSUMED × costPrice ປັດຈຸບັນ — ຍັງບໍ່ແມ່ນ WAC). */
+  /** ຕົ້ນທຶນສິນຄ້າທີ່ໃຊ້ — Σ −valueChange ຂອງ SERVICE_CONSUMED (WAC/ຕົ້ນທຶນ lot ຕອນຕັດ); ແຖວເກົ່າທີ່ບໍ່ມີ
+   *  valueChange ໃຊ້ qty × costPrice ປັດຈຸບັນແທນ. */
   cogs: number;
+  /** M13 — ລາຍຮັບຂາຍສິນຄ້າໜ້າຮ້ານ (tender SUCCESS ຂອງບິນ RetailSale — ລວມຢູ່ໃນ revenue ແລ້ວ, ແຍກໃຫ້ເຫັນ). */
+  retailRevenue: number;
+  /** M13 — ຕົ້ນທຶນສິນຄ້າທີ່ຂາຍ = Σ −valueChange ຂອງ SOLD − ມູນຄ່າ SALE_RETURN (ລວມຢູ່ໃນ cogs ແລ້ວ). */
+  retailCogs: number;
+  /** netRevenue − cogs */
   grossProfit: number;
+  /** ການສູນເສຍສະຕັອກ (ເສຍຫາຍ/ໝົດອາຍຸ/ຫາຍ/ນັບຂາດ/…) — ລາຍຈ່າຍແຍກ, ຫັກອອກຈາກ netProfit. */
+  shrinkage: number;
   labour: { commissionAndBonus: number; otherPayroll: number; total: number };
   operating: {
     total: number;
@@ -368,6 +399,8 @@ export const createRecurringExpenseSchema = z.object({
   currency: z.string().trim().length(3).default('LAK'),
   dayOfMonth: z.number().int().min(1).max(28),
   notes: z.string().trim().max(1000).optional(),
+  /** Wave 11 — template ແບ່ງຄ່າໃຊ້ຈ່າຍ ທີ່ຕິດໄປກັບທຸກລາຍຈ່າຍທີ່ສ້າງຈາກຮອບນີ້. */
+  allocations: expenseAllocationInputSchema.optional(),
 });
 export type CreateRecurringExpenseInput = z.infer<typeof createRecurringExpenseSchema>;
 
@@ -378,6 +411,8 @@ export const updateRecurringExpenseSchema = z.object({
   dayOfMonth: z.number().int().min(1).max(28).optional(),
   notes: z.string().trim().max(1000).nullable().optional(),
   isActive: z.boolean().optional(),
+  /** [] = ລຶບ template (ລາຍຈ່າຍໃໝ່ລົງສາຂາດຽວ). */
+  allocations: expenseAllocationInputSchema.optional(),
 });
 export type UpdateRecurringExpenseInput = z.infer<typeof updateRecurringExpenseSchema>;
 
@@ -400,6 +435,8 @@ export type RecurringExpenseView = {
   lastGeneratedPeriod: string | null;
   /** ວັນທີ່ຮ່າງຄັ້ງຕໍ່ໄປຈະຖືກສ້າງ (YYYY-MM-DD, ເວລາວຽງຈັນ). */
   nextDueDate: string;
+  /** Wave 11 — template ແບ່ງຄ່າໃຊ້ຈ່າຍ (ວ່າງ = ບໍ່ແບ່ງ). */
+  allocations?: { branchId: string; branchName: string; percent: number }[];
 };
 
 // ── E2 ງົບປະມານ ──────────────────────────────────────────────────────
@@ -473,6 +510,8 @@ export const cashFundMovementSchema = z.object({
   type: z.enum(['TOPUP', 'WITHDRAW']),
   amount: positiveMoney,
   note: z.string().trim().max(300).optional(),
+  /** Wave 11 — ເຕີມຈາກ / ຖອນເຂົ້າ ບັນຊີທະນາຄານນີ້ (ບໍ່ລະບຸ = ເງິນສົດນອກລະບົບທະນາຄານ). ລົງເປັນ DEBIT/CREDIT ໃນການກະທົບຍອດ. */
+  bankAccountId: z.string().uuid().optional(),
 });
 export type CashFundMovementInput = z.infer<typeof cashFundMovementSchema>;
 
@@ -504,6 +543,8 @@ export type CashFundEntryView = {
   /** ຍອດຄົງເຫຼືອຫຼັງລາຍການນີ້. */
   balanceAfter: number;
   expense: { id: string; title: string } | null;
+  /** Wave 11 — ບັນຊີທະນາຄານຂອງການເຕີມ/ຖອນ. */
+  bankAccount?: { id: string; label: string } | null;
   note: string | null;
   createdBy: string;
   createdAt: string;
@@ -511,7 +552,8 @@ export type CashFundEntryView = {
 
 // ── E7 ອ່ານໃບຮັບເງິນ (OCR) ────────────────────────────────────────────
 export const receiptScanSchema = z.object({
-  contentType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
+  /** application/pdf — ອ່ານຈາກ text layer ຂອງ PDF (ໃບແຈ້ງໜີ້ດິຈິຕອນ); PDF ທີ່ເປັນຮູບສະແກນ ຕ້ອງອັບເປັນຮູບ. */
+  contentType: z.enum(['image/jpeg', 'image/png', 'image/webp', 'application/pdf']),
   dataBase64: z.string().min(1),
 });
 export type ReceiptScanInput = z.infer<typeof receiptScanSchema>;

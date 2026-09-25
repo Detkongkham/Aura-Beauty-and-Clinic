@@ -21,6 +21,7 @@ import {
   profitLossQuerySchema,
   recurringExpenseListQuerySchema,
   rejectExpenseSchema,
+  approveExpenseSchema,
   updateExpenseCategorySchema,
   updateExpenseSchema,
   updateRecurringExpenseSchema,
@@ -319,9 +320,9 @@ expensesRouter.post(
   '/:id/approve',
   approve,
   requireIdempotencyKey(),
-  validateRequest({ params: idParamSchema }),
+  validateRequest({ params: idParamSchema, body: approveExpenseSchema }),
   asyncHandler(async (req, res) => {
-    res.json({ data: await service.approveExpense(req.auth!, req.params.id!) });
+    res.json({ data: await service.approveExpense(req.auth!, req.params.id!, req.body) });
   }),
 );
 

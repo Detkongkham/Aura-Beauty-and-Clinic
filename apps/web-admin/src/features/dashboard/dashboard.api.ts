@@ -20,10 +20,11 @@ export const dashboardApi = {
 export function useDashboardStats(
   branchId: string | 'all',
   days: DashboardPeriod = 14,
-  options: { refetchIntervalMs?: number } = {},
+  options: { refetchIntervalMs?: number; enabled?: boolean } = {},
 ) {
   return useQuery({
     queryKey: queryKeys.dashboard.stats(branchId, days),
+    enabled: options.enabled ?? true,
     queryFn: () => dashboardApi.stats(branchId, days),
     // Keep the previous window on screen while a new period loads — no skeleton flash.
     placeholderData: (prev) => prev,

@@ -153,6 +153,19 @@ export function AppointmentsPage() {
   const [walkInOpen, setWalkInOpen] = useState(false);
   /** null = closed; { item: null } = create; { item } = reschedule that booking. */
   const [booking, setBooking] = useState<{ item: AppointmentListItem | null } | null>(null);
+
+  // ?new=1 (portal quick action) opens the booking dialog once, then drops the flag.
+  useEffect(() => {
+    if (params.get('new') !== '1') return;
+    if (canManage) setBooking({ item: null });
+    setParams(
+      (p) => {
+        p.delete('new');
+        return p;
+      },
+      { replace: true },
+    );
+  }, [params, setParams, canManage]);
   const [exporting, setExporting] = useState(false);
 
   // Search is typed locally and mirrored into the URL once it settles, so the

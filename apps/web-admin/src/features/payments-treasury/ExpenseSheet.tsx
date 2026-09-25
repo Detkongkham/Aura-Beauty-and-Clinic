@@ -44,7 +44,7 @@ import { formatDate, formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { NormalizedApiError } from '@/services/apiError';
 
-import { CategoryGlyph, ExpenseStatusPill, WaitingChip, WorkflowStepper } from './expense.parts';
+import { CategoryGlyph, ExpenseStatusPill, PoMatchChip, WaitingChip, WorkflowStepper } from './expense.parts';
 import {
   useDeleteExpense,
   useDeleteExpenseAttachment,
@@ -87,6 +87,8 @@ export function ExpenseSheet({ expenseId, categories, onClose, onEdit, onDuplica
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [rejecting, setRejecting] = useState(false);
+  const [overriding, setOverriding] = useState(false);
+  const [overrideReason, setOverrideReason] = useState('');
   const [reason, setReason] = useState('');
   const [paying, setPaying] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -103,6 +105,9 @@ export function ExpenseSheet({ expenseId, categories, onClose, onEdit, onDuplica
   const needsReceipt = e && e.attachments.length === 0 && !editable && e.status !== 'VOIDED';
   // E3 — ເກີນເພດານ: ສະເພາະເຈົ້າຂອງອະນຸມັດໄດ້ (API ກວດຊ້ຳ).
   const blockedByLimit = Boolean(e?.needsOwnerApproval) && user?.role !== 'SUPER_ADMIN';
+  // Inventory 9D — 3-way match ບໍ່ຜ່ານ: API ບລັອກ (409); SUPER_ADMIN ຂ້າມໄດ້ພ້ອມເຫດຜົນ (audit).
+  const matchFailed = e?.poMatch?.status === 'OVER_INVOICED' || e?.poMatch?.status === 'UNDER_RECEIVED';
+  const blockedByMatch = matchFailed && user?.role !== 'SUPER_ADMIN';
   const due = e ? daysUntil(e.dueDate, todayKey()) : null;
   const canVoid = Boolean(e && canApprove && (e.status === 'APPROVED' || e.status === 'PAID'));
 
@@ -249,7 +254,14 @@ export function ExpenseSheet({ expenseId, categories, onClose, onEdit, onDuplica
                   </Fact>
                   <Fact label={t('payTreasury.col.branch')}>{e.branchName}</Fact>
                   {e.supplier ? <Fact label={t('payTreasury.exp.supplier')}>{e.supplier.name}</Fact> : null}
-                  {e.purchaseOrder ? <Fact label={t('payTreasury.exp.po')}>{e.purchaseOrder.poNumber}</Fact> : null}
+                  {e.purchaseOrder ? (
+                    <Fact label={t('payTreasury.exp.po')}>
+                      <span className="inline-flex items-center gap-1.5">
+                        {e.purchaseOrder.poNumber}
+                        <PoMatchChip match={e.poMatch} />
+                      </span>
+                    </Fact>
+                  ) : null}
                   {e.paidAt ? (
                     <Fact label={t('payTreasury.exp.paidFrom')}>
                       {e.paidFromAccount ? (
@@ -512,9 +524,21 @@ export function ExpenseSheet({ expenseId, categories, onClose, onEdit, onDuplica
                     {t('payTreasury.exp.reject')}
                   </Button>
                   <Button
-                    disabled={act.isPending || ownClaim || blockedByLimit}
-                    title={ownClaim ? t('payTreasury.exp.ownClaim') : blockedByLimit ? t('payTreasury.exp.overLimitTitle') : undefined}
-                    onClick={() => run({ id: e.id, action: 'approve' }, undefined, t('payTreasury.exp.toast.approved', { count: 1 }))}
+                    disabled={act.isPending || ownClaim || blockedByLimit || blockedByMatch}
+                    title={
+                      ownClaim
+                        ? t('payTreasury.exp.ownClaim')
+                        : blockedByLimit
+                          ? t('payTreasury.exp.overLimitTitle')
+                          : blockedByMatch
+                            ? t('payTreasury.exp.poMatch.blocked')
+                            : undefined
+                    }
+                    onClick={() =>
+                      matchFailed
+                        ? setOverriding(true)
+                        : run({ id: e.id, action: 'approve' }, undefined, t('payTreasury.exp.toast.approved', { count: 1 }))
+                    }
                   >
                     <Check className="mr-1 h-4 w-4" aria-hidden="true" />
                     {t('payTreasury.exp.approve')}
@@ -576,6 +600,46 @@ export function ExpenseSheet({ expenseId, categories, onClose, onEdit, onDuplica
                 }
               >
                 {t('payTreasury.exp.reject')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={overriding} onOpenChange={(o) => !o && setOverriding(false)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{t('payTreasury.exp.poMatch.overrideTitle')}</DialogTitle>
+              <DialogDescription>
+                {t('payTreasury.exp.poMatch.overrideBody', {
+                  status: e?.poMatch ? t(`payTreasury.exp.poMatch.${e.poMatch.status}`) : '',
+                  variance: (e?.poMatch?.variance ?? 0).toLocaleString('en-US'),
+                })}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-2">
+              <Label htmlFor="er-override">{t('payTreasury.exp.poMatch.overrideReason')}</Label>
+              <Textarea id="er-override" rows={3} maxLength={500} value={overrideReason} onChange={(ev) => setOverrideReason(ev.target.value)} />
+            </div>
+            <DialogFooter>
+              <Button variant="secondary" onClick={() => setOverriding(false)}>
+                {t('common.cancel')}
+              </Button>
+              <Button
+                variant="danger"
+                disabled={!overrideReason.trim() || act.isPending}
+                onClick={() =>
+                  e &&
+                  run(
+                    { id: e.id, action: 'approve', overrideMatch: true, overrideReason: overrideReason.trim() },
+                    () => {
+                      setOverriding(false);
+                      setOverrideReason('');
+                    },
+                    t('payTreasury.exp.toast.approved', { count: 1 }),
+                  )
+                }
+              >
+                {t('payTreasury.exp.poMatch.overrideApprove')}
               </Button>
             </DialogFooter>
           </DialogContent>

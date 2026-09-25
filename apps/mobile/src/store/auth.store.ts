@@ -1,6 +1,8 @@
 import type { AuthTokens, AuthUser } from '@abcp/shared-types';
 import * as SecureStore from 'expo-secure-store';
 import { create } from 'zustand';
+import { queryClient } from '../lib/queryClient';
+import { useBookingDraft } from './booking-draft.store';
 
 const STORAGE_KEY = 'aura.session';
 
@@ -48,8 +50,11 @@ export const useAuthStore = create<AuthState>((set) => ({
       return { user };
     }),
 
+  /** Every way out (logout, dead session) ends here: token + cached data of this account wiped. */
   clear: () => {
     void SecureStore.deleteItemAsync(STORAGE_KEY);
+    queryClient.clear();
+    useBookingDraft.getState().reset();
     set({ status: 'guest', tokens: null, accessToken: null, refreshToken: null, user: null });
   },
 

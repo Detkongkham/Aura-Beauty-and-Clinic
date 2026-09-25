@@ -22,6 +22,7 @@ import { clawbackEarnedPoints, restoreRedeemedPoints } from '../loyalty/loyalty.
 import { assertCashDrawerOpen } from '../payments-treasury/cash-drawer/cash-policy.js';
 import { inclusiveTax } from './vat.js';
 import { runSerializable } from '../../utils/serializable.js';
+import { postRetailReturnForRefund } from '../inventory/retail-stock.service.js';
 
 /**
  * Wave 10B (H4) — Refund engine.
@@ -50,6 +51,7 @@ const REFUND_INCLUDE = {
       bookingGroup: { select: { payer: { select: { name: true } } } },
       giftCardPurchase: { select: { buyer: { select: { name: true } } } },
       packagePurchase: { select: { user: { select: { name: true } } } },
+      retailSale: { select: { id: true, customer: { select: { name: true } } } },
     },
   },
   requestedBy: { select: { name: true } },
@@ -71,6 +73,7 @@ function toView(r: RefundRow): RefundView {
       r.payment.bookingGroup?.payer.name ??
       r.payment.giftCardPurchase?.buyer?.name ??
       r.payment.packagePurchase?.user?.name ??
+      r.payment.retailSale?.customer?.name ??
       null,
     currency: r.payment.currency,
     amount: toNum(r.amount),
@@ -89,7 +92,7 @@ function toView(r: RefundRow): RefundView {
     providerRef: r.providerRef,
     bankAccountId: r.bankAccountId,
     allocations,
-    billKind: r.payment.giftCardPurchase ? 'GIFT_CARD_SALE' : r.payment.packagePurchase ? 'PACKAGE_SALE' : 'SERVICE',
+    billKind: billKindOf(r.payment),
     packageUnitReturned: allocations.some((a) => a.kind === 'PACKAGE'),
     paidAt: r.paidAt?.toISOString() ?? null,
     createdAt: r.createdAt.toISOString(),
@@ -146,8 +149,8 @@ export function allocateRefund(tenders: TenderRow[], remaining: Map<string, numb
 
 const OPEN_STATUSES = ['PENDING', 'APPROVED', 'PAID'] as const;
 
-function billKindOf(p: { giftCardPurchase: unknown; packagePurchase: unknown }): RefundBillKind {
-  return p.giftCardPurchase ? 'GIFT_CARD_SALE' : p.packagePurchase ? 'PACKAGE_SALE' : 'SERVICE';
+function billKindOf(p: { giftCardPurchase: unknown; packagePurchase: unknown; retailSale?: unknown }): RefundBillKind {
+  return p.giftCardPurchase ? 'GIFT_CARD_SALE' : p.packagePurchase ? 'PACKAGE_SALE' : p.retailSale ? 'RETAIL_SALE' : 'SERVICE';
 }
 
 function allocTotal(refunds: Array<{ allocations: Prisma.JsonValue }>, kinds: RefundAllocation['kind'][]): number {
@@ -178,7 +181,16 @@ function currentPayrollMonth(): string {
 
 // ---- request ------------------------------------------------------
 
-export async function createRefund(auth: AccessTokenPayload, paymentId: string, input: CreateRefundInput): Promise<RefundView> {
+/**
+ * `opts.afterCreate` — M13: retail.returnRetailSale ຂຽນແຖວຄືນສິນຄ້າໃນ tx ດຽວກັບຄຳຮ້ອງ (ຈອງຈຳນວນຄືນພ້ອມກັບເງິນ).
+ * ບິນ retail ທີ່ຂໍຄືນຜ່ານ /payments/:id/refunds ໂດຍກົງ = ຄືນເງິນຢ່າງດຽວ (ບໍ່ເອົາສິນຄ້າເຂົ້າສະຕັອກ).
+ */
+export async function createRefund(
+  auth: AccessTokenPayload,
+  paymentId: string,
+  input: CreateRefundInput,
+  opts: { afterCreate?: (tx: Prisma.TransactionClient, refundId: string) => Promise<void> } = {},
+): Promise<RefundView> {
   const id = await runSerializable(
     async (tx) => {
       // ລັອກບິນ → 2 ຄຳຂໍພ້ອມກັນ ບໍ່ຈອງ tender ດຽວກັນຊ້ຳ
@@ -223,6 +235,8 @@ export async function createRefund(auth: AccessTokenPayload, paymentId: string, 
         if (payment.refunds.length > 0) throw ApiError.conflict('ບິນແພັກເກັດນີ້ມີຄຳຮ້ອງຄືນເງິນຢູ່ແລ້ວ');
         refundable = Math.min(refundable, await unusedPackageValue(tx, pkg.id, toNum(payment.totalAmount)));
       }
+      // Wave 11 (F-20) — ມັດຈຳທີ່ຖືກຢຶດເປັນຄ່າປັບ no-show / ຍົກເລີກຊ້າ ບໍ່ແມ່ນເງິນທີ່ຄືນໄດ້.
+      refundable -= toNum(payment.forfeitedAmount);
       refundable = Math.max(0, refundable);
       if (amount > refundable + 0.01) {
         throw ApiError.badRequest(`ຄືນໄດ້ສູງສຸດ ${refundable.toLocaleString()} ${payment.currency}`);
@@ -270,6 +284,7 @@ export async function createRefund(auth: AccessTokenPayload, paymentId: string, 
         },
         select: { id: true },
       });
+      if (opts.afterCreate) await opts.afterCreate(tx, refund.id);
       return refund.id;
     },
   );
@@ -334,6 +349,7 @@ export async function payRefund(auth: AccessTokenPayload, id: string, input: Pay
           bookingGroup: { select: { payerId: true } },
           giftCardPurchase: { select: { id: true, buyerId: true } },
           packagePurchase: { select: { id: true, userId: true } },
+          retailSale: { select: { id: true, customerId: true } },
         },
       });
       const allocations = (pre.allocations as RefundAllocation[] | null) ?? [];
@@ -342,6 +358,7 @@ export async function payRefund(auth: AccessTokenPayload, id: string, input: Pay
         payment.bookingGroup?.payerId ??
         payment.giftCardPurchase?.buyerId ??
         payment.packagePurchase?.userId ??
+        payment.retailSale?.customerId ??
         null;
       const total = toNum(pre.amount) + toNum(pre.storeCreditAmount);
 
@@ -409,6 +426,18 @@ export async function payRefund(auth: AccessTokenPayload, id: string, input: Pay
         });
         const serviceRatio = packageUnitReturned ? 1 : moneyRatio;
         await clawbackCommission(tx, { appointmentId: payment.appointment.id, refundId: id, branchId: payment.branchId, ratio: serviceRatio });
+      }
+      // M13 — ບິນຂາຍໜ້າຮ້ານ: ສິນຄ້າທີ່ຄືນເຂົ້າສະຕັອກ (SALE_RETURN refId `saleret:<refundId>`) + ດຶງຄະແນນ `sale:<id>` ຄືນ.
+      if (payment.retailSale) {
+        await postRetailReturnForRefund(tx, id, auth.sub);
+        if (payment.retailSale.customerId) {
+          await clawbackEarnedPoints(tx, {
+            userId: payment.retailSale.customerId,
+            earnRefId: `sale:${payment.retailSale.id}`,
+            paymentId: payment.id,
+            refundedRatio: moneyRatio,
+          });
+        }
       }
       return { customerId, total, creditNoteNo, currency: payment.currency, packageUnitReturned };
     },

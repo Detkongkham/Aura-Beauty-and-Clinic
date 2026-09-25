@@ -3,7 +3,9 @@ import type { ColumnDef } from '@tanstack/react-table';
 import {
   AlertTriangle,
   ArrowUpDown,
+  Barcode,
   Boxes,
+  FolderTree,
   Hash,
   type LucideIcon,
   MessageSquare,
@@ -28,8 +30,12 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
   productCreateSchema,
+  STOCK_ADJUST_REASONS,
+  STOCK_ADJUST_REASONS_REQUIRING_NOTES,
   type ProductCreateInput,
   type ProductView,
+  type StockAdjustReasonValue,
+  type StockLotView,
 } from '@abcp/shared-types';
 
 import { StickyPageHeader } from '@/components/layout/StickyPageHeader';
@@ -53,14 +59,26 @@ import { useAuth } from '@/features/auth/useAuth';
 import { useBranches, useSaveBranch } from '@/features/branches/branches.api';
 import { NormalizedApiError } from '@/services/apiError';
 
+import { AdjustApprovalsCard } from './AdjustApprovalsCard';
+import { AssignUnlottedDialog } from './AssignUnlottedDialog';
+import { InventoryExportButton } from './InventoryExportButton';
 import { InventoryStatCard } from './InventoryStatCard';
 import { InventoryTabs } from './InventoryTabs';
+import { ProductDetailSheet } from './ProductDetailSheet';
 import { LotFields } from './LotFields';
 import { EMPTY_LOT, lotPayload, type LotDraft } from './lotDraft';
 import { LotExpiryWatchCard } from './LotExpiryWatchCard';
 import { LotUsageDialog } from './LotUsageDialog';
 import { StockHealthBar } from './StockHealthBar';
+import { ProductCategoriesDialog } from './ProductCategoriesDialog';
+import { ScanInput } from './ScanInput';
+import { UomConversionsEditor } from './UomConversionsEditor';
+import { conversionsPayload, type ConversionDraft } from './uom';
+import { UomManagerDialog } from './UomManagerDialog';
 import {
+  useProductCategories,
+  useUoms,
+  useAdjustSettings,
   useAdjustStock,
   useCogsSummary,
   useInventoryStats,
@@ -79,8 +97,9 @@ const MONTH_END = dayjs().endOf('month').toISOString();
 
 export function InventoryPage() {
   const { t } = useTranslation();
-  const { hasPermission } = useAuth();
+  const { hasPermission, role } = useAuth();
   const canManage = hasPermission('inventory:manage');
+  const isSuperAdmin = role === 'SUPER_ADMIN';
   const { data: branches } = useBranches();
 
   const [branchId, setBranchId] = useState('');
@@ -92,16 +111,24 @@ export function InventoryPage() {
   const [creating, setCreating] = useState(false);
   const [adjustFor, setAdjustFor] = useState<ProductView | null>(null);
   const [lotUsageId, setLotUsageId] = useState<string | null>(null);
+  const [assignFor, setAssignFor] = useState<ProductView | null>(null);
+  const [detailFor, setDetailFor] = useState<ProductView | null>(null);
+  // 9C — M3 ໝວດ + M1 ໜ່ວຍ (dialog ຈັດການ)
+  const [categoryId, setCategoryId] = useState('');
+  const [uomOpen, setUomOpen] = useState(false);
+  const [catOpen, setCatOpen] = useState(false);
+  const { data: categories } = useProductCategories(branchId || undefined);
 
   const filters: ProductFilters = {
     q: q || undefined,
     branchId: branchId || undefined,
     lowStock: lowOnly ? 'true' : undefined,
+    categoryId: categoryId || undefined,
     page,
     pageSize,
   };
   const { data, isLoading } = useProducts(filters);
-  const { data: stats, isLoading: statsLoading } = useInventoryStats(branchId || undefined);
+  const { data: stats, isLoading: statsLoading } = useInventoryStats(branchId || undefined, categoryId || undefined);
   // C5 — lot ທີ່ໃກ້/ໝົດອາຍຸແລ້ວ (ຮວມ lot ທີ່ໝົດອາຍຸແລ້ວແຕ່ຍັງມີສະຕັອກ).
   const { data: expiring, isLoading: expiringLoading } = useStockLots({
     branchId: branchId || undefined,
@@ -139,8 +166,48 @@ export function InventoryPage() {
                   {t('inventory.lot.tag')}
                 </span>
               ) : null}
+              {row.original.trackLot && row.original.unlottedQty > 0 ? (
+                canManage ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setAssignFor(row.original);
+                    }}
+                    title={t('inventory.unlotted.assignHint')}
+                    className="rounded-full bg-warning-soft px-1.5 py-0.5 text-2xs font-medium tabular-nums text-warning transition-colors hover:bg-warning/20"
+                  >
+                    {t('inventory.unlotted.chip', { qty: row.original.unlottedQty.toLocaleString() })}
+                  </button>
+                ) : (
+                  <span className="rounded-full bg-warning-soft px-1.5 py-0.5 text-2xs font-medium tabular-nums text-warning">
+                    {t('inventory.unlotted.chip', { qty: row.original.unlottedQty.toLocaleString() })}
+                  </span>
+                )
+              ) : null}
+              {row.original.abcClass ? (
+                <StatusPill
+                  status={`abc-${row.original.abcClass}`}
+                  variant={row.original.abcClass === 'A' ? 'primary' : row.original.abcClass === 'B' ? 'info' : 'neutral'}
+                  label={t('inventory.abc.pill', { cls: row.original.abcClass })}
+                />
+              ) : null}
             </div>
-            <div className="text-xs text-muted-foreground tabular-nums">{row.original.sku}</div>
+            <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground tabular-nums">
+              <span>{row.original.sku}</span>
+              {row.original.gtin || row.original.barcode ? (
+                <span className="inline-flex items-center gap-1 font-mono">
+                  <Barcode className="h-3 w-3" aria-hidden="true" />
+                  {row.original.gtin ?? row.original.barcode}
+                </span>
+              ) : null}
+              {row.original.categoryName ? (
+                <span className="inline-flex items-center gap-1">
+                  <FolderTree className="h-3 w-3" aria-hidden="true" />
+                  {row.original.categoryName}
+                </span>
+              ) : null}
+            </div>
           </div>
         ),
       },
@@ -189,6 +256,14 @@ export function InventoryPage() {
                   style={{ width: `${ratio * 100}%` }}
                 />
               </span>
+              {p.reservedQty > 0 || p.onOrderQty > 0 ? (
+                <span className="text-[11px] tabular-nums text-muted-foreground">
+                  {t('inventory.reserve.inline', { reserved: p.reservedQty, available: p.availableQty, onOrder: p.onOrderQty })}
+                </span>
+              ) : null}
+              {p.shortForUpcoming ? (
+                <StatusPill status="short" variant="danger" label={t('inventory.reserve.short')} />
+              ) : null}
             </div>
           );
         },
@@ -197,9 +272,14 @@ export function InventoryPage() {
         header: t('inventory.col.min'),
         accessorKey: 'minStockQty',
         meta: { align: 'right' },
-        cell: ({ getValue }) => (
-          <span className="tabular-nums text-muted-foreground">
-            {(getValue() as number).toLocaleString()}
+        cell: ({ row }) => (
+          <span className="inline-flex flex-col items-end tabular-nums text-muted-foreground">
+            {row.original.minStockQty.toLocaleString()}
+            {row.original.reorderThreshold > row.original.minStockQty ? (
+              <span className="text-[11px]" title={t('inventory.reorder.ropHint')}>
+                {t('inventory.reorder.rop', { value: row.original.reorderThreshold })}
+              </span>
+            ) : null}
           </span>
         ),
       },
@@ -307,7 +387,11 @@ export function InventoryPage() {
             tone="danger"
             label={t('inventory.stat.out')}
             value={stats?.outOfStockCount ?? '—'}
-            hint={t('inventory.stat.outHint')}
+            hint={
+              stats?.shortForUpcomingCount
+                ? t('inventory.reserve.shortHint', { count: stats.shortForUpcomingCount })
+                : t('inventory.stat.outHint')
+            }
           />
           <InventoryStatCard
             index={3}
@@ -345,6 +429,8 @@ export function InventoryPage() {
         days={LOT_WATCH_DAYS}
         onSelect={(l) => setLotUsageId(l.id)}
       />
+
+      {canManage ? <AdjustApprovalsCard branchId={branchId || undefined} canApprove={isSuperAdmin} /> : null}
 
       {selectedBranch ? (
         <div
@@ -398,14 +484,33 @@ export function InventoryPage() {
           setPage(1);
         }}
         searchPlaceholder={t('inventory.searchPlaceholder')}
-        hasActiveFilters={Boolean(branchId) || lowOnly}
+        hasActiveFilters={Boolean(branchId) || lowOnly || Boolean(categoryId)}
         onClear={() => {
           setBranchId('');
           setQ('');
           setLowOnly(false);
+          setCategoryId('');
           setPage(1);
         }}
       >
+        <ScanInput
+          className="w-[190px]"
+          branchId={branchId || undefined}
+          onFound={(r) => setDetailFor(r.product)}
+        />
+        <Select
+          className="h-9 w-[170px]"
+          value={categoryId}
+          onChange={(e) => {
+            setCategoryId(e.target.value);
+            setPage(1);
+          }}
+          options={[
+            { value: '', label: t('inventory.category.all') },
+            ...(categories ?? []).map((c) => ({ value: c.id, label: c.parentId ? `↳ ${c.name}` : c.name })),
+          ]}
+          aria-label={t('inventory.category.label')}
+        />
         <Select
           className="h-9 w-[170px]"
           value={branchId}
@@ -441,6 +546,68 @@ export function InventoryPage() {
               {t('inventory.showing', { shown: data?.items.length ?? 0, total: data?.total ?? 0 })}
             </span>
           </div>
+          {canManage ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="secondary" size="sm" className="h-8 gap-1" onClick={() => setUomOpen(true)}>
+                <Ruler className="h-3.5 w-3.5" aria-hidden="true" />
+                {t('inventory.uom.manage')}
+              </Button>
+              <Button variant="secondary" size="sm" className="h-8 gap-1" onClick={() => setCatOpen(true)}>
+                <FolderTree className="h-3.5 w-3.5" aria-hidden="true" />
+                {t('inventory.category.manage')}
+              </Button>
+              <InventoryExportButton<StockLotView>
+                base="/stock-lots"
+                params={{ branchId: branchId || undefined }}
+                filename="stock-lots"
+                label={t('inventory.export.lots')}
+                columns={[
+                  { header: t('inventory.col.product'), value: (l) => l.productName },
+                  { header: t('inventory.col.sku'), value: (l) => l.sku },
+                  { header: t('inventory.col.branch'), value: (l) => l.branchName },
+                  { header: t('inventory.lot.number'), value: (l) => l.lotNumber },
+                  { header: t('inventory.lot.expiry'), value: (l) => l.expiryDate ?? '' },
+                  { header: t('inventory.lot.mfg'), value: (l) => l.mfgDate ?? '' },
+                  { header: t('inventory.lot.qtyOnHand'), value: (l) => l.qtyOnHand },
+                  { header: t('inventory.col.unit'), value: (l) => l.unit },
+                  { header: t('inventory.ledger.unitCost'), value: (l) => l.unitCost },
+                  { header: t('inventory.lot.daysLeft'), value: (l) => l.daysLeft ?? '' },
+                  { header: t('inventory.export.status'), value: (l) => t(`inventory.lotStatus.${l.status}`) },
+                ]}
+              />
+              <InventoryExportButton<ProductView>
+                base="/products"
+                params={{
+                  q: q || undefined,
+                  branchId: branchId || undefined,
+                  lowStock: lowOnly ? 'true' : undefined,
+                  categoryId: categoryId || undefined,
+                }}
+                filename="products"
+                columns={[
+                  { header: t('inventory.col.product'), value: (p) => p.name },
+                  { header: t('inventory.col.sku'), value: (p) => p.sku },
+                  { header: 'GTIN', value: (p) => p.gtin ?? '' },
+                  { header: 'Barcode', value: (p) => p.barcode ?? '' },
+                  { header: t('inventory.category.label'), value: (p) => p.categoryName ?? '' },
+                  { header: 'ABC', value: (p) => p.abcClass ?? '' },
+                  { header: t('inventory.col.branch'), value: (p) => p.branchName },
+                  { header: t('inventory.col.unit'), value: (p) => p.unit },
+                  { header: t('inventory.col.stock'), value: (p) => p.stockQty },
+                  { header: t('inventory.col.min'), value: (p) => p.minStockQty },
+                  { header: t('inventory.reserve.reserved'), value: (p) => p.reservedQty },
+                  { header: t('inventory.reserve.available'), value: (p) => p.availableQty },
+                  { header: t('inventory.reserve.onOrder'), value: (p) => p.onOrderQty },
+                  { header: t('inventory.reorder.threshold'), value: (p) => p.reorderThreshold },
+                  { header: t('inventory.col.cost'), value: (p) => p.costPrice },
+                  { header: t('inventory.col.value'), value: (p) => p.stockValue },
+                  { header: t('inventory.lot.tag'), value: (p) => (p.trackLot ? 'Y' : '') },
+                  { header: t('inventory.detail.unlotted'), value: (p) => (p.trackLot ? p.unlottedQty : '') },
+                  { header: t('inventory.export.active'), value: (p) => (p.isActive ? 'Y' : 'N') },
+                ]}
+              />
+            </div>
+          ) : null}
         </div>
         <div className="p-2 sm:p-3">
           <DataTable
@@ -448,6 +615,7 @@ export function InventoryPage() {
             data={data?.items ?? []}
             loading={isLoading}
             getRowId={(r) => r.id}
+            onRowClick={(r) => setDetailFor(r)}
             emptyTitle={t('inventory.empty')}
           />
         </div>
@@ -477,9 +645,23 @@ export function InventoryPage() {
       <AdjustDialog
         product={adjustFor}
         branches={branches ?? []}
+        isSuperAdmin={isSuperAdmin}
         onClose={() => setAdjustFor(null)}
       />
+      <AssignUnlottedDialog product={assignFor} onClose={() => setAssignFor(null)} />
+      <UomManagerDialog open={uomOpen} onClose={() => setUomOpen(false)} canEdit={isSuperAdmin} />
+      <ProductCategoriesDialog
+        open={catOpen}
+        onClose={() => setCatOpen(false)}
+        isSuperAdmin={isSuperAdmin}
+        branchId={branchId || undefined}
+      />
       <LotUsageDialog lotId={lotUsageId} onClose={() => setLotUsageId(null)} />
+      <ProductDetailSheet
+        product={detailFor}
+        onClose={() => setDetailFor(null)}
+        onLotUsage={(id) => setLotUsageId(id)}
+      />
     </div>
   );
 }
@@ -500,6 +682,24 @@ function ProductDialog({
   const isEdit = Boolean(product);
   // C5 — ເລກ lot ຂອງຍອດເປີດ (ໃຊ້ສະເພາະຕອນສ້າງໃໝ່ + trackLot + openingStock > 0)
   const [openingLot, setOpeningLot] = useState<LotDraft>(EMPTY_LOT);
+  // 9C — M1 ອັດຕາແປງ (state ແຍກຈາກ form ຄື openingLot) + ລາຍການໜ່ວຍ/ໝວດ
+  const { data: uoms } = useUoms();
+  const { data: categories } = useProductCategories();
+  const [convs, setConvs] = useState<ConversionDraft[]>([]);
+  const [convsFor, setConvsFor] = useState<string | null | undefined>(undefined);
+  const key = open ? (product?.id ?? 'new') : null;
+  if (key !== convsFor) {
+    setConvsFor(key);
+    setConvs(
+      (product?.conversions ?? []).map((c) => ({
+        uomId: c.uomId,
+        factorToBase: String(c.factorToBase),
+        isPurchaseDefault: c.isPurchaseDefault,
+        isConsumeDefault: c.isConsumeDefault,
+      })),
+    );
+  }
+  const emptyToNull = (v: unknown) => (typeof v === 'string' && v.trim() === '' ? null : v);
 
   const form = useForm<ProductCreateInput>({
     resolver: zodResolver(productCreateSchema),
@@ -508,11 +708,17 @@ function ProductDialog({
       name: product?.name ?? '',
       sku: product?.sku ?? '',
       unit: product?.unit ?? '',
+      baseUomId: product?.baseUomId ?? null,
+      gtin: product?.gtin ?? null,
+      barcode: product?.barcode ?? null,
+      categoryId: product?.categoryId ?? null,
       costPrice: product?.costPrice ?? 0,
       openingStock: 0,
       minStockQty: product?.minStockQty ?? 5,
       isActive: product?.isActive ?? true,
       trackLot: product?.trackLot ?? false,
+      isSellable: product?.isSellable ?? false,
+      retailPrice: product?.retailPrice ?? null,
     },
   });
 
@@ -522,17 +728,30 @@ function ProductDialog({
       toast.error(t('inventory.lot.openingRequired'));
       return;
     }
+    if (!values.unit && !values.baseUomId) {
+      toast.error(t('inventory.uom.baseRequired'));
+      return;
+    }
+    const conversions = conversionsPayload(convs);
+    const unit = values.unit || undefined;
     const payload = isEdit
       ? {
           name: values.name,
           sku: values.sku,
-          unit: values.unit,
+          unit,
+          ...(values.baseUomId && values.baseUomId !== product?.baseUomId ? { baseUomId: values.baseUomId } : {}),
+          gtin: values.gtin ?? null,
+          barcode: values.barcode ?? null,
+          categoryId: values.categoryId ?? null,
+          conversions,
           costPrice: values.costPrice,
           minStockQty: values.minStockQty,
           isActive: values.isActive,
           trackLot: values.trackLot,
+          isSellable: values.isSellable,
+          retailPrice: values.retailPrice ?? null,
         }
-      : { ...values, openingLot: needsOpeningLot ? lotPayload(openingLot) : undefined };
+      : { ...values, unit, conversions, openingLot: needsOpeningLot ? lotPayload(openingLot) : undefined };
     save.mutate(
       { id: product?.id, input: payload },
       {
@@ -548,6 +767,11 @@ function ProductDialog({
 
   const isActive = form.watch('isActive');
   const trackLot = form.watch('trackLot');
+  const isSellable = form.watch('isSellable');
+  const baseUomId = form.watch('baseUomId') ?? '';
+  const unitText = form.watch('unit');
+  const baseUom = (uoms ?? []).find((u) => u.id === baseUomId);
+  const baseLabel = unitText || baseUom?.nameLo || baseUom?.name || '';
   const openingStock = form.watch('openingStock');
   const errors = form.formState.errors;
 
@@ -587,15 +811,69 @@ function ProductDialog({
                 <Field htmlFor="p-sku" label="SKU" icon={Hash} error={errors.sku?.message}>
                   <Input id="p-sku" {...form.register('sku')} aria-invalid={Boolean(errors.sku)} />
                 </Field>
+                <Field htmlFor="p-cat" label={t('inventory.category.label')} icon={FolderTree}>
+                  <Select
+                    id="p-cat"
+                    {...form.register('categoryId', { setValueAs: emptyToNull })}
+                    options={[
+                      { value: '', label: t('inventory.category.none') },
+                      ...(categories ?? []).map((c) => ({ value: c.id, label: c.parentId ? `↳ ${c.name}` : c.name })),
+                    ]}
+                  />
+                </Field>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field htmlFor="p-gtin" label={t('inventory.barcode.gtin')} icon={Barcode} hint={t('inventory.barcode.gtinHint')} error={errors.gtin?.message}>
+                  <Input
+                    id="p-gtin"
+                    inputMode="numeric"
+                    className="font-mono tabular-nums"
+                    {...form.register('gtin', { setValueAs: emptyToNull })}
+                    aria-invalid={Boolean(errors.gtin)}
+                  />
+                </Field>
+                <Field htmlFor="p-barcode" label={t('inventory.barcode.internal')} icon={Barcode} error={errors.barcode?.message}>
+                  <Input
+                    id="p-barcode"
+                    className="font-mono"
+                    {...form.register('barcode', { setValueAs: emptyToNull })}
+                    aria-invalid={Boolean(errors.barcode)}
+                  />
+                </Field>
+              </div>
+            </section>
+
+            {/* M1 — units of measure */}
+            <section className="space-y-4">
+              <SectionLabel>{t('inventory.uom.section')}</SectionLabel>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field htmlFor="p-base-uom" label={t('inventory.uom.base')} icon={Ruler} hint={t('inventory.uom.baseHint')}>
+                  <Select
+                    id="p-base-uom"
+                    {...form.register('baseUomId', { setValueAs: emptyToNull })}
+                    options={[
+                      { value: '', label: t('inventory.uom.pick') },
+                      ...(uoms ?? []).map((u) => ({ value: u.id, label: u.nameLo ? `${u.name} · ${u.nameLo}` : u.name })),
+                    ]}
+                  />
+                </Field>
                 <Field htmlFor="p-unit" label={t('inventory.unit')} icon={Ruler} error={errors.unit?.message}>
                   <Input
                     id="p-unit"
-                    {...form.register('unit')}
-                    placeholder={t('inventory.unitHint')}
+                    {...form.register('unit', { setValueAs: (v: string) => (v?.trim() ? v : undefined) })}
+                    placeholder={baseUom ? baseUom.nameLo || baseUom.name : t('inventory.unitHint')}
                     aria-invalid={Boolean(errors.unit)}
                   />
                 </Field>
               </div>
+              <UomConversionsEditor
+                rows={convs}
+                onChange={setConvs}
+                uoms={uoms ?? []}
+                baseUomId={baseUomId}
+                baseLabel={baseLabel}
+              />
             </section>
 
             {/* Branch & cost */}
@@ -708,6 +986,46 @@ function ProductDialog({
                     aria-label={t('inventory.lot.trackLot')}
                   />
                 </label>
+                {/* M13 — ຂາຍໜ້າຮ້ານ (retail/OTC) */}
+                <label className="flex cursor-pointer items-center justify-between gap-3 border-t border-border px-3.5 py-3">
+                  <span className="space-y-0.5">
+                    <span className="block text-sm font-medium text-foreground">{t('inventory.retail.sellable')}</span>
+                    <span className="block text-xs text-muted-foreground">{t('inventory.retail.sellableHint')}</span>
+                  </span>
+                  <Switch
+                    checked={isSellable}
+                    onCheckedChange={(v) => form.setValue('isSellable', v, { shouldDirty: true })}
+                    aria-label={t('inventory.retail.sellable')}
+                  />
+                </label>
+                {isSellable ? (
+                  <div className="border-t border-border px-3.5 py-3">
+                    <Field
+                      htmlFor="p-retail"
+                      label={t('inventory.retail.price', { unit: baseLabel || t('inventory.unit') })}
+                      icon={Wallet}
+                      hint={t('inventory.retail.priceHint')}
+                      error={errors.retailPrice?.message}
+                    >
+                      <div className="relative">
+                        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                          ₭
+                        </span>
+                        <Input
+                          id="p-retail"
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          className="pl-7 tabular-nums"
+                          {...form.register('retailPrice', {
+                            setValueAs: (v: unknown) => (v === '' || v == null ? null : Number(v)),
+                          })}
+                          aria-invalid={Boolean(errors.retailPrice)}
+                        />
+                      </div>
+                    </Field>
+                  </div>
+                ) : null}
               </div>
             </section>
           </div>
@@ -763,20 +1081,29 @@ function Field({
   );
 }
 
+const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
+
 function AdjustDialog({
   product,
   branches,
+  isSuperAdmin,
   onClose,
 }: {
   product: ProductView | null;
   branches: Array<{ id: string; allowNegativeStock: boolean }>;
+  isSuperAdmin: boolean;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
   const adjust = useAdjustStock();
+  const { data: adjustSettings } = useAdjustSettings();
   const [delta, setDelta] = useState('');
+  const [reason, setReason] = useState<StockAdjustReasonValue | ''>('');
   const [notes, setNotes] = useState('');
+  const [photo, setPhoto] = useState<{ contentType: (typeof PHOTO_TYPES)[number]; dataBase64: string; name: string } | null>(null);
   const [deltaError, setDeltaError] = useState<string | null>(null);
+  const [reasonError, setReasonError] = useState<string | null>(null);
   const [lot, setLot] = useState<LotDraft>(EMPTY_LOT);
 
   const branch = branches.find((b) => b.id === product?.branchId);
@@ -786,19 +1113,39 @@ function AdjustDialog({
   const willGoNegative = hasValidDelta && resultingStock < 0 && !branch?.allowNegativeStock;
 
   const DirectionIcon = deltaNum > 0 ? TrendingUp : deltaNum < 0 ? TrendingDown : ArrowUpDown;
-
-  const quickReasons = [
-    t('inventory.quickReason.count'),
-    t('inventory.quickReason.damaged'),
-    t('inventory.quickReason.received'),
-    t('inventory.quickReason.transfer'),
-  ];
+  const notesRequired = reason !== '' && STOCK_ADJUST_REASONS_REQUIRING_NOTES.includes(reason);
+  // H2 — ມູນຄ່າປະມານ (|delta| × WAC); ເກີນເກນ + ບໍ່ແມ່ນ SUPER_ADMIN → ຈະເປັນຄຳຂໍລໍອະນຸມັດ.
+  const estValue = product && hasValidDelta ? Math.abs(deltaNum) * product.costPrice : 0;
+  const needsApproval =
+    !isSuperAdmin && adjustSettings != null && estValue > adjustSettings.approvalThresholdLak;
+  const reasonOptions = STOCK_ADJUST_REASONS.filter((r) => r !== 'OPENING_BALANCE' || deltaNum >= 0);
 
   function reset() {
     setDelta('');
+    setReason('');
     setNotes('');
+    setPhoto(null);
     setDeltaError(null);
+    setReasonError(null);
     setLot(EMPTY_LOT);
+  }
+
+  function pickPhoto(file: File | undefined) {
+    if (!file) return setPhoto(null);
+    if (!PHOTO_TYPES.includes(file.type as (typeof PHOTO_TYPES)[number]) || file.size > MAX_PHOTO_BYTES) {
+      toast.error(t('inventory.adjustPhotoInvalid'));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = String(reader.result ?? '');
+      setPhoto({
+        contentType: file.type as (typeof PHOTO_TYPES)[number],
+        dataBase64: url.slice(url.indexOf(',') + 1),
+        name: file.name,
+      });
+    };
+    reader.readAsDataURL(file);
   }
 
   function step(amount: number) {
@@ -821,16 +1168,27 @@ function AdjustDialog({
       setDeltaError(t('inventory.lot.adjustRequired'));
       return;
     }
+    if (!reason) {
+      setReasonError(t('inventory.adjustReasonRequired'));
+      return;
+    }
+    if (notesRequired && !notes.trim()) {
+      setReasonError(t('inventory.adjustNotesRequired'));
+      return;
+    }
     adjust.mutate(
       {
         productId: product.id,
         delta: deltaNum,
-        notes: notes || undefined,
+        reason,
+        notes: notes.trim() || undefined,
         ...(needsLot ? { lot: lotPayload(lot) } : {}),
+        ...(photo ? { photo: { contentType: photo.contentType, dataBase64: photo.dataBase64 } } : {}),
       },
       {
-        onSuccess: () => {
-          toast.success(t('inventory.adjusted'));
+        onSuccess: (res) => {
+          if (res.outcome === 'PENDING_APPROVAL') toast.info(t('inventory.adjustPending'));
+          else toast.success(t('inventory.adjusted'));
           reset();
           onClose();
         },
@@ -964,34 +1322,74 @@ function AdjustDialog({
             ) : null}
 
             <div className="space-y-1.5">
+              <Label htmlFor="a-reason" className="flex items-center gap-1.5">
+                <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                {t('inventory.adjustReason')}
+              </Label>
+              <Select
+                id="a-reason"
+                className="h-10 w-full"
+                value={reason}
+                onChange={(e) => {
+                  setReason(e.target.value as StockAdjustReasonValue | '');
+                  setReasonError(null);
+                }}
+                options={[
+                  { value: '', label: t('inventory.adjustReasonPick') },
+                  ...reasonOptions.map((r) => ({ value: r, label: t(`inventory.adjReason.${r}`) })),
+                ]}
+                aria-invalid={Boolean(reasonError) && !reason}
+              />
+            </div>
+
+            <div className="space-y-1.5">
               <Label htmlFor="a-notes" className="flex items-center gap-1.5">
                 <MessageSquare className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
                 {t('inventory.reason')}
+                {notesRequired ? <span className="text-destructive">*</span> : null}
               </Label>
               <Input
                 id="a-notes"
                 value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder={t('inventory.reasonHint')}
+                onChange={(e) => {
+                  setNotes(e.target.value);
+                  setReasonError(null);
+                }}
+                placeholder={notesRequired ? t('inventory.adjustNotesRequired') : t('inventory.reasonHint')}
+                aria-invalid={Boolean(reasonError) && notesRequired}
               />
-              <div className="flex flex-wrap gap-1.5 pt-0.5">
-                {quickReasons.map((r) => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => setNotes(r)}
-                    className={cn(
-                      'rounded-full border px-2.5 py-1 text-2xs font-medium transition-colors duration-150 ease-out',
-                      notes === r
-                        ? 'border-primary bg-primary/10 text-primary'
-                        : 'border-border text-muted-foreground hover:bg-muted',
-                    )}
-                  >
-                    {r}
-                  </button>
-                ))}
-              </div>
+              {reasonError ? (
+                <p role="alert" className="text-xs text-destructive">
+                  {reasonError}
+                </p>
+              ) : null}
             </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="a-photo" className="flex items-center gap-1.5">
+                <Receipt className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                {t('inventory.adjustPhoto')}
+              </Label>
+              <input
+                id="a-photo"
+                type="file"
+                accept={PHOTO_TYPES.join(',')}
+                onChange={(e) => pickPhoto(e.target.files?.[0])}
+                className="block w-full text-xs text-muted-foreground file:mr-3 file:rounded-sm file:border file:border-input file:bg-card file:px-2.5 file:py-1.5 file:text-xs file:font-medium file:text-foreground"
+              />
+            </div>
+
+            {needsApproval ? (
+              <p className="flex items-start gap-1.5 rounded-lg border border-warning/40 bg-warning-soft/60 px-3 py-2 text-xs text-warning">
+                <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span>
+                  {t('inventory.adjustNeedsApproval', {
+                    value: Math.round(estValue).toLocaleString(),
+                    threshold: adjustSettings?.approvalThresholdLak.toLocaleString(),
+                  })}
+                </span>
+              </p>
+            ) : null}
 
             <div className="flex flex-col-reverse gap-2 border-t border-border pt-4 sm:flex-row sm:justify-end">
               <Button type="button" variant="secondary" onClick={onClose}>

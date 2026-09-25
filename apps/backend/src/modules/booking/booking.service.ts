@@ -14,6 +14,7 @@ import type {
 } from '@abcp/shared-types';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/database.js';
+import { syncAppointmentReservations } from '../inventory/reservation.service.js';
 import { logger } from '../../config/logger.js';
 import { waitlistQueue } from '../../jobs/queues.js';
 import { ApiError } from '../../utils/ApiError.js';
@@ -238,6 +239,26 @@ async function assertSlotFree(
   }
 }
 
+/** ຫ້ອງ/ອຸປະກອນທີ່ເລືອກຕ້ອງເປັນຂອງສາຂາທີ່ຈອງ ແລະ ເປີດໃຊ້ຢູ່ (7C.1 — ຕອນນີ້ admin ເລືອກໄດ້ໃນຟອມຈອງ). */
+async function assertResourcesUsable(
+  branchId: string,
+  roomId: string | null | undefined,
+  equipmentId: string | null | undefined,
+): Promise<void> {
+  const [room, equipment] = await Promise.all([
+    roomId ? prisma.room.findUnique({ where: { id: roomId }, select: { branchId: true, isAvailable: true } }) : null,
+    equipmentId
+      ? prisma.equipment.findUnique({ where: { id: equipmentId }, select: { branchId: true, isAvailable: true } })
+      : null,
+  ]);
+  if (roomId && (!room || room.branchId !== branchId)) throw ApiError.badRequest('ຫ້ອງນີ້ບໍ່ແມ່ນຂອງສາຂາທີ່ຈອງ');
+  if (room && !room.isAvailable) throw ApiError.conflict('ຫ້ອງນີ້ປິດໃຊ້ງານຢູ່');
+  if (equipmentId && (!equipment || equipment.branchId !== branchId)) {
+    throw ApiError.badRequest('ອຸປະກອນນີ້ບໍ່ແມ່ນຂອງສາຂາທີ່ຈອງ');
+  }
+  if (equipment && !equipment.isAvailable) throw ApiError.conflict('ອຸປະກອນນີ້ປິດໃຊ້ງານຢູ່');
+}
+
 /**
  * ສ້າງຄິວ ພ້ອມປ້ອງກັນ double-booking (Serializable tx + SELECT ... FOR UPDATE).
  */
@@ -247,6 +268,7 @@ export async function createAppointment(input: CreateAppointmentInput): Promise<
     select: { durationMinutes: true, price: true },
   });
   if (!service) throw ApiError.notFound('ບໍ່ພົບບໍລິການ');
+  await assertResourcesUsable(input.branchId, input.roomId, input.equipmentId);
 
   const startAt = input.startAt;
   const endAt = addMinutes(startAt, service.durationMinutes);
@@ -593,6 +615,8 @@ export async function cancelAppointment(
       include: APPOINTMENT_INCLUDE,
     });
     await restorePackageUnit(tx, row.userPackageItemId);
+    // H7 — ປົດການຈອງ consumable (ຖ້ານັດຢືນຢັນແລ້ວ).
+    await syncAppointmentReservations(tx, id);
     return row;
   });
 
@@ -650,6 +674,8 @@ export async function rescheduleAppointment(
       where: { id },
       data: { staffProfileId, startAt, endAt, status: 'PENDING' },
     });
+    // H7 — ເລື່ອນນັດກັບເປັນ PENDING → ປົດການຈອງ (ຈອງຄືນເມື່ອຢືນຢັນອີກຄັ້ງ).
+    await syncAppointmentReservations(tx, id);
   });
 
   const refreshed = await prisma.appointment.findUniqueOrThrow({

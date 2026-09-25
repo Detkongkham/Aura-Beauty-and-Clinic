@@ -13,6 +13,43 @@
 
 ---
 
+## ✅ ສະຖານະການແກ້ໄຂ (2026-09-26) — P1 + P2 + P3 + P4 SHIPPED
+
+Migrations `20260926090000_payroll_integrity` + `20260926100000_payroll_runs_payslips` (apply ແລ້ວທັງ dev ແລະ test DB).
+
+| ລາຍການ | ສະຖານະ | ບ່ອນ |
+|---|---|---|
+| C1 unique KPI goal | ✅ dedupe (dev ມີ 51 ກຸ່ມຊ້ຳ — ມາຈາກ `setMonth()` ລົ້ນໃນ seed-bulk, ແກ້ດ້ວຍ `skipDuplicates`) + `@@unique` + upsert | `payroll.service.ts` `recomputeGoals` |
+| C2 ຄອມຈ່າຍເມື່ອເກັບເງິນຄົບ | ✅ accrue ຕອນປິດຄິວ, ຈ່າຍໄດ້ເມື່ອບິນ FULLY_PAID/REFUNDED ຫຼື ແພັກເກັດ/ຍອດ 0; `commissionHeld` ໃນ report; ປິດໄດ້ດ້ວຍ setting | `payroll/commission.ts` |
+| C3 ຫຼັກຖານການຈ່າຍ | ✅ `paidAt/paidById`, `bonusPaidAt/bonusPaidById`, AuditLog ພ້ອມ old/new (middleware ກາງຂ້າມ /payroll), un-pay ຕ້ອງມີເຫດຜົນ | `auditPayroll` |
+| C4 scope ສາຂາ | ✅ BRANCH_ADMIN ຖືກບັງຄັບເປັນສາຂາຕົນທຸກ endpoint (ອ່ານ/ຂຽນ/CSV/payslip) | `payroll.routes.ts` `actorOf/scopedQuery` |
+| G4.1 travelFee | ✅ ຖານຄອມ = ຍອດ − ຄ່າເດີນທາງ (ໃຊ້ helper ດຽວ `accrueCommission` ທັງ 2 ຈຸດ); ແຖວທີ່ຈ່າຍແລ້ວບໍ່ຖືກແກ້ | `commission.ts` |
+| G4.4 | ບໍ່ຕ້ອງແກ້ — `>=` ກັບ `>` ໃຫ້ໂບນັດ 0 ຄືກັນເມື່ອພໍດີເປົ້າ | — |
+| G4.5 recompute N+1 | ✅ groupBy ດຽວ + transaction; ລາຍຮັບຈິງລວມທຸກສາຂາ; ໂບນັດທີ່ຈ່າຍແລ້ວບໍ່ປ່ຽນ | `recomputeGoals` |
+| G2 PayrollRun + Payslip | ✅ ໜຶ່ງຮອບ/ສາຂາ/ເດືອນ (ພະນັກງານເຂົ້າຮອບສາຂາຫຼັກ), DRAFT→APPROVED→PAID, reopen ພ້ອມເຫດຜົນ, snapshot | `payroll-run.service.ts` |
+| G3.1 ປິດງວດ | ✅ ໃບຮັບຄອມທີ່ຍັງບໍ່ຈ່າຍຂອງນັດກ່ອນທ້າຍເດືອນ (ທຸກເດືອນ) → ນັດປິດຍ້ອນຫຼັງໄຫຼເຂົ້າຮອບຖັດໄປ; ຮອບ APPROVED ລັອກລາຍການເພີ່ມ/ຫັກ + ປຸ່ມຈ່າຍແບບເກົ່າ | |
+| G3.2 ອະນຸມັດ | ✅ ກຽມ = BRANCH_ADMIN/SUPER_ADMIN; ອະນຸມັດ/ຈ່າຍ/ເປີດຄືນ/ແກ້ເງິນເດືອນ/ຕັ້ງຄ່າ = SUPER_ADMIN | |
+| G3.3 ລົງລາຍຈ່າຍ | ✅ ຕອນ PAID ລົງ Expense ໝວດ SALARY = ເງິນເດືອນ/OT/ເງິນເພີ່ມ + SSO ນາຍຈ້າງ (ຄອມ/ໂບນັດ ບໍ່ລົງ ເພາະ P&L ນັບແບບ accrual ແລ້ວ) | |
+| G1.1–G1.5 | ✅ `salaryType` NONE/MONTHLY/DAILY/HOURLY + `baseSalary` + `ssoEnrolled`; OT ຈາກ attendance (ມື້ OVERTIME ເກີນຊົ່ວໂມງມາດຕະຖານ × 1.5); ຫັກມື້ຂາດ; `PayrollAdjustment` (ເງິນເພີ່ມ/ເບີກ/ປັບ/ອື່ນ); SSO 5.5%/6% ເພດານ 4.5M; PIT ຂັ້ນໄດ 0–25% | `payroll-calc.ts` (pure) |
+| G5.1 ໃບຈ່າຍເງິນ PDF | ✅ ພິມ/ບັນທຶກ PDF ຈາກ browser (PayslipDialog) | web-admin `PayRunDialogs.tsx` |
+| G5.2 payslip ໃນມືຖື | ✅ `GET /staff-portal/payslips` + card ໃນ StaffEarningsScreen | |
+| G5.6 ແຈ້ງຕອນຈ່າຍ | ✅ `PAYSLIP_PAID` notification ຕໍ່ຄົນ | |
+
+**⚠️ ຕ້ອງໃຫ້ນັກບັນຊີກວດ:** ອັດຕາ PIT/SSO/ເພດານ ເປັນຄ່າເລີ່ມຕົ້ນຕາມຄວາມເຂົ້າໃຈ — ແກ້ໄດ້ໃນ Payroll ▸ ຮອບຈ່າຍເງິນ ▸ ຕັ້ງຄ່າ (`AppSetting payroll.settings`).
+
+**ຮອບ 2 (2026-09-26, migrations `20260926110000_service_commission_rules` + `20260926120000_payroll_run_bank_account`):**
+G1.8 ອັດຕາຄອມຕໍ່ບໍລິການ (`ServiceCommissionRule`, ຕັ້ງຄ່າ ▸ ອັດຕາຕໍ່ບໍລິການ) · G3.5 ເພດານຈ່າຍດ່ວນຂອງ BRANCH_ADMIN (`quickPayLimitLak`, ຄ່າເລີ່ມ 5M) ·
+G4.3 ຮອບຈ່າຍ refresh ໂບນັດ KPI ຈາກລາຍຮັບລ່າສຸດກ່ອນສ້າງໃບ · G5.3 ສະຫຼຸບປີ (`GET /payroll/ytd`) · G5.5 ຕັ້ງເປົ້າເປັນຊຸດ (`POST /payroll/kpi/bulk-targets`) ·
+ຈ່າຍຮອບຈາກບັນຊີທະນາຄານ (`bankAccountId` → `Expense.paidFromAccountId`). Test: `payroll-extras.test.ts` 4.
+
+**ບໍ່ເຮັດ / ຍັງເປີດ:** G1.6 ທິບ — ຈ່າຍແຍກຜ່ານ finance-ledger `payoutGratuities` (ລິ້ນຊັກ) ແລ້ວ, ບໍ່ດຶງເຂົ້າໃບຈ່າຍເງິນເພື່ອບໍ່ໃຫ້ຈ່າຍຊ້ຳ ·
+G1.7 ຄອມຂັ້ນໄດ — ໂບນັດ KPI (ສ່ວນເກີນເປົ້າ × ອັດຕາ) ເຮັດໜ້າທີ່ນີ້ຢູ່ແລ້ວ · G5.4 ເປົ້າລະດັບທີມ/ສາຂາ ·
+ລາຍຈ່າຍທີ່ລົງຕອນ PAID ເປັນສະເພາະຕົ້ນທຶນເງິນເດືອນ ສະນັ້ນຍອດຈະບໍ່ເທົ່າກັບຍອດໂອນອອກຈາກທະນາຄານ (ເຊິ່ງລວມຄ່າຄອມ) ຕອນກະທົບຍອດ.
+
+Tests: `payroll.test.ts` 13, `payroll-runs.test.ts` 8, `tests/unit/payroll-calc.test.ts` 7, web-admin `PayrollPage.test.tsx` 5.
+
+---
+
 ## 1. ສະຫຼຸບຜູ້ບໍລິຫານ
 
 ສິ່ງທີ່ເອີ້ນວ່າ "Payroll" ໃນລະບົບປັດຈຸບັນ **ຍັງບໍ່ແມ່ນ payroll** — ມັນແມ່ນ

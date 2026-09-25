@@ -85,6 +85,8 @@ export type CustomerCreateAppointmentInput = z.infer<typeof customerCreateAppoin
 export const updateAppointmentStatusSchema = z.object({
   status: AppointmentStatus,
   staffNotes: z.string().max(1000).optional(),
+  /** Wave 11 — true = ບໍ່ຢຶດມັດຈຳເປັນຄ່າປັບ no-show / ຍົກເລີກຊ້າ (ເຊັ່ນ ເຫດສຸດວິໄສ). */
+  waiveFee: z.boolean().optional(),
 });
 export type UpdateAppointmentStatusInput = z.infer<typeof updateAppointmentStatusSchema>;
 

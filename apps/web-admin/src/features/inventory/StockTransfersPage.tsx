@@ -41,6 +41,7 @@ import { useBranches } from '@/features/branches/branches.api';
 import { useConfirm } from '@/hooks/useConfirm';
 import { NormalizedApiError } from '@/services/apiError';
 
+import { InventoryExportButton } from './InventoryExportButton';
 import { InventoryStatCard } from './InventoryStatCard';
 import { InventoryTabs } from './InventoryTabs';
 import {
@@ -242,6 +243,25 @@ export function StockTransfersPage() {
               {t('inventory.showing', { shown: data?.items.length ?? 0, total: data?.total ?? 0 })}
             </span>
           </div>
+          {canManage ? (
+            <InventoryExportButton<StockTransferView>
+              base="/stock-transfers"
+              params={{ status: status || undefined, branchId: branchId || undefined }}
+              filename="stock-transfers"
+              columns={[
+                { header: t('inventory.transfer.number'), value: (tr) => tr.transferNumber },
+                { header: t('inventory.transfer.from'), value: (tr) => tr.fromBranchName },
+                { header: t('inventory.transfer.to'), value: (tr) => tr.toBranchName },
+                { header: t('inventory.transfer.status'), value: (tr) => t(`inventory.transfer.st.${tr.status}`) },
+                { header: t('inventory.transfer.items'), value: (tr) => tr.itemCount },
+                { header: t('inventory.transfer.value'), value: (tr) => tr.totalValue },
+                { header: t('inventory.transfer.sent'), value: (tr) => tr.sentAt ?? '' },
+                { header: t('inventory.transfer.received'), value: (tr) => tr.receivedAt ?? '' },
+                { header: t('inventory.ledger.by'), value: (tr) => tr.createdByUserName ?? '' },
+                { header: t('inventory.transfer.createdAt'), value: (tr) => tr.createdAt },
+              ]}
+            />
+          ) : null}
         </div>
         <div className="p-2 sm:p-3">
           <DataTable

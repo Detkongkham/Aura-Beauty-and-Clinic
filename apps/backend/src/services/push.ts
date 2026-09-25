@@ -153,3 +153,29 @@ export async function notifyUser(params: {
 
   return { delivered: true, skipped: false };
 }
+
+/**
+ * Push ຢ່າງດຽວ (ບໍ່ບັນທຶກ `NotificationLog`) — ສຳລັບເຫດການຖີ່ເຊັ່ນຂໍ້ຄວາມແຊັດ ທີ່ມີ unread ຂອງຕົນເອງ
+ * ຢູ່ໜ້າ messaging ແລ້ວ; ລົງ inbox ທຸກຂໍ້ຄວາມຈະຖ້ວມ inbox. ຍັງເຄົາລົບການຕັ້ງຄ່າ push ຂອງຜູ້ໃຊ້.
+ */
+export async function pushOnly(params: {
+  userId: string;
+  type: string;
+  title: string;
+  body: string;
+  data?: Record<string, unknown>;
+}): Promise<boolean> {
+  const { userId, type, title, body, data } = params;
+  const delivery = await deliveryFor(userId, type, 'info');
+  if (!delivery.push) return false;
+  const devices = await prisma.pushDevice.findMany({ where: { userId }, select: { token: true } });
+  if (devices.length === 0) return false;
+  const { invalidTokens } = await sendPushToTokens(
+    devices.map((d) => d.token),
+    { title, body, data: { type, ...data } },
+  );
+  if (invalidTokens.length > 0) {
+    await prisma.pushDevice.deleteMany({ where: { token: { in: invalidTokens } } });
+  }
+  return true;
+}

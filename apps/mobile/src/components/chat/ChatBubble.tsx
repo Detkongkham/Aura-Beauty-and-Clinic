@@ -125,7 +125,13 @@ function AudioBubble({
   mine: boolean;
   onLongPress?: () => void;
 }): React.JSX.Element {
-  const { isPlaying, isLoading, toggle } = useAudioPlayer(uri);
+  const { isPlaying, isLoading, toggle, positionMs, durationMs } = useAudioPlayer(uri);
+  const progress = durationMs ? Math.min(1, positionMs / durationMs) : 0;
+  const clock = (ms: number) => {
+    const s = Math.round(ms / 1000);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  };
+  const label = durationMs == null ? null : isPlaying || positionMs > 0 ? clock(positionMs) : clock(durationMs);
 
   return (
     <Touchable
@@ -144,9 +150,21 @@ function AudioBubble({
         color={mine ? colors.primaryForeground : colors.foreground}
       />
       <View className="h-1 w-24 overflow-hidden rounded-full bg-primary-foreground/30">
-        <View className={cn('h-full', isPlaying ? 'w-full' : 'w-0', mine ? 'bg-primary-foreground' : 'bg-primary')} />
+        <View
+          className={cn('h-full', mine ? 'bg-primary-foreground' : 'bg-primary')}
+          style={{ width: `${Math.round(progress * 100)}%` }}
+        />
       </View>
-      <Ionicons name="mic" size={13} color={mine ? colors.primaryForeground : colors.mutedForeground} />
+      {label ? (
+        <Text
+          className={cn('font-sans', mine ? 'text-primary-foreground' : 'text-muted-foreground')}
+          style={{ fontSize: 11, fontVariant: ['tabular-nums'] }}
+        >
+          {label}
+        </Text>
+      ) : (
+        <Ionicons name="mic" size={13} color={mine ? colors.primaryForeground : colors.mutedForeground} />
+      )}
     </Touchable>
   );
 }

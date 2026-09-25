@@ -119,6 +119,8 @@ model Appointment {
   queueTicket     QueueTicket?
   homeServiceTrip HomeServiceTrip?
   chatThread      ChatThread?
+  /// H7 — ການຈອງ consumable ຂອງນັດນີ້ (ດູ inventory.prisma StockReservation).
+  stockReservations StockReservation[]
 
   @@index([staffProfileId, startAt, endAt])
   @@index([roomId, startAt, endAt])

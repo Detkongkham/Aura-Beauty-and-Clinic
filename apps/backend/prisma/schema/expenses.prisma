@@ -75,6 +75,8 @@ model RecurringExpense {
   dayOfMonth          Int
   notes               String?
   isActive            Boolean  @default(true)
+  /// Wave 11 — template ແບ່ງຄ່າໃຊ້ຈ່າຍ [{ branchId, percent }] (ລວມ 100) → ລາຍຈ່າຍທີ່ສ້າງຈາກຮອບນີ້ໄດ້ ExpenseAllocation ຕາມນີ້.
+  allocations         Json?
   /// ເດືອນຫຼ້າສຸດທີ່ສ້າງແລ້ວ `YYYY-MM` — job ຄັດເອົາສະເພາະເດືອນທີ່ຍັງບໍ່ສ້າງ.
   lastGeneratedPeriod String?
   createdById         String
@@ -156,11 +158,14 @@ model CashFundEntry {
   /// COUNT: ຈຳນວນທີ່ນັບໄດ້ຈິງ
   countedAmount Decimal?          @db.Decimal(16, 2)
   expenseId     String?
+  /// Wave 11 — TOPUP ຈາກ / WITHDRAW ເຂົ້າ ບັນຊີທະນາຄານນີ້ → ເປັນ DEBIT / CREDIT ຝັ່ງລະບົບຕອນກະທົບຍອດ.
+  bankAccountId String?
   note          String?
   createdById   String
   createdAt     DateTime          @default(now())
 
-  fund      CashFund @relation(fields: [fundId], references: [id], onDelete: Cascade)
+  fund        CashFund     @relation(fields: [fundId], references: [id], onDelete: Cascade)
+  bankAccount BankAccount? @relation(fields: [bankAccountId], references: [id])
   expense   Expense? @relation(fields: [expenseId], references: [id])
   createdBy User     @relation("CashFundEntryCreatedBy", fields: [createdById], references: [id])
 

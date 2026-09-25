@@ -11,6 +11,15 @@ function num(v: string | null, dflt: number) {
 }
 
 export const serviceHandlers = [
+  // No object storage in mock mode — hand the uploaded image back as a data URL.
+  http.post(api('/services/images'), async ({ request }) => {
+    await delay();
+    const body = (await request.json().catch(() => ({}))) as { contentType?: string; dataBase64?: string };
+    if (!body.contentType || !body.dataBase64) return fail(400, 'VALIDATION_ERROR', 'ໄຟລ໌ບໍ່ຖືກຕ້ອງ');
+    return ok({ url: `data:${body.contentType};base64,${body.dataBase64}` }, { status: 201 });
+  }),
+  http.post(api('/services/images/discard'), async () => ok({ deleted: false })),
+
   http.get(api('/service-categories'), async () => {
     await delay(120);
     return ok({ items: db.categories });

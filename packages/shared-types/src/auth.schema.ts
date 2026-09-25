@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { UserRole } from './enums.js';
 import { PermissionKey } from './permission.schema.js';
+import { portalPrefsSchema } from './portal.schema.js';
 
 /** ເບີໂທລາວ/ສາກົນ ແບບຢືດຢຸ່ນ: ຕົວເລກ 8–15 ຫຼັກ, ອາດมี "+" ນຳ. */
 export const phoneSchema = z
@@ -35,13 +36,38 @@ export const refreshSchema = z.object({
 });
 export type RefreshInput = z.infer<typeof refreshSchema>;
 
-/** ຮູບໂປຣໄຟລ໌: data URL (ຍໍ່ຝັ່ງ client ≤256px) ຫຼື https URL. ~300KB ພໍສຳລັບ JPEG 256px. */
+/**
+ * Avatar ກາຕູນ 3D ທີ່ຜູ້ໃຊ້ເລືອກເອງ — ເກັບໃນ `User.avatarUrl` ເປັນ token `pack:NN`
+ * (01…AVATAR_PACK_SIZE). web (`public/avatars/3d`) + mobile (`assets/avatars/3d`) ມີຊຸດ
+ * ດຽວກັນ, ດັ່ງນັ້ນເລກດຽວກັນ = ໜ້າດຽວກັນທັງສອງຝັ່ງ. ບໍ່ມີ token → ໃຊ້ hash ຊື່ຄືເກົ່າ.
+ */
+export const AVATAR_PACK_SIZE = 47;
+const PACK_AVATAR_RE = /^pack:(\d{2})$/;
+
+/** 1-based pack index → token `pack:07`. */
+export function packAvatarToken(index: number): string {
+  return `pack:${String(index).padStart(2, '0')}`;
+}
+
+/** token `pack:NN` → 1-based index, ຫຼື null ຖ້າບໍ່ແມ່ນ token ທີ່ຖືກຕ້ອງ. */
+export function parsePackAvatar(value: string | null | undefined): number | null {
+  const m = value ? PACK_AVATAR_RE.exec(value) : null;
+  if (!m) return null;
+  const n = Number(m[1]);
+  return n >= 1 && n <= AVATAR_PACK_SIZE ? n : null;
+}
+
+/** ຮູບໂປຣໄຟລ໌: data URL (ຍໍ່ຝັ່ງ client ≤256px), https URL ຫຼື token avatar `pack:NN`. ~300KB ພໍສຳລັບ JPEG 256px. */
 export const avatarUrlSchema = z
   .string()
   .max(300_000)
-  .refine((v) => /^data:image\/(png|jpe?g|webp);base64,/.test(v) || /^https?:\/\//.test(v), {
-    message: 'ຮູບບໍ່ຖືກຕ້ອງ',
-  });
+  .refine(
+    (v) =>
+      /^data:image\/(png|jpe?g|webp);base64,/.test(v) ||
+      /^https?:\/\//.test(v) ||
+      parsePackAvatar(v) !== null,
+    { message: 'ຮູບບໍ່ຖືກຕ້ອງ' },
+  );
 
 /** PATCH /auth/me — ແກ້ໄຂໂປຣໄຟລ໌ຕົນເອງ (ຊື່ / ອີເມວ / ຮູບ). ເບີໂທ + role ປ່ຽນບໍ່ໄດ້ຢູ່ນີ້. */
 export const updateProfileSchema = z
@@ -286,6 +312,8 @@ export const userPreferencesSchema = z.object({
   tableDensity: z.enum(['standard', 'compact']).optional(),
   /** mobile tone preset. */
   mobileTone: z.string().max(20).optional(),
+  /** web-admin /portal launcher — pins (ordered), recent modules, layout. Replaced wholesale on PATCH. */
+  portal: portalPrefsSchema.optional(),
   notifications: z
     .object(
       Object.fromEntries(NOTIFICATION_PREF_MODULES.map((m) => [m, notificationChannelPrefSchema.optional()])) as Record<

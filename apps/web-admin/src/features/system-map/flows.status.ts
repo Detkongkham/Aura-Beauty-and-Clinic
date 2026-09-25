@@ -1,0 +1,185 @@
+import { edge, L, type EdgeKind, type Flow, type MapNode, type Text } from './systemMap.types';
+
+type State = [code: string, lane: 'main' | 'exception', col: number, desc: Text, tone?: MapNode['tone']];
+type Move = [from: string, to: string, kind: EdgeKind, label?: Text];
+
+/** Status machines share one shape: `main` lane = happy path, `exception` lane = exits. */
+function machine(id: string, title: Text, enumName: string, states: State[], moves: Move[]): Flow {
+  return {
+    id: `status-${id}`,
+    group: 'status',
+    title,
+    summary: L(`enum ${enumName} — ${states.length} ສະຖານະ`, `enum ${enumName} — ${states.length} states`),
+    nodes: states.map(([code, lane, col, desc, tone]) => ({
+      id: code,
+      lane,
+      col,
+      title: L(code, code),
+      desc,
+      statuses: [code],
+      tone,
+    })),
+    edges: moves.map(([from, to, kind, label]) => edge(from, to, kind, label)),
+  };
+}
+
+export const statusFlows: Flow[] = [
+  machine('appointment', L('ສະຖານະ: ນັດໝາຍ', 'Status: Appointment'), 'AppointmentStatus', [
+    ['PENDING', 'main', 0, L('ຈອງແລ້ວ ລໍຖ້າຢືນຢັນ/ມັດຈຳ', 'Booked, awaiting confirmation/deposit')],
+    ['CONFIRMED', 'main', 1, L('ຢືນຢັນແລ້ວ; ເຂົ້າຮອບແຈ້ງເຕືອນ', 'Confirmed; enters reminder sweep')],
+    ['IN_PROGRESS', 'main', 2, L('ພະນັກງານເລີ່ມບໍລິການ', 'Staff started the treatment')],
+    ['COMPLETED', 'main', 3, L('ສຳເລັດ → ຕັດສະຕັອກ, ຄອມມິດຊັນ', 'Done → stock + commission'), 'success'],
+    ['CANCELLED', 'exception', 1, L('ຍົກເລີກ (ພາຍໃນເວລາທີ່ອະນຸຍາດ) → waitlist', 'Cancelled (within window) → waitlist'), 'danger'],
+    ['NO_SHOW', 'exception', 2, L('ລູກຄ້າບໍ່ມາ', 'Customer did not show'), 'warning'],
+  ], [
+    ['PENDING', 'CONFIRMED', 'status', L('ແອັດມິນ / ມັດຈຳ', 'admin / deposit')],
+    ['CONFIRMED', 'IN_PROGRESS', 'status', L('ເລີ່ມ', 'start')],
+    ['IN_PROGRESS', 'COMPLETED', 'status', L('ປິດງານ', 'complete')],
+    ['PENDING', 'CANCELLED', 'status'],
+    ['CONFIRMED', 'CANCELLED', 'status'],
+    ['CONFIRMED', 'NO_SHOW', 'status', L('ເລີຍເວລາ', 'past slot')],
+  ]),
+  machine('payment', L('ສະຖານະ: ການຊຳລະ', 'Status: Payment'), 'PaymentStatus', [
+    ['PENDING', 'main', 0, L('ສ້າງແລ້ວ ຍັງບໍ່ໄດ້ຈ່າຍ', 'Created, unpaid')],
+    ['DEPOSIT_PAID', 'main', 1, L('ຈ່າຍມັດຈຳແລ້ວ', 'Deposit received')],
+    ['FULLY_PAID', 'main', 2, L('ຈ່າຍຄົບ; ລັອກດ້ວຍ DB trigger', 'Paid in full; ledger-locked'), 'success'],
+    ['REFUNDED', 'exception', 3, L('ຄືນເງິນແລ້ວ (ໃບ CN)', 'Refunded (CN note)'), 'warning'],
+    ['FAILED', 'exception', 0.5, L('ຈ່າຍບໍ່ສຳເລັດ / QR ໝົດອາຍຸ', 'Failed / QR expired'), 'danger'],
+    ['VOIDED', 'exception', 2, L('ຍົກເລີກລາຍການ', 'Voided'), 'danger'],
+  ], [
+    ['PENDING', 'DEPOSIT_PAID', 'auto', L('webhook / ສະລິບ', 'webhook / slip')],
+    ['DEPOSIT_PAID', 'FULLY_PAID', 'status', L('ຈ່າຍຍອດເຫຼືອ', 'balance')],
+    ['PENDING', 'FULLY_PAID', 'status', L('ຈ່າຍເທື່ອດຽວ', 'single tender')],
+    ['PENDING', 'FAILED', 'auto', L('ໝົດອາຍຸ', 'expired')],
+    ['FULLY_PAID', 'REFUNDED', 'status', L('ອະນຸມັດຄືນເງິນ', 'refund approved')],
+    ['FULLY_PAID', 'VOIDED', 'status'],
+  ]),
+  machine('slip', L('ສະຖານະ: ສະລິບ', 'Status: Slip Verdict'), 'SlipVerdict', [
+    ['PENDING', 'main', 0, L('ລໍຖ້າ OCR', 'Waiting for OCR')],
+    ['AUTO_MATCHED', 'main', 1, L('ຈັບຄູ່ອັດຕະໂນມັດ', 'Matched automatically'), 'success'],
+    ['NEEDS_REVIEW', 'main', 1.5, L('ຕ້ອງຄົນກວດ', 'Human review needed'), 'warning'],
+    ['APPROVED', 'main', 2.5, L('ອະນຸມັດ → ປິດຍອດ', 'Approved → settles payment'), 'success'],
+    ['REJECTED', 'exception', 2.5, L('ປະຕິເສດ', 'Rejected'), 'danger'],
+    ['DUPLICATE', 'exception', 1, L('ສະລິບຊ້ຳ', 'Duplicate slip'), 'danger'],
+    ['REVERSED', 'exception', 3.5, L('ກັບຄືນຫຼັງອະນຸມັດ', 'Reversed after approval'), 'danger'],
+  ], [
+    ['PENDING', 'AUTO_MATCHED', 'auto', L('OCR ໝັ້ນໃຈ', 'OCR confident')],
+    ['PENDING', 'NEEDS_REVIEW', 'auto'],
+    ['PENDING', 'DUPLICATE', 'auto', L('ເລກອ້າງອີງຊ້ຳ', 'same reference')],
+    ['NEEDS_REVIEW', 'APPROVED', 'status'],
+    ['NEEDS_REVIEW', 'REJECTED', 'status'],
+    ['APPROVED', 'REVERSED', 'status'],
+    ['AUTO_MATCHED', 'REVERSED', 'status'],
+  ]),
+  machine('expense', L('ສະຖານະ: ລາຍຈ່າຍ', 'Status: Expense'), 'ExpenseStatus', [
+    ['DRAFT', 'main', 0, L('ຮ່າງ', 'Draft')],
+    ['SUBMITTED', 'main', 1, L('ສົ່ງຂໍອະນຸມັດ', 'Submitted')],
+    ['APPROVED', 'main', 2, L('ອະນຸມັດ', 'Approved')],
+    ['PAID', 'main', 3, L('ຈ່າຍແລ້ວ', 'Paid'), 'success'],
+    ['REJECTED', 'exception', 2, L('ປະຕິເສດ → ແກ້ແລ້ວສົ່ງໃໝ່', 'Rejected → edit & resubmit'), 'danger'],
+    ['VOIDED', 'exception', 3.5, L('ຍົກເລີກ + ລາຍການກັບຄືນ', 'Voided + reversal'), 'danger'],
+  ], [
+    ['DRAFT', 'SUBMITTED', 'status'],
+    ['SUBMITTED', 'APPROVED', 'status'],
+    ['SUBMITTED', 'REJECTED', 'status'],
+    ['REJECTED', 'DRAFT', 'status', L('ແກ້ໄຂ', 'edit')],
+    ['APPROVED', 'PAID', 'status'],
+    ['PAID', 'VOIDED', 'status'],
+  ]),
+  machine('po', L('ສະຖານະ: ໃບສັ່ງຊື້', 'Status: Purchase Order'), 'POStatus', [
+    ['DRAFT', 'main', 0, L('ຮ່າງ', 'Draft')],
+    ['PENDING_APPROVAL', 'main', 1, L('ເກີນເກນ → ລໍຖ້າອະນຸມັດ', 'Above threshold → awaiting approval'), 'warning'],
+    ['ORDERED', 'main', 2, L('ສັ່ງຜູ້ສະໜອງແລ້ວ', 'Sent to supplier')],
+    ['PARTIALLY_RECEIVED', 'main', 3, L('ຮັບບາງສ່ວນ', 'Partly received')],
+    ['RECEIVED', 'main', 4, L('ຮັບຄົບ → PURCHASE_IN + lot', 'Fully received → PURCHASE_IN + lots'), 'success'],
+    ['CANCELLED', 'exception', 1.5, L('ຍົກເລີກ', 'Cancelled'), 'danger'],
+  ], [
+    ['DRAFT', 'PENDING_APPROVAL', 'status', L('ເກີນເກນ', 'over threshold')],
+    ['DRAFT', 'ORDERED', 'status', L('ພາຍໃນເກນ', 'within threshold')],
+    ['PENDING_APPROVAL', 'ORDERED', 'status', L('ອະນຸມັດ', 'approve')],
+    ['ORDERED', 'PARTIALLY_RECEIVED', 'status', L('ຮັບບາງສ່ວນ', 'partial')],
+    ['PARTIALLY_RECEIVED', 'RECEIVED', 'status'],
+    ['ORDERED', 'RECEIVED', 'status', L('ຮັບຄົບ', 'full')],
+    ['DRAFT', 'CANCELLED', 'status'],
+    ['PENDING_APPROVAL', 'CANCELLED', 'status', L('ປະຕິເສດ', 'reject')],
+    ['ORDERED', 'CANCELLED', 'status'],
+  ]),
+  machine('transfer', L('ສະຖານະ: ໂອນສະຕັອກ', 'Status: Stock Transfer'), 'StockTransferStatus', [
+    ['DRAFT', 'main', 0, L('ຮ່າງ', 'Draft')],
+    ['IN_TRANSIT', 'main', 1, L('ສົ່ງແລ້ວ (TRANSFER_OUT)', 'Sent (TRANSFER_OUT)')],
+    ['COMPLETED', 'main', 2, L('ຮັບແລ້ວ (TRANSFER_IN)', 'Received (TRANSFER_IN)'), 'success'],
+    ['CANCELLED', 'exception', 0.5, L('ຍົກເລີກ', 'Cancelled'), 'danger'],
+  ], [
+    ['DRAFT', 'IN_TRANSIT', 'status', L('ສົ່ງ', 'send')],
+    ['IN_TRANSIT', 'COMPLETED', 'status', L('ສາຂາປາຍທາງຮັບ', 'destination receives')],
+    ['DRAFT', 'CANCELLED', 'status'],
+  ]),
+  machine('count', L('ສະຖານະ: ນັບສະຕັອກ', 'Status: Stock Count'), 'StockCountStatus', [
+    ['DRAFT', 'main', 0, L('ຮ່າງ (FULL/CYCLE/SPOT)', 'Draft (FULL/CYCLE/SPOT)')],
+    ['COUNTING', 'main', 1, L('ກຳລັງນັບ; snapshot ສະຕັອກ', 'Counting; stock snapshot')],
+    ['PENDING_APPROVAL', 'main', 2, L('ລໍຖ້າອະນຸມັດສ່ວນຕ່າງ', 'Variance awaiting approval'), 'warning'],
+    ['POSTED', 'main', 3, L('ລົງບັນຊີ → ລາຍການປັບ', 'Posted → adjustments'), 'success'],
+    ['CANCELLED', 'exception', 1.5, L('ຍົກເລີກ', 'Cancelled'), 'danger'],
+  ], [
+    ['DRAFT', 'COUNTING', 'status', L('ເລີ່ມ', 'start')],
+    ['COUNTING', 'PENDING_APPROVAL', 'status', L('ສົ່ງ', 'submit')],
+    ['PENDING_APPROVAL', 'POSTED', 'status', L('ອະນຸມັດ', 'approve')],
+    ['PENDING_APPROVAL', 'COUNTING', 'status', L('ປະຕິເສດ', 'reject')],
+    ['COUNTING', 'CANCELLED', 'status'],
+  ]),
+  machine('home', L('ສະຖານະ: ງານນອກສະຖານທີ່', 'Status: Home Service Job'), 'HomeServiceJobStatus', [
+    ['MATCHING', 'main', 0, L('ກຳລັງຫາພະນັກງານ', 'Finding staff')],
+    ['ASSIGNED', 'main', 1, L('ມອບໝາຍແລ້ວ', 'Assigned')],
+    ['EN_ROUTE', 'main', 2, L('ກຳລັງເດີນທາງ (GPS)', 'Travelling (GPS)')],
+    ['ARRIVED', 'main', 3, L('ມາຮອດແລ້ວ', 'Arrived')],
+    ['IN_PROGRESS', 'main', 4, L('ກຳລັງບໍລິການ', 'Serving')],
+    ['COMPLETED', 'main', 5, L('ສຳເລັດ', 'Done'), 'success'],
+    ['NO_MATCH', 'exception', 0.5, L('ບໍ່ມີພະນັກງານ → ມອບດ້ວຍມື', 'No staff → manual dispatch'), 'warning'],
+    ['CANCELLED', 'exception', 2.5, L('ຍົກເລີກ', 'Cancelled'), 'danger'],
+  ], [
+    ['MATCHING', 'ASSIGNED', 'auto'],
+    ['MATCHING', 'NO_MATCH', 'auto'],
+    ['NO_MATCH', 'ASSIGNED', 'status', L('ແອັດມິນມອບ', 'admin assigns')],
+    ['ASSIGNED', 'EN_ROUTE', 'status'],
+    ['EN_ROUTE', 'ARRIVED', 'status'],
+    ['ARRIVED', 'IN_PROGRESS', 'status'],
+    ['IN_PROGRESS', 'COMPLETED', 'status'],
+    ['ASSIGNED', 'CANCELLED', 'status'],
+    ['EN_ROUTE', 'CANCELLED', 'status'],
+  ]),
+  machine('queue', L('ສະຖານະ: ຄິວໜ້າຮ້ານ', 'Status: Queue Ticket'), 'QueueTicketStatus', [
+    ['WAITING', 'main', 0, L('ລໍຖ້າ', 'Waiting')],
+    ['CALLED', 'main', 1, L('ເອີ້ນແລ້ວ (ເອີ້ນຊ້ຳໄດ້)', 'Called (recallable)')],
+    ['IN_SERVICE', 'main', 2, L('ກຳລັງບໍລິການ', 'Being served')],
+    ['COMPLETED', 'main', 3, L('ສຳເລັດ', 'Done'), 'success'],
+    ['CANCELLED', 'exception', 1.5, L('ຍົກເລີກ / ລ້າງ ticket ຄ້າງ', 'Cancelled / cleared stale'), 'danger'],
+  ], [
+    ['WAITING', 'CALLED', 'status'],
+    ['CALLED', 'IN_SERVICE', 'status'],
+    ['IN_SERVICE', 'COMPLETED', 'status'],
+    ['WAITING', 'CANCELLED', 'auto', L('clear-stale', 'clear-stale')],
+    ['CALLED', 'CANCELLED', 'status'],
+  ]),
+  machine('giftcard', L('ສະຖານະ: ບັດຂອງຂວັນ', 'Status: Gift Card'), 'GiftCardStatus', [
+    ['PENDING_PAYMENT', 'main', 0, L('ລໍຖ້າຊຳລະ', 'Awaiting payment')],
+    ['ACTIVE', 'main', 1, L('ໃຊ້ໄດ້', 'Usable'), 'success'],
+    ['DEPLETED', 'main', 2, L('ມູນຄ່າໝົດ', 'Balance used up')],
+    ['EXPIRED', 'exception', 2, L('ໝົດອາຍຸ', 'Expired'), 'warning'],
+    ['VOID', 'exception', 0.5, L('ຍົກເລີກ', 'Voided'), 'danger'],
+  ], [
+    ['PENDING_PAYMENT', 'ACTIVE', 'auto', L('ຈ່າຍແລ້ວ', 'paid')],
+    ['ACTIVE', 'DEPLETED', 'status', L('ໃຊ້ໝົດ', 'fully redeemed')],
+    ['ACTIVE', 'EXPIRED', 'auto'],
+    ['PENDING_PAYMENT', 'VOID', 'status'],
+  ]),
+  machine('refund', L('ສະຖານະ: ຄືນເງິນ', 'Status: Refund'), 'RefundStatus', [
+    ['PENDING', 'main', 0, L('ຂໍຄືນເງິນ', 'Requested')],
+    ['APPROVED', 'main', 1, L('ອະນຸມັດ', 'Approved')],
+    ['PAID', 'main', 2, L('ຈ່າຍຄືນແລ້ວ (CASH/BANK/ORIGINAL_TENDER)', 'Paid out (CASH/BANK/ORIGINAL_TENDER)'), 'success'],
+    ['REJECTED', 'exception', 1, L('ປະຕິເສດ', 'Rejected'), 'danger'],
+  ], [
+    ['PENDING', 'APPROVED', 'status'],
+    ['PENDING', 'REJECTED', 'status'],
+    ['APPROVED', 'PAID', 'status'],
+  ]),
+];

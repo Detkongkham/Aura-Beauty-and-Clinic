@@ -1,6 +1,15 @@
-import type { PayrollBreakdown, PayrollReport, PayrollRow } from '@abcp/shared-types';
+import type {
+  PayrollAdjustmentView,
+  PayrollBreakdown,
+  PayrollReport,
+  PayrollRow,
+  PayrollRunView,
+  PayrollSettings,
+  PayslipView,
+} from '@abcp/shared-types';
 import { http } from 'msw';
 
+import { db } from '../fixtures/store';
 import { api, ok } from '../helpers';
 
 /**
@@ -89,6 +98,7 @@ function buildRows(): PayrollRow[] {
       prevCompletedJobs: Math.round(s.jobs * 0.9),
       revenueDeltaPct: s.prev > 0 ? Math.round(((s.revenue - s.prev) / s.prev) * 100) : null,
       commissionLines: s.jobs,
+      commissionHeld: 0,
       attendance: { present: s.present, late: s.late, overtime: 0, absent: s.absent },
       payoutState:
         payable <= 0 ? 'CLEAR' : outstanding <= 0 ? 'CLEAR' : outstanding >= payable ? 'DUE' : 'PARTIAL',
@@ -117,6 +127,7 @@ function buildReport(monthYear: string, branchId: string | null): PayrollReport 
     monthYear,
     generatedAt: new Date().toISOString(),
     bonusRate: 0.05,
+    commissionRequiresCollection: true,
     isCurrentMonth,
     daysElapsed: elapsed,
     daysInMonth: days,
@@ -133,6 +144,7 @@ function buildReport(monthYear: string, branchId: string | null): PayrollReport 
     totals: {
       staff: rows.length,
       activeStaff: rows.filter((r) => r.isActive).length,
+      commissionHeld: 0,
       completedJobs: rows.reduce((s, r) => s + r.completedJobs, 0),
       grossRevenue,
       commissionTotal,
@@ -184,6 +196,8 @@ export const payrollHandlers = [
         commissionRate: row.commissionRate,
         payoutAmount: Math.round(300_000 * row.commissionRate),
         isPaid: i % 3 !== 0,
+        paidAt: i % 3 !== 0 ? new Date(Date.now() - i * 86_400_000).toISOString() : null,
+        collected: true,
       })),
       daily: report.daily,
       topServices: [
@@ -236,4 +250,125 @@ export const payrollHandlers = [
     const body = (await request.json()) as { staffProfileIds: string[] };
     return ok({ affected: body.staffProfileIds.length, staff: body.staffProfileIds.length });
   }),
+
+  // ---- Payroll P2/P3 — pay runs (one DRAFT run for the first branch) ----
+  http.get(api('/payroll/runs'), ({ request }) => {
+    const url = new URL(request.url);
+    const monthYear = url.searchParams.get('monthYear') ?? MONTH;
+    const branchId = url.searchParams.get('branchId');
+    const first = db.branches[0];
+    if (!first || (branchId && branchId !== first.id)) return ok([]);
+    const { payslips: _p, ...run } = mockRun(monthYear, first.id, first.name);
+    return ok([run]);
+  }),
+  http.get(api('/payroll/runs/:id'), () => {
+    const first = db.branches[0]!;
+    return ok(mockRun(MONTH, first.id, first.name));
+  }),
+  http.get(api('/payroll/payslips/:id'), () => {
+    const first = db.branches[0]!;
+    const run = mockRun(MONTH, first.id, first.name);
+    return ok({ ...run.payslips![0]!, run });
+  }),
+  http.get(api('/payroll/service-rules'), () => ok([])),
+  http.get(api('/payroll/ytd'), ({ request }) =>
+    ok({
+      year: Number(new URL(request.url).searchParams.get('year')),
+      rows: [],
+      totals: { runs: 0, grossPay: 0, commission: 0, bonus: 0, ssoEmployee: 0, ssoEmployer: 0, incomeTax: 0, netPay: 0 },
+    }),
+  ),
+  http.get(api('/payroll/adjustments'), () => ok([] satisfies PayrollAdjustmentView[])),
+  http.get(api('/payroll/settings'), () => ok(MOCK_SETTINGS)),
+  http.get(api('/payroll/staff/:staffProfileId/salary'), () =>
+    ok({ salaryType: 'MONTHLY', baseSalary: 4_000_000, ssoEnrolled: true }),
+  ),
 ];
+
+const MOCK_SETTINGS: PayrollSettings = {
+  pitBrackets: [
+    { upTo: 1_300_000, rate: 0 },
+    { upTo: 5_000_000, rate: 0.05 },
+    { upTo: 15_000_000, rate: 0.1 },
+    { upTo: 25_000_000, rate: 0.15 },
+    { upTo: 65_000_000, rate: 0.2 },
+    { upTo: null, rate: 0.25 },
+  ],
+  sso: { employeeRate: 0.055, employerRate: 0.06, wageCeiling: 4_500_000, includeVariablePay: false },
+  time: { workDaysPerMonth: 26, standardHoursPerDay: 8, overtimeMultiplier: 1.5, deductAbsence: true },
+  commissionRequiresCollection: true,
+  quickPayLimitLak: 5_000_000,
+};
+
+function mockRun(monthYear: string, branchId: string, branchName: string): PayrollRunView {
+  const slip: PayslipView = {
+    id: 'slip-1',
+    payrollRunId: 'run-1',
+    staffProfileId: 'sp-1',
+    staffName: 'ນາງ ສົມໃຈ',
+    salaryType: 'MONTHLY',
+    baseRate: 4_000_000,
+    daysPresent: 24,
+    daysAbsent: 1,
+    hoursWorked: 192,
+    overtimeHours: 4,
+    basePay: 4_000_000,
+    absenceDeduction: 153_846.15,
+    overtimePay: 115_384.62,
+    commission: 1_250_000,
+    bonus: 150_000,
+    allowances: 200_000,
+    grossPay: 5_561_538.47,
+    ssoBase: 4_161_538.47,
+    ssoEmployee: 228_884.62,
+    ssoEmployer: 249_692.31,
+    taxableIncome: 5_332_653.85,
+    incomeTax: 218_265.39,
+    advances: 300_000,
+    otherDeductions: 0,
+    clawback: 0,
+    totalDeductions: 747_150.01,
+    netPay: 4_814_388.46,
+    commissionLines: 5,
+    adjustments: [
+      { type: 'ALLOWANCE', label: 'ຄ່າອາຫານ', amount: 200_000 },
+      { type: 'ADVANCE', label: 'ເບີກລ່ວງໜ້າ', amount: 300_000 },
+    ],
+    taxBreakdown: [
+      { from: 0, to: 1_300_000, rate: 0, tax: 0 },
+      { from: 1_300_000, to: 5_000_000, rate: 0.05, tax: 185_000 },
+      { from: 5_000_000, to: 15_000_000, rate: 0.1, tax: 33_265.39 },
+    ],
+  };
+  return {
+    id: 'run-1',
+    branchId,
+    branchName,
+    monthYear,
+    status: 'DRAFT',
+    note: null,
+    preparedBy: 'Admin',
+    preparedAt: new Date().toISOString(),
+    approvedBy: null,
+    approvedAt: null,
+    paidBy: null,
+    paidAt: null,
+    paymentMethod: null,
+    paymentReference: null,
+    bankAccountLabel: null,
+    reopenCount: 0,
+    lastReopenReason: null,
+    staffCount: 1,
+    totalGross: slip.grossPay,
+    totalDeductions: slip.totalDeductions,
+    totalNet: slip.netPay,
+    totalCommission: slip.commission,
+    totalBonus: slip.bonus,
+    totalEmployerSso: slip.ssoEmployer,
+    totalIncomeTax: slip.incomeTax,
+    employerCost: slip.grossPay + slip.ssoEmployer,
+    negativeNetCount: 0,
+    expenseId: null,
+    payslips: [slip],
+  };
+}

@@ -17,6 +17,7 @@ import type {
 import { checkInWindow } from '@abcp/shared-types';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../config/database.js';
+import { syncAppointmentReservations } from '../inventory/reservation.service.js';
 import { notifyUser } from '../../services/push.js';
 import { ApiError } from '../../utils/ApiError.js';
 import { addMinutes } from '../../utils/dateHelpers.js';
@@ -478,6 +479,8 @@ export async function checkInByAppointment(
   return prisma.$transaction(async (tx) => {
     if (appt.status === 'PENDING') {
       await tx.appointment.update({ where: { id: appt.id }, data: { status: 'CONFIRMED' } });
+      // H7 — check-in ຢືນຢັນນັດ → ຈອງ consumable.
+      await syncAppointmentReservations(tx, appt.id);
     }
 
     let ticket: TicketRow;
@@ -604,6 +607,8 @@ export async function createWalkIn(input: WalkInInput): Promise<WalkInResult> {
       },
       select: { id: true },
     });
+    // H7 — walk-in ສ້າງເປັນ CONFIRMED ທັນທີ → ຈອງ consumable.
+    await syncAppointmentReservations(tx, appt.id);
 
     const ticket = await tx.queueTicket.create({
       data: {

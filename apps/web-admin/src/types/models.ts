@@ -62,6 +62,19 @@ export interface Branch {
   closeTime: string; // HH:mm
   /** Inventory audit C2 — ອະນຸຍາດໃຫ້ BOM ຕັດສະຕັອກຕິດລົບໄດ້ (backflush exception) ແທນທີ່ຈະ block. */
   allowNegativeStock: boolean;
+  email?: string | null;
+  /** 'wifi' | 'parking' | 'drink' | 'lounge' | 'kids' | 'card' — shown on the mobile service detail. */
+  amenities?: string[];
+  createdAt?: string;
+  /** Wave 11 */
+  weeklyHours?: { day: number; open: string; close: string; closed: boolean }[] | null;
+  managerUserId?: string | null;
+  managerName?: string | null;
+  coverImageUrl?: string | null;
+  photoUrls?: string[];
+  monthlyRevenueTarget?: number | null;
+  monthlyBookingTarget?: number | null;
+  archivedAt?: string | null;
 }
 
 export interface ServiceCategory {
@@ -77,6 +90,11 @@ export interface ServiceConsumable {
   productName: string;
   qtyPerUse: number;
   unit: string;
+  /** M1 (inventory 9C) — ໜ່ວຍຂອງ BOM (null = ໜ່ວຍພື້ນຖານ); ຕັດຈິງ = qtyPerUse × factorToBase. Optional for older mocks. */
+  uomId?: string | null;
+  uomCode?: string | null;
+  factorToBase?: number;
+  baseQtyPerUse?: number;
   stockQty: number;
   lowStock: boolean;
 }
@@ -95,6 +113,8 @@ export interface Service {
   durationMinutes: number;
   imageUrl: string | null;
   highlights: string[];
+  /** Wave 11 — ordered visit steps shown in the customer app. */
+  steps?: { title: string; body: string }[];
   requireDeposit: boolean;
   depositAmount: number | null;
   isActive: boolean;
@@ -319,6 +339,8 @@ export interface DashboardStats {
     unit: string;
     stockQty: number;
     minStockQty: number;
+    /** M11 — max(minStockQty, reorderPoint) (optional for older mocks). */
+    threshold?: number;
     branchName: string;
   }>;
   rating: { avg: number; count: number; distribution: number[] };

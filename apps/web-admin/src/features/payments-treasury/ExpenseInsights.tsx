@@ -293,6 +293,7 @@ function ProfitLossCard({ pnl, loading, lang }: { pnl: ProfitLossView | undefine
   const lines: { key: string; label: string; amount: number; hint?: string; tone: string }[] = [
     { key: 'refunds', label: t('payTreasury.exp.pnl.refunds'), amount: pnl.refunds, tone: 'bg-muted-foreground/40' },
     { key: 'cogs', label: t('payTreasury.exp.pnl.cogs'), amount: pnl.cogs, hint: t('payTreasury.exp.pnl.cogsHint'), tone: 'bg-[hsl(var(--chart-6))]' },
+    { key: 'shrinkage', label: t('payTreasury.exp.pnl.shrinkage'), amount: pnl.shrinkage, hint: t('payTreasury.exp.pnl.shrinkageHint'), tone: 'bg-[hsl(var(--chart-4))]' },
     { key: 'labour', label: t('payTreasury.exp.pnl.labourShort'), amount: pnl.labour.total, tone: 'bg-[hsl(var(--chart-3))]' },
     { key: 'operating', label: t('payTreasury.exp.pnl.operating'), amount: pnl.operating.total, tone: 'bg-[hsl(var(--chart-2))]' },
   ];

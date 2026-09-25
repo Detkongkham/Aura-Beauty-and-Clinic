@@ -65,6 +65,7 @@ model BankAccount {
   changeRequests   BankAccountChangeRequest[]
   statementImports BankStatementImport[]
   statementLines   BankStatementLine[]
+  cashFundEntries  CashFundEntry[]
 
   @@index([branchId, isActive])
   @@map("bank_accounts")

@@ -411,21 +411,96 @@ UI ຕ້ອງສະແດງ 3 ຕົວເລກ ບໍ່ແມ່ນຕົ�
 1. ✅ **C4 — WAC costing — DONE 2026-09-24.** `Product.costPrice` ຕອນນີ້ເປັນ WAC ຂະຫຍາຍເປັນ
    `Decimal(16,4)` (ຈາກ 2dp) ອັບເດດອັດຕະໂນມັດຕອນຮັບເຄື່ອງ (`receivePurchaseOrder`/`receiveStockTransfer`)
    ດ້ວຍສູດ `wacAfterReceipt()` ໃນ `inventory.service.ts`; `StockMovement` ເພີ່ມ `unitCost Decimal(16,4)?`
-   + `valueChange Decimal(16,2)?` ໃຫ້ທຸກປະເພດການເໜັງຕີງ (ບວກ=ຮັບເຂົ້າ ณ ຕົ້ນທຶນຮັບ, ລົບ=ຕັດອອກ/COGS
-   ณ WAC *ກ່ອນ* ຕັດ) — ໄດ້ valued ledger ຢ່າງແທ້ຈິງ, ບໍ່ backfill ແຖວເກົ່າ (null). ການປັບດ້ວຍມື
+   + `valueChange Decimal(16,2)?` ໃຫ້ທຸກປະເພດການເໜັງຕີງ (ບວກ=ຮັບເຂົ້າ àºàº²àº¡ ຕົ້ນທຶນຮັບ, ລົບ=ຕັດອອກ/COGS
+   àºàº²àº¡ WAC *ກ່ອນ* ຕັດ) — ໄດ້ valued ledger ຢ່າງແທ້ຈິງ, ບໍ່ backfill ແຖວເກົ່າ (null). ການປັບດ້ວຍມື
    (`adjustStock`) ແລະ ໂອນອອກ (`sendStockTransfer`) ບັນທຶກ unitCost/valueChange ນຳແຕ່ **ບໍ່**ປ່ຽນ WAC.
    Migration `20260924120000_inventory_wac_costing` (additive: widen costPrice ເປັນ 4dp + ເພີ່ມ 2 ຖັນ
    nullable ໃນ stock_movements) ຖືກ apply ແລ້ວທັງ dev ແລະ test DB ໂດຍບໍ່ reset ຂໍ້ມູນ.
 2. ✅ **C4b — COGS summary — DONE 2026-09-24.** `getCogsSummary()` + `GET /stock-movements/cogs-summary`
    (sum `valueChange` ຂອງ `SERVICE_CONSUMED` ຕໍ່ສາຂາ/ຊ່ວງວັນທີ) — ພ້ອມໃຫ້ Finance/Dashboard ເອົາໄປທຽບ
    ກັບລາຍຮັບໃນຮອບຕໍ່ໄປ. ໜ້າ Inventory ▸ Products ເພີ່ມ stat card "ຕົ້ນທຶນສິນຄ້າທີ່ໃຊ້ (COGS)" ຂອງ
-   ເດືອນນີ້; ໜ້າ Stock Ledger ເພີ່ມ 2 ຖັນ "ຕົ້ນທຶນ/ໜ່ວຍ" + "ມູນຄ່າ" (signed, ສີຂຽວ/ແດງ). ບໍ່ໄດ້ຜູກ COGS
-   ເຂົ້າ `finance.prisma`/P&L ໂດຍກົງ ในຮອບນີ້ (ຢູ່ນອກຂອບເຂດ — ອອກແບບເປັນ endpoint ອ່ານໄດ້ອິດສະຫຼະໄວ້ກ່ອນ)
-3. H2 — reason code + maker-checker + ແນບຮູບ
-4. H3 — Stock-take / cycle count ຄົບວົງຈອນ (backend + web-admin)
-5. M5 — PO number ແບບ sequential ຕໍ່ສາຂາ/ປີ
-6. M15 — export CSV/Excel ທຸກໜ້າ inventory
-7. ລາຍງານ: ມູນຄ່າສະຕັອກຍ້ອນຫຼັງຕາມວັນທີ, shrinkage report
+   ເດືອນນີ້; ໜ້າ Stock Ledger ເພີ່ມ 2 ຖັນ "ຕົ້ນທຶນ/ໜ່ວຍ" + "ມູນຄ່າ" (signed, ສີຂຽວ/ແດງ). ຜູກເຂົ້າ P&L
+   ແລ້ວໃນຂໍ້ 8 ລຸ່ມນີ້ (M12-lite)
+3. ✅ **H2 — reason code + maker-checker + ແນບຮູບ — DONE 2026-09-24.** Migration
+   `20260924160000_inventory_adjust_reason_maker_checker` (additive: enum `StockAdjustReason` 10 ຄ່າ +
+   `StockAdjustRequestStatus`, `StockMovement.reasonCode`/`attachmentUrl`, ຕາຕະລາງ `stock_adjustment_requests`;
+   backfill ຍອດເປີດເກົ່າເປັນ `OPENING_BALANCE`; apply ແລ້ວທັງ dev ແລະ test DB).
+   - `stockAdjustSchema` ບັງຄັບ `reason`; `notes` ບັງຄັບເມື່ອ LOST_OR_THEFT / COUNT_VARIANCE / OTHER (zod refine).
+     ຍອດເປີດຂອງສິນຄ້າໃໝ່ຖືກໝາຍ `OPENING_BALANCE` ອັດຕະໂນມັດ.
+   - **Maker-checker**: AppSetting `inventory.adjustApprovalThresholdLak` (default 1,000,000 ກີບ;
+     `GET/PUT /stock-adjustments/settings`, PUT = SUPER_ADMIN). ຜູ້ທີ່ບໍ່ແມ່ນ SUPER_ADMIN ປັບເກີນ |delta| × WAC >
+     ເກນ → `POST /stock-movements/adjust` ຕອບ **202** `{outcome:'PENDING_APPROVAL', request}` (stockQty ບໍ່ປ່ຽນ) +
+     ແຈ້ງ SUPER_ADMIN (`STOCK_ADJUST_PENDING` ຜ່ານ `notifyUser`). `POST /stock-adjustments/:id/approve` lock ແຖວຄຳຂໍ →
+     post ຜ່ານ `postAdjustment()` ດຽວກັນກັບການປັບປົກກະຕິ (lockProductRow, ກວດຕິດລົບຄືນ, FEFO) ໃນ tx ດຽວ;
+     `createdByUserId` ຂອງ ledger = ຜູ້ຍື່ນ (maker), ຜູ້ອະນຸມັດເກັບໃນຄຳຂໍ. `/reject` ຕ້ອງມີເຫດຜົນ. ປົກກະຕິຕອບ **201**
+     `{outcome:'POSTED', movement}` (response shape ປ່ຽນ — web-admin ອັບເດດແລ້ວ).
+   - **ແນບຮູບ**: `photo {contentType, dataBase64}` (JPG/PNG/WebP ≤ 5MB, ໃຊ້ `storage` ດຽວກັບ expenses) →
+     `attachmentUrl` ໃນຄຳຂໍ ແລະ ແຖວ ledger (ບໍ່ມີ hash/OCR ຄື ExpenseAttachment — ຮູບດຽວຕໍ່ການປັບ).
+   - **Web-admin**: dialog ປັບສະຕັອກມີ select ເຫດຜົນ + notes ບັງຄັບຕາມເຫດຜົນ + ແນບຮູບ + ເຕືອນ "ຈະສົ່ງຂໍອະນຸມັດ";
+     card "ການປັບສະຕັອກລໍອະນຸມັດ" ໃນໜ້າ Products (SUPER_ADMIN ອະນຸມັດ/ປະຕິເສດ/ແກ້ເກນ; BRANCH_ADMIN ເບິ່ງຢ່າງດຽວ);
+     ledger + detail dialog ສະແດງເຫດຜົນ ແລະ ຮູບ.
+4. ✅ **H3 — Stock-take / cycle count ຄົບວົງຈອນ — DONE 2026-09-25.** Migration
+   `20260925090000_inventory_stock_count` (additive: enum `StockCountStatus`/`StockCountType`, ຕາຕະລາງ `stock_counts` +
+   `stock_count_lines`; apply ແລ້ວທັງ dev ແລະ test DB). ເລກ `SC-<ລະຫັດສາຂາ>-<ປີ>-000001` ຜ່ານ `nextDocumentNo` (DocType `SC`).
+   - ວົງຈອນ `DRAFT → COUNTING → PENDING_APPROVAL → POSTED | CANCELLED` (`stock-count.service.ts`, `/stock-counts`, admin ເທົ່ານັ້ນ,
+     BRANCH_ADMIN ຖືກ scope). FULL = ທຸກສິນຄ້າ active ຂອງສາຂາ; CYCLE/SPOT = ເລືອກສິນຄ້າ. ຕອນ start: lock ແຖວສິນຄ້າ → startedAt →
+     snapshot systemQty; ສິນຄ້າ trackLot ແຕກເປັນ 1 ແຖວ/lot (qtyOnHand>0) + 1 ແຖວ "ບໍ່ມີ lot" ສຳລັບສ່ວນທີ່ເຫຼືອ.
+   - **ບໍ່ lock ສິນຄ້າລະຫວ່າງນັບ — ໃຊ້ snapshot + delta**: `variance = countedQty − (systemQty + Σ movement ສຸດທິຂອງສິນຄ້າ/lot ນັ້ນ
+     ນັບແຕ່ startedAt)` (ບໍ່ລວມແຖວ `count:<id>` ຂອງໃບເອງ); UI ເຕືອນເມື່ອມີການເໜັງຕີງລະຫວ່າງນັບ ແລະ ສະແດງຖັນ "ເໜັງຕີງລະຫວ່າງນັບ/ຄາດໄວ້".
+   - Submit ຕ້ອງນັບຄົບທຸກແຖວ. Approve: SUPER_ADMIN ສະເໝີ; BRANCH_ADMIN ເມື່ອ Σ|varianceValue| ບໍ່ເກີນ
+     `inventory.adjustApprovalThresholdLak` (ເກນດຽວກັບ H2, ເກີນ → 403 + ແຈ້ງ SUPER_ADMIN ຕອນ submit). Post ໃນ tx ດຽວ + lock
+     ສິນຄ້າ: ທຸກສ່ວນຕ່າງ ≠ 0 → ADJUSTMENT_ADD/DEDUCT reason `COUNT_VARIANCE` refId `count:<id>`; ແຖວ lot ປັບ lot ນັ້ນໂດຍກົງ (ບໍ່ FEFO)
+     ຕາມຕົ້ນທຶນ lot, ແຖວບໍ່ມີ lot ປັບຕາມ WAC ແລະ WAC ບໍ່ປ່ຽນ; ກວດ allowNegativeStock/lot/ສ່ວນບໍ່ມີ lot ບໍ່ໃຫ້ຕິດລົບ. Reject → ກັບ
+     COUNTING ພ້ອມເຫດຜົນ; Cancel ໄດ້ທຸກຂັ້ນກ່ອນ POSTED. `reconcileStock()` ສະອາດຫຼັງ post (ມີ test).
+   - Web-admin: tab "ນັບສະຕັອກ" (`/inventory/counts`, ຕ້ອງມີ `inventory:manage`) — ລາຍການ + StatusPill + stat cards, dialog ສ້າງ,
+     ໃບນັບ (ປ້ອນ countedQty ບັນທຶກບາງສ່ວນໄດ້, ສ່ວນຕ່າງມີສີ, preview live), submit/approve/reject/cancel, ພິມໃບນັບ (blind ຕອນກຳລັງນັບ).
+   - ຂໍ້ຈຳກັດ: `assign-unlotted` ລະຫວ່າງນັບ ບໍ່ຂຽນ movement ຈຶ່ງ delta ບໍ່ເຫັນ (ຢ່າມອບ lot ລະຫວ່າງມີໃບນັບເປີດ); lot ໃໝ່ທີ່ເກີດລະຫວ່າງນັບ
+     ບໍ່ຢູ່ໃນໃບ; ຍັງບໍ່ມີການນັບຜ່ານມືຖື/ສະແກນ (M2/M14).
+5. ✅ **M5 — ເລກ PO/ໃບໂອນ ແບບ sequential ຕໍ່ສາຂາ/ປີ — DONE 2026-09-24.** ໃຊ້ `nextDocumentNo()` +
+   ຕາຕະລາງ `DocumentSequence` ຂອງ wave 10 ຄືນ (ເພີ່ມ DocType `PO`/`TRF`; `INSERT … ON CONFLICT DO UPDATE` ໃນ tx
+   ດຽວກັບການສ້າງເອກະສານ → ບໍ່ຊ້ຳ, ບໍ່ຂາດ, rollback ເລກກໍ rollback). ຮູບແບບຕາມມາດຕະຖານເອກະສານອື່ນຂອງລະບົບ:
+   `PO-<ລະຫັດສາຂາ>-<ປີວຽງຈັນ>-000042` / `TRF-<ລະຫັດສາຂາຕົ້ນທາງ>-<ປີ>-000007` (ບໍ່ແມ່ນ `PO-2026-VTE-00042` ຕາມ sketch ເດີມ —
+   ເລືອກໃຫ້ກົງກັບ INV/CN/Z). ແຖວເກົ່າຮັກສາເລກ `PO-<hex>`/`TRF-<hex>` ເດີມ (ບໍ່ backfill); ຮູບແບບບໍ່ທັບກັນຈຶ່ງບໍ່ມີ
+   unique collision. Test: 8 PO ພ້ອມກັນ → ເລກຕໍ່ເນື່ອງບໍ່ຊ້ຳ.
+6. ✅ **M15 — export CSV ທຸກໜ້າ inventory — DONE 2026-09-25.** `GET …/export` ໃນ `/products`, `/stock-movements`, `/purchase-orders`,
+   `/stock-transfers`, `/stock-lots`, `/stock-counts` (admin) — ຄືນທຸກແຖວທີ່ຜ່ານຕົວກັ່ນຕອງປັດຈຸບັນ (ບໍ່ແມ່ນແຕ່ໜ້າທີ່ເຫັນ) ຜ່ານ list
+   function ເດີມ (`exportList`), ເພດານ `INVENTORY_EXPORT_MAX_ROWS` = 10,000 ແຖວ + ທຸງ `truncated`. Web-admin ປຸ່ມ "ສົ່ງອອກ CSV"
+   (`InventoryExportButton`) ໃຊ້ `downloadCsv` ຂອງ reports ຄືນ (ມີ UTF-8 BOM ໃຫ້ Excel ອ່ານລາວໄດ້).
+   ✅ **Excel/PDF (ສ່ວນທີ່ເຫຼືອ) — DONE 2026-09-26.** Excel: web-admin ບໍ່ມີ lib xlsx → ຂຽນ writer ບໍ່ມີ dependency
+   (`features/reports/lib/xlsx.ts`: OOXML 5 ພາກ ໃນ ZIP ແບບ stored + CRC32, inline string UTF-8, ຕົວເລກເປັນ numeric cell, ແຖວຫົວໜາ+freeze;
+   ກວດແລ້ວດ້ວຍ openpyxl) → `InventoryExportButton` ມີປຸ່ມ "Excel" ຄຽງ CSV ໃຊ້ແຖວຊຸດດຽວກັນ (ທຸກໜ້າ inventory + ຂາຍໜ້າຮ້ານ).
+   PDF: ໃຊ້ browser print (ພິມ → Save as PDF), ບໍ່ເພີ່ມ lib — `printDocs.ts` (popup HTML + A4 print stylesheet ແບບດຽວກັບໃບນັບ):
+   ໃບສັ່ງຊື້ (ແທນ print area ເກົ່າ), GRN (ປຸ່ມພິມຕໍ່ GRN ໃນ PO detail), ໃບຄືນສິນຄ້າ/ໃບລົດໜີ້ RTS — ເລກເອກະສານ, ສາຂາ, ຜູ້ສະໜອງ,
+   ແຖວ, ຍອດ, ເສັ້ນລາຍເຊັນ. ໃບຮັບເງິນຂາຍໜ້າຮ້ານ = `ReceiptDialog` ຂອງ finance (ສະແດງແຖວສິນຄ້າແລ້ວ).
+7. ✅ **ລາຍງານ: ມູນຄ່າສະຕັອກຍ້ອນຫຼັງ + shrinkage — DONE 2026-09-25.**
+   - `GET /stock-movements/valuation?asOf=YYYY-MM-DD&branchId` — ຈຳນວນ/ມູນຄ່າຕໍ່ສິນຄ້າ ນະທ້າຍວັນວຽງຈັນ ຄິດຈາກ ledger ລ້ວນໆ
+     (qty = Σ ຕາມທິດທາງ; value = Σ valueChange). ແຖວເກົ່າທີ່ບໍ່ມີ valueChange (ກ່ອນ C4 / ຍອດເປີດ) ຕີມູນຄ່າດ້ວຍ unitCost ທຳອິດທີ່ຮູ້ຂອງ
+     ສິນຄ້ານັ້ນ ຫຼື WAC ປັດຈຸບັນ ແລະ ໝາຍ `fallbackUsed/fallbackRows/fallbackCost`.
+   - `GET /stock-movements/shrinkage?from&to&branchId` — ມູນຄ່າສູນເສຍແຍກຕາມເຫດຜົນ ແລະ ສິນຄ້າ; ໃຊ້ `SHRINKAGE_MOVEMENT_WHERE`
+     ຮ່ວມກັບແຖວ shrinkage ຂອງ P&L (`STOCK_SHRINKAGE_REASONS` ຊຸດດຽວ). BRANCH_ADMIN ຖືກບັງຄັບສາຂາຕົນທັງ 2 ລາຍງານ.
+   - Web-admin: Reports ▸ ລາຍງານມາດຕະຖານ ▸ ກຸ່ມ "ກຳໄລ" ເພີ່ມ "ມູນຄ່າສະຕັອກ" (ເລືອກວັນທີ) + "ສະຕັອກສູນເສຍ" (ຊ່ວງວັນທີ) ດ້ວຍ
+     `LedgerTable` + export CSV.
+8. ✅ **M12-lite — COGS + shrinkage ເຂົ້າ P&L, ກຳໄລຕໍ່ບໍລິການ — DONE 2026-09-24.** ບໍ່ແມ່ນ GL double-entry:
+   - `GET /expenses/profit-loss` (P&L ລາຍເດືອນເດີມ, scope BRANCH_ADMIN ແລະ ເດືອນວຽງຈັນຄືເກົ່າ) ຕອນນີ້ຄິດ `cogs` ຈາກ
+     valued ledger = Σ −valueChange ຂອງ SERVICE_CONSUMED (`inventoryCostsBetween()` ໃນ inventory.service; ແຖວເກົ່າທີ່
+     valueChange = null ໃຊ້ qty × costPrice ປັດຈຸບັນແທນ) — ກ່ອນໜ້ານີ້ໃຊ້ qty × costPrice ປັດຈຸບັນທັງໝົດ (ຜິດຫຼັງມີ WAC).
+     ເພີ່ມແຖວ `shrinkage` = Σ −valueChange ຂອງ ADJUSTMENT_DEDUCT ທີ່ reason ຢູ່ໃນ `STOCK_SHRINKAGE_REASONS` (ທຸກເຫດຜົນ
+     ຍົກເວັ້ນ SUPPLIER_RETURN/OPENING_BALANCE; ການປັບເພີ່ມ COUNT_VARIANCE ບໍ່ຫັກລ້າງ). `grossProfit = netRevenue − cogs`,
+     `netProfit = grossProfit − shrinkage − ຄ່າແຮງ − ລາຍຈ່າຍດຳເນີນງານ` (Expense APPROVED/PAID ຄືເກົ່າ).
+   - `GET /stock-movements/service-margin?branchId&from&to` (YYYY-MM-DD ວັນວຽງຈັນ, default 30 ວັນ; admin, BRANCH_ADMIN
+     ຖືກບັງຄັບສາຂາຕົນ) — ລາຍຮັບນັດໝາຍ COMPLETED ຕໍ່ບໍລິການ − COGS ທີ່ join ດ້ວຍ `refId = appt:<id>`.
+   - Web-admin: ໜ້າ Reports ▸ ລາຍງານມາດຕະຖານ ເພີ່ມກຸ່ມ "ກຳໄລ" 2 ລາຍງານ (P&L ເດືອນນີ້ + ກຳໄລຕໍ່ບໍລິການ) ໃຊ້
+     `LedgerTable`/`ReportStatCard` + export CSV; card P&L ໃນໜ້າ Expenses ເພີ່ມແຖວ "ສະຕັອກສູນເສຍ".
+9. ✅ **Lot backfill (ສະຕັອກເກົ່າທີ່ບໍ່ມີ lot, ຕໍ່ຈາກ C5) — DONE 2026-09-24.** `ProductView.unlottedQty` = stockQty − Σ lot;
+   `POST /stock-lots/assign-unlotted {productId, lotNumber, expiryDate?, mfgDate?, qty}` lock ແຖວສິນຄ້າ ແລ້ວມອບສູງສຸດເທົ່າ
+   ສ່ວນທີ່ບໍ່ມີ lot ເຂົ້າ lot ໃໝ່/ທີ່ມີ (ຜ່ານ `receiveIntoLot`, ຕົ້ນທຶນ = WAC ປັດຈຸບັນ). stockQty ບໍ່ປ່ຽນ → **ບໍ່ຂຽນ
+   StockMovement** (ຈະເຮັດໃຫ້ reconcileStock ຜິດ) ແຕ່ບັນທຶກ `AuditLog` action `ASSIGN_UNLOTTED` ແທນ. ມອບເກີນ → 409.
+   Web-admin: chip "ບໍ່ມີ lot: N" ໃນແຖວສິນຄ້າ → dialog ມອບເຂົ້າ lot.
+   Test ຂອງຄື້ນນີ້ທັງໝົດຢູ່ `tests/integration/inventory-wave9b.test.ts` (6 test).
+10. ✅ **L4/L5 — ລາຍລະອຽດສິນຄ້າ + ຕົວກັ່ນຕອງ ledger — DONE 2026-09-25.** ຄລິກແຖວສິນຄ້າ → `ProductDetailSheet` (ຄົງເຫຼືອ, WAC,
+    ມູນຄ່າ, ບໍ່ມີ lot, ລາຍການ lot → recall, ການເໜັງຕີງຫຼ້າສຸດ, ລິ້ງ "ເປີດບັນຊີເໜັງຕີງທັງໝົດ"). ຍັງບໍ່ມີ "ຈອງ" ເພາະ H7 ຍັງບໍ່ໄດ້ເຮັດ.
+    Stock Ledger ເພີ່ມຕົວເລືອກສິນຄ້າແບບຄົ້ນຫາໄດ້ (Combobox, ຮັບ `?productId=`) ຄຽງກັບຕົວກັ່ນຕອງວັນທີ from/to (DateField) ທີ່ມີຢູ່.
+    Test ຂອງ H3/M15/ລາຍງານ ຢູ່ `tests/integration/inventory-stock-count.test.ts` (6 test).
 > **ຜົນ:** ຜ່ານການກວດສອບບັນຊີ ແລະ IAS 2 ໃນລະດັບພື້ນຖານ
 
 ### 🟡 ຄື້ນ 9C — ການສືບຍ້ອນ & ຄວາມປອດໄພຜະລິດຕະພັນ (2–3 ອາທິດ)
@@ -450,23 +525,196 @@ UI ຕ້ອງສະແດງ 3 ຕົວເລກ ບໍ່ແມ່ນຕົ�
      (3) `ADJUSTMENT_ADD` ໃນສິນຄ້າ trackLot ຕ້ອງລະບຸ lot; `ADJUSTMENT_DEDUCT` ໃຊ້ FEFO (ບໍ່ມີ pick lot ດ້ວຍມື).
      (4) ບໍ່ backfill lot ໃຫ້ສະຕັອກເກົ່າ; Σ `qtyOnHand` ຂອງ lot ອາດ < `stockQty` ໄດ້ (ສ່ວນຕ່າງ = ສະຕັອກບໍ່ມີ lot).
      (5) ການຄິດມູນຄ່າ (`stockValue`) ຍັງໃຊ້ WAC ຂອງສິນຄ້າ; COGS ຂອງແຖວ lot ໃຊ້ຕົ້ນທຶນຈິງຂອງ lot.
-2. M1 — UoM + ການແປງໜ່ວຍ
-3. M2 — barcode/GTIN + ສະແກນຜ່ານກ້ອງມືຖື
-4. M3 — ໝວດສິນຄ້າ + ABC
+> ພາກ 2 (M1, M2, M3 + ABC, dashboard low-stock) ✅ DONE 2026-09-25 — Migration `20260925210000_inventory_uom_barcode_category`
+> (additive: `uoms`, `product_uom_conversions`, `product_categories`, `Product.baseUomId/gtin/barcode/categoryId/abcClass/abcComputedAt`
+> + @@unique(branchId,gtin)/(branchId,barcode), `uomId`+`factorToBase` ໃນ `purchase_order_items`/`goods_receipt_lines`/`service_consumables`/
+> `supplier_products`; data-only backfill `baseUomId` ຈາກຂໍ້ຄວາມ `unit`; ຂໍ້ຍົກເວັ້ນດຽວ: ຂະຫຍາຍ `purchase_order_items.unitCost` 16,2 → 18,6
+> (ບໍ່ສູນເສຍຂໍ້ມູນ) ເພື່ອບໍ່ໃຫ້ ລາຄາ/ກ່ອງ ÷ 12 ປັດເສດຜິດ; apply ແລ້ວທັງ dev ແລະ test DB). Test ທັງໝົດຢູ່
+> `tests/integration/inventory-wave9c-master.test.ts` (12 test).
+2. ✅ **M1 — UoM + ການແປງໜ່ວຍ — DONE 2026-09-25.** `Uom` (code/name/nameLo/isActive, ໃຊ້ຮ່ວມທົ່ວອົງກອນ; seed 10 ໜ່ວຍ
+   piece/bottle/box/ml/g/set/pack/sachet/tube/jar ທັງໃນ migration ແລະ `seed.ts`) + `ProductUomConversion` (1 ໜ່ວຍ = factorToBase × ໜ່ວຍພື້ນຖານ,
+   isPurchaseDefault/isConsumeDefault ອັນດຽວຕໍ່ສິນຄ້າ). **ທຸກຈຳນວນທີ່ເກັບ (stockQty, ledger, lot, ການຈອງ, PO quantity/qtyReceived, GRN) ເປັນໜ່ວຍພື້ນຖານ**
+   — ແປງສະເພາະຕອນ input (`inventory-master.service.ts`: `resolveUomFactors`, `bomBaseQty`, `syncProductConversions`):
+   - PO (`itemsToBase` ໃນ `inventory.service.ts`): quantity × factor, unitCost ÷ factor (FX ຍັງໃຊ້ຄືເກົ່າ), ເກັບ uomId + factor snapshot;
+     view ມີ `uomQty/uomUnitCost`. ລາຄາຈາກລາຍການລາຄາ = unitCost ÷ factor ຂອງລາຍການລາຄາ.
+   - GRN (`postGoodsReceipt`): `uomId` ບໍ່ໃສ່ = ໜ່ວຍທີ່ສັ່ງ (factor snapshot ຂອງ PO), null = ພື້ນຖານ, ອື່ນ = ອັດຕາຂອງສິນຄ້າ → tolerance, WAC,
+     lot ແລະ ledger ຄິດເປັນໜ່ວຍພື້ນຖານ. `/receive` ເກົ່າສົ່ງຈຳນວນຄ້າງເປັນພື້ນຖານ (uomId null).
+   - BOM (`ServiceConsumable.uomId/factorToBase`, `syncConsumables` ໃນ services-admin): qtyPerUse ເກັບເປັນໜ່ວຍ BOM (ເຊັ່ນ 30 ml);
+     `consumeServiceStock` ແລະ `syncAppointmentReservations` ໃຊ້ `bomBaseQty` = qtyPerUse × factor (ແຖວເກົ່າ factor 1).
+   - ລາຍການລາຄາ `SupplierProduct.uomId/factorToBase`: unitCost + MOQ ເປັນຕໍ່ໜ່ວຍຊື້; ຄຳແນະນຳ PO ປັດຂຶ້ນໃນໜ່ວຍຊື້ × MOQ
+     (`suggestedUomQty`, ບໍ່ມີລາຍການລາຄາ → ໜ່ວຍຊື້ເລີ່ມຕົ້ນຂອງສິນຄ້າ).
+   - ແກ້ອັດຕາແປງ → ອັບເດດ snapshot ຂອງຂໍ້ມູນຫຼັກ (BOM + ລາຍການລາຄາ) ຕາມ; PO/GRN ເກົ່າຮັກສາ snapshot. ລຶບອັດຕາທີ່ຍັງຖືກໃຊ້ໃນ BOM/ລາຍການລາຄາ/PO ທີ່ເປີດ → 409.
+     ປ່ຽນໜ່ວຍພື້ນຖານໄດ້ສະເພາະສິນຄ້າທີ່ຍັງບໍ່ມີການເຄື່ອນໄຫວ (409). client ເກົ່າທີ່ສົ່ງແຕ່ `unit` → ຫາ/ສ້າງ Uom ຈາກຂໍ້ຄວາມ; ການໂອນສ້າງສິນຄ້າປາຍທາງພ້ອມໜ່ວຍ + ອັດຕາຂອງຕົ້ນທາງ.
+   - Web-admin: dialog "ໜ່ວຍນັບ", ຟອມສິນຄ້າມີໜ່ວຍພື້ນຖານ + ຕາຕະລາງອັດຕາແປງ, ແຖວ PO/ຮັບເຄື່ອງ/ລາຍການລາຄາ/BOM ບໍລິການ ເລືອກໜ່ວຍ ພ້ອມ "= N ໜ່ວຍພື້ນຖານ".
+3. ✅ **M2 — barcode/GTIN — DONE 2026-09-25.** `Product.gtin` (zod `gtinSchema`: GS1 check digit, 8/12/13/14 ຕົວ) + `barcode` (ອິດສະຫຼະ);
+   unique ຕໍ່ສາຂາ (@@unique + 409 ອ່ານງ່າຍ), soft-delete ຕໍ່ທ້າຍ `:deleted:<ts>` ຄື sku → ໃຊ້ລະຫັດຄືນໄດ້. `GET /products/lookup?code&branchId`
+   (`lookupProduct`): GTIN (ລວມຮູບແບບເຕີມ 0 ນຳໜ້າ ເຊັ່ນ EAN-13 ↔ GTIN-14) → barcode → SKU (ບໍ່ສົນຕົວພິມ), BRANCH_ADMIN/STAFF ຖືກ scope, ບໍ່ພົບ = 404;
+   ຄົ້ນລາຍການສິນຄ້າ `q` ກົງກັບ gtin/barcode ນຳ. Web-admin `ScanInput` (ເຄື່ອງສະແກນ USB = ແປ້ນພິມ + Enter): ໜ້າສິນຄ້າ (ເປີດ detail),
+   dialog ຮັບເຄື່ອງ ແລະ ໃບນັບສະຕັອກ (ໄປທີ່ແຖວ + focus ຈຳນວນ), ສ້າງໃບຄືນຜູ້ສະໜອງ (ໃສ່ແຖວ + focus ຈຳນວນ).
+   **ຍັງບໍ່ເຮັດ**: ສະແກນຜ່ານກ້ອງ ແລະ ພິມປ້າຍ barcode (web-admin ບໍ່ມີ lib barcode — ບໍ່ເພີ່ມ dependency ໜັກ); ການນັບຜ່ານມືຖືຢູ່ M14.
+4. ✅ **M3 — ໝວດສິນຄ້າ + ABC — DONE 2026-09-25.** `ProductCategory` (ຊ້ອນ 1 ຊັ້ນ, sortOrder, isActive, branchId null = ໃຊ້ຮ່ວມ/SUPER_ADMIN ເທົ່ານັ້ນ)
+   + `/product-categories` CRUD (ລຶບໄດ້ສະເພາະໝວດທີ່ບໍ່ມີສິນຄ້າ/ໝວດຍ່ອຍ). ຕົວກັ່ນ `categoryId` (ໝວດຫຼັກ = ລວມໝວດຍ່ອຍ) ໃນລາຍການສິນຄ້າ, `/products/stats`
+   ແລະ `/products/export`; `groupBy=category` ໃນ valuation / turnover / aging (`groups` + ແຖວມີ categoryName).
+   **ABC**: `GET /stock-movements/abc?from&to&branchId&basis=consumptionValue|stockValue` (`classifyAbc` ໃນ `inventory-reports.service.ts`) —
+   ລຽງມູນຄ່າຈາກຫຼາຍຫານ້ອຍ; ແຖວທີ່ສ່ວນແບ່ງສະສົມ *ກ່ອນ* ມັນ < A% = A (ສິນຄ້າທີ່ຂ້າມເສັ້ນນັບເປັນກຸ່ມເທິງ), < B% = B, ນອກນັ້ນ C; ມູນຄ່າ 0 = C.
+   consumptionValue = COGS ຂອງ SERVICE_CONSUMED ໃນຊ່ວງ (movementCost ຄື P&L); stockValue = max(stockQty,0) × WAC ປັດຈຸບັນ.
+   ເກນ AppSetting `inventory.abcA` (80) / `inventory.abcB` (95) ແກ້ໃນ `InventorySettingsDialog` (A ≤ B ກວດທັງ zod ແລະ service).
+   Job `reorder-point` ທຸກຄືນເກັບ `Product.abcClass` ຕໍ່ສາຂາ (ມູນຄ່າການໃຊ້ 90 ວັນ) → StatusPill ໃນແຖວສິນຄ້າ. Reports ▸ ມາດຕະຖານ ▸ "ການວິເຄາະ ABC" (+ CSV)
+   ແລະ ຕົວເລືອກ "ຈັດກຸ່ມຕາມ ສິນຄ້າ/ໝວດ" ໃນ 3 ລາຍງານ.
+   ✅ **ຕິດຕາມ**: widget ສະຕັອກຕ່ຳຂອງ dashboard (`dashboard.service.ts`) ໃຊ້ເກນ max(minStockQty, reorderPoint) ຄືລາຍການສິນຄ້າ (+ `threshold` ໃນ lowStockItems).
 5. M14 — ໜ້າສະຕັອກໃນແອັບມືຖື (ນັບ, ເບີກ, ສະແກນ)
+   ✅ **DONE 2026-09-26 (mobile ເທົ່ານັ້ນ, ບໍ່ແກ້ backend)** — `apps/mobile/src/screens/staff/stock/*` + `features/inventory/inventory.{api,logic}.ts`.
+   8 ໜ້າໃນ Staff Portal: ໜ້າຫຼັກສະຕັອກ (ສະຖິຕິສາຂາ + ຄົ້ນຫາ + ປຸ່ມສະແກນ), ສະແກນ (`expo-camera` ean13/ean8/upc_a/upc_e/code128/qr →
+   `/products/lookup`, ພິມລະຫັດເອງໄດ້), ລາຍລະອຽດສິນຄ້າ (ມີ/ຈອງ/ພ້ອມໃຊ້/ກຳລັງສັ່ງ, lot ສີຕາມວັນເຫຼືອ, ການເໜັງຕີງ; WAC ສະເພາະ manage),
+   ລາຍການ/ໃບນັບ (ບັນທຶກອັດຕະໂນມັດ debounce + ຮ່າງໃນ AsyncStorage, ສະແກນໂດດໄປແຖວ, blind count ສຳລັບພະນັກງານ, admin ເລີ່ມ/ອະນຸມັດ/ສົ່ງຄືນ),
+   ຮັບເຄື່ອງຈາກ PO (ຮັບ/ປະຕິເສດ, ໜ່ວຍຈາກ conversions, lot + ວັນໝົດອາຍຸ), ປັບສະຕັອກ (reason code, notes ບັງຄັບ, ຈັດການ 202 PENDING_APPROVAL).
+   ເຂົ້າຈາກປຸ່ມກ່ອງໃນຫົວໜ້າ Today + ທາງລັດໃນ Profile — ສະແດງສະເພາະ user ທີ່ມີ `inventory:view`/`inventory:manage` (ຄືກັບ `payments:review` ຂອງກ່ອງສະລິບ).
+   ✅ **Guard backend ແກ້ແລ້ວ 2026-09-26** (`inventory.routes.ts` — `staffOrAdmin()`): ທຸກ router ສາງບລັອກ CUSTOMER (ເຄີຍເຫັນ
+   `costPrice`/`stockValue` ຜ່ານ `GET /products`, `/stock-movements`, …); STAFF ຜ່ານໄດ້ສະເພາະເມື່ອຖືກມອບສິດ — `inventory:view` = ອ່ານ +
+   ນັບ (GET/PATCH lines/submit) + `GET /stock-lots`; `inventory:manage` = ສ້າງ/ເລີ່ມ/ຍົກເລີກໃບນັບ, `POST /stock-movements/adjust`
+   (maker-checker ຄືເກົ່າ), `POST /purchase-orders/:id/receipts`. ອະນຸມັດ/ສົ່ງຄືນໃບນັບ, export, `/stock-lots/:id/usage` ຍັງ admin ເທົ່ານັ້ນ.
+   admin ບໍ່ປ່ຽນພຶດຕິກຳ. Test: `tests/integration/inventory-access.test.ts` (3). ບັນທຶກເດີມ (ກ່ອນແກ້):
+   ⚠️ **ຍັງຕ້ອງແກ້ guard ຢູ່ backend** — ແອັບມືຖືຮັບສະເພາະ CUSTOMER/STAFF ຈຶ່ງບໍ່ມີ admin ໃຊ້ມືຖື; route ຂ້າງລຸ່ມເປັນ `manage`
+   (`roleGuard('SUPER_ADMIN','BRANCH_ADMIN')`) → STAFF ໄດ້ 403 (UI ສະແດງ "ຍັງບໍ່ມີສິດ"). ແນະນຳ (ຮູບແບບດຽວກັບ `/payments-treasury/slips`):
+   - `/stock-counts` GET `/`, GET `/:id`, PATCH `/:id/lines`, POST `/:id/submit` → `roleGuard(SA,BA,'STAFF') + permissionGuard('inventory:view')`
+     (ພະນັກງານນັບ); POST `/`, `/:id/start|approve|reject|cancel` → `permissionGuard('inventory:manage')` (+ STAFF ໃນ roleGuard ຖ້າຈະໃຫ້ຫົວໜ້າສາງ).
+   - `GET /stock-lots` → `roleGuard(SA,BA,'STAFF') + permissionGuard('inventory:view')` (`/:id/usage` ມີຂໍ້ມູນລູກຄ້າ — ຄົງ `manage`).
+   - `POST /purchase-orders/:id/receipts` ແລະ `POST /stock-movements/adjust` → `roleGuard(SA,BA,'STAFF') + permissionGuard('inventory:manage')`.
+   - ຂໍ້ສັງເກດ: `GET /products/:id` ແລະ `GET /products` ບໍ່ມີ guard ແລະ ສົ່ງ `costPrice`/`stockValue` ໃຫ້ທຸກ user (ລວມ CUSTOMER) — ຄວນຕັດ WAC
+     ສຳລັບຜູ້ບໍ່ມີ `inventory:manage`; service ຂອງ count/receipt ໃຊ້ `req.auth.branchId` ຢູ່ແລ້ວ (STAFF ມີ branchId) ແຕ່ຕ້ອງທົດສອບຫຼັງເປີດສິດ.
 6. ລາຍງານການສືບຍ້ອນ: lot ນີ້ຖືກໃຊ້ກັບລູກຄ້າຄົນໃດແດ່ (recall)
 > **ຜົນ:** ຜ່ານ GMP / ASEAN Cosmetic Directive, ເອີ້ນຄືນສິນຄ້າໄດ້
 
 ### 🟢 ຄື້ນ 9D — ຈັດຊື້ & ຫ່ວງໂສ້ອຸປະທານ (3–4 ອາທິດ)
-1. H4 — GRN, ຮັບບາງສ່ວນ, ຮັບເກີນ tolerance, 3-way match
-2. H5 — ຄືນສິນຄ້າຜູ້ສະໜອງ + debit note
-3. H6 — ໂອນລະຫວ່າງສາຂາ + in-transit
-4. H7 — ການຈອງ consumable ຈາກນັດໝາຍ (on hand / reserved / available)
-5. M6 — PO approval workflow + ວົງເງິນ
-6. M8/M9/M10/M20 — ຍົກລະດັບ Supplier (VAT, terms, lead time, ສະກຸນເງິນ, price list, branch scope, soft-delete)
-7. M11 — reorder point ອັດຕະໂນມັດ + ແນະນຳ PO
-8. M13 — ຂາຍສິນຄ້າໜ້າຮ້ານ (retail)
-9. ລາຍງານ: turnover, days-on-hand, stock aging, ການໃຊ້ຕໍ່ບໍລິການ
+> ພາກ 1 (H4 + 3-way match, H5, M6, M7, M18) ✅ DONE 2026-09-25 — Migration `20260925120000_inventory_procurement_grn_returns`
+> (additive: `POStatus` + `PENDING_APPROVAL`/`PARTIALLY_RECEIVED`, enum `SupplierReturnStatus`, `PurchaseOrderItem.qtyReceived/qtyRejected`,
+> ຖັນອະນຸມັດ/ປິດຮັບບໍ່ຄົບໃນ `purchase_orders`, ຕາຕະລາງ `goods_receipts`/`goods_receipt_lines`/`supplier_returns`/`supplier_return_lines`;
+> apply ແລ້ວທັງ dev ແລະ test DB). Test ທັງໝົດຢູ່ `tests/integration/inventory-procurement.test.ts` (10 test).
+1. ✅ **H4 — GRN, ຮັບບາງສ່ວນ, ຮັບເກີນ tolerance, ປິດຮັບບໍ່ຄົບ — DONE 2026-09-25.**
+   - `POST /purchase-orders/:id/receipts {supplierDeliveryNote?, notes?, lines:[{poItemId, qtyReceived, qtyRejected, rejectReason, unitCost?, lot…}]}`
+     → ໃບຮັບເຄື່ອງ `GRN-<ສາຂາ>-<ປີ>-000001` (`nextDocumentNo` DocType `GRN`). `qtyReceived` = ຈຳນວນທີ່ເຂົ້າສະຕັອກ (accepted);
+     `qtyRejected` ບັນທຶກແຕ່ໃນ GRN (ບໍ່ເຂົ້າສະຕັອກ, ບໍ່ນັບເປັນການຮັບ). ຕໍ່ແຖວ: lot ຂອງ GRN ນັ້ນເອງ (C5) + WAC ຕາມຕົ້ນທຶນ GRN (C4) +
+     PURCHASE_IN refId `grn:<id>`. ສະຖານະ PO: ຮັບຄົບທຸກແຖວ = RECEIVED, ບໍ່ຄົບ = PARTIALLY_RECEIVED.
+   - Tolerance: AppSetting `inventory.overReceiptTolerancePct` (default 0) — Σ ຮັບ > ສັ່ງ × (1 + tol) → 409.
+   - `POST /purchase-orders/:id/receive` ເດີມ = "ຮັບທຸກຈຳນວນທີ່ຄ້າງ" ຜ່ານເສັ້ນທາງ GRN ດຽວກັນ (body `{lots}` ຄືເກົ່າ). DRAFT ຍັງຮັບກົງໄດ້
+     ຖ້າຍອດບໍ່ຕ້ອງອະນຸມັດ; PENDING_APPROVAL ຮັບບໍ່ໄດ້ (409).
+   - **ປິດຮັບບໍ່ຄົບ** = `POST /purchase-orders/:id/close-short {reason}` → status RECEIVED + `closedShortAt/closedShortReason/closedByUserId`
+     (ເລືອກເປັນ flag ບໍ່ແມ່ນ status ໃໝ່ ເພື່ອໃຫ້ RECEIVED = "ປິດການຮັບແລ້ວ" ຄືເກົ່າທົ່ວລະບົບ); `qtyOutstanding` = 0 ⇒ ບໍ່ນັບເປັນ on-order.
+     PO ທີ່ຍັງບໍ່ມີການຮັບ → ໃຫ້ຍົກເລີກແທນ (409). ຍົກເລີກ PO ທີ່ມີການຮັບແລ້ວບໍ່ໄດ້.
+   - `openPurchaseOrders` (Inventory stats) ນັບ DRAFT/PENDING_APPROVAL/ORDERED/PARTIALLY_RECEIVED; dashboard ນັບ ORDERED + PARTIALLY_RECEIVED.
+2. ✅ **H4 — 3-way match (PO ↔ GRN ↔ ໃບເກັບເງິນ) — DONE 2026-09-25.** ບໍ່ສ້າງ model `SupplierInvoice`: Expense ທີ່ຜູກ `purchaseOrderId`
+   (SUBMITTED/APPROVED/PAID, ຍອດ `amountBase` LAK) = ໃບເກັບເງິນຜູ້ສະໜອງ. `GET /purchase-orders/:id/match` (`procurement.service.ts`) ຄືນ
+   ordered / received (Σ accepted × ຕົ້ນທຶນ GRN) / returned (debit notes) / invoiced (+ພາສີ `taxAmount × fxRate`) / expected / variance + ແຖວ.
+   ສະຖານະ: NO_INVOICE; MATCHED ເມື່ອ (ໃບເກັບເງິນ − debit note) ≤ (ຮັບ − ຄືນ + ພາສີ) × (1 + tol) — ເກັບເປັນງວດ (ໜ້ອຍກວ່າ) ບໍ່ຖືວ່າຜິດ;
+   ເກີນ ແຕ່ PO ຍັງຮັບບໍ່ຄົບ ແລະ ບໍ່ເກີນມູນຄ່າສັ່ງ = UNDER_RECEIVED; ນອກນັ້ນ = OVER_INVOICED. tol = AppSetting `inventory.invoiceMatchTolerancePct`
+   (default 1%). **ບລັອກການອະນຸມັດ** ໃນ `approveExpense()` (expenses.service): ລາຍຈ່າຍທີ່ຜູກ PO ແລະ match = OVER_INVOICED/UNDER_RECEIVED → 409
+   (`details.poMatch`); SUPER_ADMIN ສົ່ງ `{overrideMatch:true, overrideReason}` ໄດ້ → ບັນທຶກ AuditLog `APPROVE_MATCH_OVERRIDE`; ຄົນອື່ນ → 403.
+   bulk approve ໃຊ້ຟັງຊັນດຽວກັນ (ລາຍການທີ່ບໍ່ຜ່ານຢູ່ໃນ `failed`). `ExpenseView.poMatch` ສະແດງໃນໜ້າ Expenses.
+3. ✅ **H5 — ຄືນສິນຄ້າຜູ້ສະໜອງ + debit note — DONE 2026-09-25.** `/supplier-returns` (admin, BRANCH_ADMIN ຖືກ scope): ໃບ `RTS-<ສາຂາ>-<ປີ>-000001`
+   DRAFT → POSTED | CANCELLED (ຍົກເລີກໄດ້ສະເພາະຮ່າງ). Post ໃນ tx ດຽວ + lock ສິນຄ້າ (ລຽງ id): ແຖວທີ່ລະບຸ lot ຕັດ lot ນັ້ນ (ບໍ່ພໍ = 409),
+   ສິນຄ້າ trackLot ທີ່ບໍ່ລະບຸ lot → FEFO (`deductStock`); movement **RETURN_TO_SUPPLIER** (enum ມີຜູ້ຂຽນແລ້ວ) reason `SUPPLIER_RETURN`
+   refId `rts:<id>`. ມູນຄ່າ: ຕົ້ນທຶນ lot → ຕົ້ນທຶນ GRN ທີ່ຜູກ (GRN/PO, ສະເລ່ຍຖ່ວງນ້ຳໜັກ) → WAC; WAC ບໍ່ປ່ຽນ; ກວດ `allowNegativeStock`;
+   ຄືນເກີນຈຳນວນທີ່ຮັບຈາກ GRN/PO ທີ່ອ້າງອີງ (ລົບທີ່ຄືນແລ້ວ) → 409.
+   **Debit note**: Expense ບໍ່ມີແນວຄິດເຄຣດິດ (amount ຕ້ອງບວກ, VOID = ຍົກເລີກທັງໃບ) ຈຶ່ງໃຊ້ໃບຄືນທີ່ POSTED ເອງເປັນ debit note
+   (`totalValue`) — ຫັກໃນ 3-way match ຂອງ PO ທີ່ຜູກ ແລະ `GET /suppliers/:id/balance` (ໃບເກັບເງິນ − ຈ່າຍແລ້ວ − debit notes).
+   ບໍ່ນັບເປັນ shrinkage: `SHRINKAGE_MOVEMENT_WHERE` ກັ່ນສະເພາະ `ADJUSTMENT_DEDUCT` (ມີ test). ການນັບສະຕັອກ (H3 delta) ແລະ `reconcileStock()`
+   ຮັບຮູ້ RETURN_TO_SUPPLIER ຜ່ານ `MOVEMENT_SIGN` (−1) ຢູ່ແລ້ວ.
+4. ✅ **H6 — ໂອນລະຫວ່າງສາຂາ + in-transit — DONE 2026-09-15** (StockTransfer DRAFT → IN_TRANSIT → COMPLETED, TRANSFER_OUT/IN; ດູ inventory-transfer.test.ts)
+5. ✅ **H7 — ການຈອງ consumable ຈາກນັດໝາຍ (on hand / reserved / available / on order) — DONE 2026-09-25.** ຕາຕະລາງ `stock_reservations`
+   (ໜຶ່ງແຖວຕໍ່ ນັດ+ສິນຄ້າ → idempotent; ACTIVE / RELEASED / CONSUMED). `syncAppointmentReservations(tx, id)` (`reservation.service.ts`)
+   ອ່ານສະຖານະ+ບໍລິການປັດຈຸບັນ: CONFIRMED/IN_PROGRESS = ຈອງ BOM (ຊຸດດຽວກັບທີ່ `consumeServiceStock` ຕັດ, qty = qtyPerUse);
+   PENDING/CANCELLED/NO_SHOW = ປົດ; ບໍລິການປ່ຽນ = ປົດແຖວເກົ່າ + ຈອງແຖວໃໝ່; COMPLETED = CONSUMED (`consumeServiceStock` ເອີ້ນ
+   `markReservationsConsumed` ໃນ tx ດຽວກັນ). ຈຸດທີ່ hook (ໃນ tx ຂອງນັດ): `appointments.updateAppointmentStatus` (+ bulk-status),
+   `staff-portal.updateAppointmentStatus`, `booking.cancelAppointment`, `booking.rescheduleAppointment` (→ PENDING), ຢືນຢັນຫຼັງຈ່າຍມັດຈຳ
+   (`payments.service`), `queue` check-in (PENDING→CONFIRMED) ແລະ walk-in (ສ້າງເປັນ CONFIRMED). ບໍ່ມີ job auto no-show ໃນລະບົບ.
+   **Soft**: ບໍ່ແຕະ stockQty/ledger (`reconcileStock()` ບໍ່ກ່ຽວ), ບໍ່ບລັອກການຈອງ/ການປິດນັດ (ການກວດຈິງຍັງຢູ່ `consumeServiceStock`).
+   `ProductView` ເພີ່ມ `reservedQty/availableQty/onOrderQty/shortForUpcoming`; onOrder = Σ(quantity − qtyReceived) ຂອງ PO
+   PENDING_APPROVAL/ORDERED/PARTIALLY_RECEIVED (DRAFT ບໍ່ນັບ, ປິດຮັບບໍ່ຄົບ = RECEIVED ບໍ່ນັບ). Stats ເພີ່ມ `shortForUpcomingCount`.
+   Backfill: job `reorder-point` ທຸກຄືນ + `scripts/backfill-stock-reservations.ts` (`backfillReservations()` idempotent, ສ້ອມແຖວຄ້າງນຳ).
+   Web-admin: ແຖວສິນຄ້າສະແດງ "ຈອງ · ໃຊ້ໄດ້ · ກຳລັງສັ່ງ" + pill "ບໍ່ພໍສຳລັບນັດ", ProductDetailSheet ມີ tile ຈອງ/ໃຊ້ໄດ້/ກຳລັງສັ່ງ/ຈຸດສັ່ງຊື້ + ຄຳເຕືອນ.
+   ຂໍ້ສັງເກດ: BOM ບໍ່ຜູກສາຂາ (ຄືກັບ consumeServiceStock) ຈຶ່ງຈອງສິນຄ້າໃນ BOM ຕາມສາຂາຂອງສິນຄ້າ; ລະບົບຍັງບໍ່ມີ flow ຍ້າຍນັດຂ້າມສາຂາ/ປ່ຽນບໍລິການ
+   ແຕ່ sync ຮອງຮັບແລ້ວ (ມີ test).
+6. ✅ **M6 — PO approval workflow + ວົງເງິນ — DONE 2026-09-25.** AppSetting `inventory.poApprovalThresholdLak` (default 5,000,000 ກີບ).
+   ຜູ້ທີ່ບໍ່ແມ່ນ SUPER_ADMIN ສັ່ງ (ສ້າງດ້ວຍ `status:'ORDERED'` ຫຼື PATCH DRAFT → ORDERED) ຍອດເກີນເກນ → PENDING_APPROVAL + ແຈ້ງ SUPER_ADMIN
+   (`PO_APPROVAL_PENDING`). `POST /purchase-orders/:id/approve` (SUPER_ADMIN) → ORDERED (`approvedByUserId/approvedAt`), `/reject {reason}`
+   → DRAFT + `rejectedReason`; ແຈ້ງຜູ້ສັ່ງ (`PO_APPROVED`/`PO_REJECTED`). ຜູ້ສັ່ງດຶງກັບເປັນ DRAFT ໄດ້. ການແກ້ PO ທີ່ສັ່ງແລ້ວໃຫ້ຍອດເພີ່ມເກີນເກນ ຕ້ອງເປັນ SUPER_ADMIN (403).
+7. ✅ **M7 — ແກ້ PO ແບບ upsert — DONE 2026-09-25.** `updatePurchaseOrder` upsert ຕາມ productId (ຮັກສາ id ຂອງແຖວ, ລຶບສະເພາະແຖວທີ່ເອົາອອກ);
+   ແກ້ລາຍການໄດ້ໃນ DRAFT/ORDERED/PARTIALLY_RECEIVED; ແຖວທີ່ມີການຮັບ/ປະຕິເສດແລ້ວລຶບບໍ່ໄດ້ ແລະ ຫຼຸດຕ່ຳກວ່າ qtyReceived ບໍ່ໄດ້ (409).
+   ✅ **Revision history — DONE 2026-09-26.** Migration `20260926160000_inventory_retail_po_revisions` ຕາຕະລາງ `purchase_order_revisions`
+   (poId, revisionNo unique ຕໍ່ PO, action, from/toStatus, changedByUserId, changedAt, `snapshot` JSON = header+ແຖວ **ກ່ອນ** ປ່ຽນ,
+   `diff` JSON = [{field, productName, from, to}], summary, note). ຂຽນໃນ tx ດຽວກັບການປ່ຽນ (ແຖວ PO ຖືກ lock → ເລກບໍ່ຊ້ຳ) ຈາກ
+   `updatePurchaseOrder` (UPDATE/ORDER/SUBMIT_APPROVAL/CANCEL/REVERT_DRAFT), approve/reject (+ເຫດຜົນ), close-short (+ເຫດຜົນ) ແລະ
+   ການຮັບເຄື່ອງ GRN (RECEIVE + ເລກ GRN). ບໍ່ມີຫຍັງປ່ຽນ ແລະ ບໍ່ມີ note = ບໍ່ຂຽນ. `PurchaseOrderView.revisions` (detail, ໃໝ່ສຸດກ່ອນ) →
+   ພາກ "ປະຫວັດ" ໃນ PO detail (`PoHistory.tsx`) ສະແດງ diff ອ່ານງ່າຍ. Test ຢູ່ `inventory-retail.test.ts`.
+8. ✅ **M18 — N+1 ຕອນຮັບເຄື່ອງ — DONE 2026-09-25.** lock ສິນຄ້າທັງໝົດຂອງ GRN ໃນ `SELECT … WHERE id IN (…) ORDER BY id FOR UPDATE` ດຽວ
+   (`lockProductRows`, ລຳດັບ id ຄືກັນທຸກ tx → ບໍ່ deadlock) ແລ້ວໂຫຼດສິນຄ້າເທື່ອດຽວ; ຍັງມີ write ຕໍ່ແຖວ (lot/movement/item).
+   - **Web-admin**: PO detail ມີຄວາມຄືບໜ້າ ຮັບ/ສັ່ງ ຕໍ່ແຖວ, ປຸ່ມ "ຮັບເຄື່ອງ" → dialog GRN (ຈຳນວນຮັບ/ປະຕິເສດ/ເຫດຜົນ/ຕົ້ນທຶນ + `LotFields`),
+     ລາຍການ GRN, "ປິດຮັບບໍ່ຄົບ", ສັ່ງຊື້/ຍົກເລີກ/ດຶງກັບ, panel 3-way match; card "ໃບສັ່ງຊື້ລໍຖ້າອະນຸມັດ" (`PoApprovalsCard`); tab ໃໝ່
+     "ຄືນສິນຄ້າຜູ້ສະໜອງ" (`/inventory/returns`, ລາຍການ + ສ້າງ + post/ຍົກເລີກ + export CSV + ຍອດຄົງຄ້າງຜູ້ສະໜອງ); ໜ້າ Expenses ສະແດງສະຖານະ match
+     ແລະ dialog override ສຳລັບ SUPER_ADMIN; dialog ຕັ້ງຄ່າ (`InventorySettingsDialog`) ແກ້ 4 ເກນທີ່ `/stock-adjustments/settings` (ຂະຫຍາຍເປັນ
+     endpoint ຕັ້ງຄ່າ inventory ລວມ — PUT ສົ່ງສະເພາະຄ່າທີ່ປ່ຽນ). MSW mock ຄົບທຸກ endpoint ໃໝ່.
+> ພາກ 2 (M8/M9/M10/M20, H7, M11, M4, L7, L8, ລາຍງານ) ✅ DONE 2026-09-25 — Migration `20260925150000_inventory_supplier_reservation_reorder`
+> (additive: ຖັນ supplier ໃໝ່ + `branchId`/`isActive`/`deletedAt`, `supplier_products`, `stock_reservations` + enum `StockReservationStatus`,
+> `Product.reorderPoint/avgDailyUsage/reorderComputedAt`, `currency/fxRate` ໃນ `purchase_orders` + `goods_receipts`, `goods_receipt_lines.unitCostForeign`;
+> apply ແລ້ວທັງ dev ແລະ test DB). Test ທັງໝົດຢູ່ `tests/integration/inventory-wave9d.test.ts` (13 test).
+9. ✅ **M8/M9/M10/M20 — ຍົກລະດັບ Supplier — DONE 2026-09-25.**
+   - M8: taxId, paymentTermsDays, leadTimeDays, currency, bankName/bankAccountName/bankAccountNo (ປ່ຽນບັນຊີ → AuditLog `SUPPLIER_BANK_CHANGE`;
+     ບໍ່ reuse `BankAccountChangeRequest` ເພາະນັ້ນເປັນບັນຊີຮັບເງິນຂອງຮ້ານເອງ), isActive. ລາຍການລາຄາ `SupplierProduct` (unitCost, currency, moq,
+     leadTimeDays, isPreferred ແບບຜູກຂາດຕໍ່ສິນຄ້າ) — `GET/PUT /suppliers/:id/products`, `DELETE /suppliers/:id/products/:productId`.
+     ສ້າງ PO ທີ່ບໍ່ໃສ່ unitCost → ລາຄາຈາກລາຍການລາຄາ (ສະກຸນກົງກັນ) → ບໍ່ດັ່ງນັ້ນ WAC ÷ fxRate. Web-admin: ຟອມຜູ້ສະໜອງມີ 2 ພາກໃໝ່ + dialog ລາຍການລາຄາ;
+     ຟອມສ້າງ PO prefill ລາຄາຈາກລາຍການລາຄາ.
+   - M9: `branchId` null = ໃຊ້ຮ່ວມ (ຂຽນໄດ້ສະເພາະ SUPER_ADMIN); BRANCH_ADMIN ສ້າງ/ແກ້/ລຶບໄດ້ສະເພາະຂອງສາຂາຕົນ, ອ່ານເຫັນ ໃຊ້ຮ່ວມ + ສາຂາຕົນ.
+     ລາຍການລາຄາເປັນຂໍ້ມູນຂອງສິນຄ້າສາຂາ → ກວດ `assertBranchScope(ສາຂາສິນຄ້າ)` (BRANCH_ADMIN ຕັ້ງລາຄາຜູ້ສະໜອງໃຊ້ຮ່ວມໃຫ້ສິນຄ້າສາຂາຕົນໄດ້).
+   - M20: ລຶບຜູ້ສະໜອງທີ່ມີ PO/ລາຍຈ່າຍ/ໃບຄືນ = soft delete (deletedAt + isActive=false, ຍັງ 204); ບໍ່ມີ = ລຶບແທ້. `?activeOnly=true` ສຳລັບ dropdown
+     ສ້າງ PO; ສ້າງ/ປ່ຽນ PO ດ້ວຍຜູ້ສະໜອງທີ່ປິດ/ລຶບ/ຂອງສາຂາອື່ນ → 400; PO ເກົ່າສະແດງ `supplierInactive`.
+   - M10: `PurchaseOrder.currency` (default = ສະກຸນຜູ້ສະໜອງ) + `fxRate` (ບໍ່ໃສ່ = `ExchangeRate` ຜ່ານ `utils/fxRate.ts` `resolveFxRate` —
+     helper ດຽວກັບ Expense E1, ຍ້າຍອອກມາຈາກ expenses.service). ລາຄາ PO/GRN input ເປັນສະກຸນ PO; GRN ລັອກ currency/fxRate, ເກັບ
+     `unitCost` ເປັນ LAK (= ລາຄາ × fxRate) + `unitCostForeign` → WAC/lot/ledger/3-way match ເປັນ LAK ທັງໝົດ (match ordered = qty × ລາຄາ × fxRate).
+     ເກນອະນຸມັດ PO (M6) ທຽບ total × fxRate. ແກ້ currency/fxRate ຫຼັງມີການຮັບ → 409.
+10. ✅ **M11 — reorder point ອັດຕະໂນມັດ + ແນະນຳ PO — DONE 2026-09-25.** `reorder.service.ts`: avgDailyUsage = Σ SERVICE_CONSUMED 90 ວັນ ÷ 90
+    (+ SOLD − SALE_RETURN ຕັ້ງແຕ່ M13 2026-09-26); leadTime = SupplierProduct ຫຼັກ → Supplier.leadTimeDays → AppSetting `inventory.defaultLeadTimeDays` (7);
+    reorderPoint = avg × leadTime + avg × `inventory.safetyStockDays` (3). ເກນທີ່ໃຊ້ຈິງ = max(minStockQty, reorderPoint). Job `reorder-point`
+    ທຸກຄືນ 04:15 (Asia/Vientiane) = backfill ການຈອງ + ຄິດ reorder point. `GET /purchase-orders/suggestions?branchId`: ສິນຄ້າ active ທີ່
+    available + onOrder ≤ ເກນ (ກັ່ນຝັ່ງ SQL), ຈຳນວນ = ເກນ + avg × `inventory.reorderReviewDays` (7) − (available + onOrder), ປັດຂຶ້ນເປັນຈຳນວນເຕັມ
+    (≥ 1) ແລະ ຜົນຄູນ MOQ; ຈັດກຸ່ມ ຜູ້ສະໜອງ × ສາຂາ × ສະກຸນ (ຜູ້ສະໜອງຫຼັກ → ລາຄາຖືກສຸດ → ຜູ້ສະໜອງ PO ຫຼ້າສຸດ → "ບໍ່ມີຜູ້ສະໜອງ").
+    3 ຄ່າຕັ້ງໃໝ່ຢູ່ `/stock-adjustments/settings` + `InventorySettingsDialog`. Web-admin: card "ຄຳແນະນຳສັ່ງຊື້" ໃນໜ້າ PO → dialog ແກ້ຈຳນວນ →
+    ສ້າງ PO DRAFT ຕໍ່ກຸ່ມໃນຄລິກດຽວ; ຖັນ min ສະແດງ "ຈຸດສັ່ງ N" ເມື່ອສູງກວ່າ min.
+    ✅ **M4 + L8 — DONE 2026-09-25**: ຕົວກັ່ນ lowStock ໃຊ້ Prisma field reference (`stockQty ≤ 0 OR ≤ minStockQty OR ≤ reorderPoint`) + pagination
+    ຝັ່ງ DB; `inventoryStats` ເປັນ SQL aggregate ດຽວ (ມີ test ທຽບກັບຄວາມໝາຍເກົ່າ). ✅ **L7 — DONE 2026-09-25**: ລຶບສິນຄ້າ → 409 ພ້ອມທຸກເຫດຜົນ
+    (`details.reasons`) ເມື່ອ stockQty ≠ 0, lot ຍັງມີຂອງ, ຢູ່ໃນ BOM ຂອງບໍລິການທີ່ບໍ່ຖືກລຶບ, ມີການຈອງ ACTIVE ຫຼື ຢູ່ໃນ PO ທີ່ຍັງເປີດ.
+11. ✅ **M13 — ຂາຍສິນຄ້າໜ້າຮ້ານ (retail/OTC) — DONE 2026-09-26.** Migration `20260926160000_inventory_retail_po_revisions`
+    (additive: `StockMovementType` + `SOLD`/`SALE_RETURN`, `Product.retailPrice/isSellable`, enum `RetailSaleStatus`, ຕາຕະລາງ
+    `retail_sales`/`retail_sale_lines`/`retail_sale_return_lines`; apply ແລ້ວທັງ dev ແລະ test DB). ບໍ່ເພີ່ມ `vatApplicable` — VAT ຄິດລະດັບບິນ.
+    - **ການອອກແບບ**: Payment ບໍ່ມີແຖວລາຍການ → `RetailSale` (ເລກ `RS-<ສາຂາ>-<ປີ>-000001`, DocType `RS`) + ແຖວ ຜູກ Payment 1:1
+      (ແບບດຽວກັບບິນຊື້ບັດຂອງຂວັນ/ແພັກເກັດ) → ໃຊ້ເສັ້ນທາງເງິນເດີມທັງໝົດ: tender (`POST /payments/:id/tenders`), INV + VAT ຕອນ FULLY_PAID
+      (EXCLUSIVE ຢຸດຕອນສ້າງບິນຜ່ານ `exclusiveBillVat`), void, refund/CN, ໃບຮັບເງິນ (`getReceipt` ສະແດງແຖວສິນຄ້າ). ບໍ່ມີເສັ້ນທາງເງິນສົດແຍກ.
+    - **ສະຕັອກ**: `payments.recomputeAndSettle` (FULLY_PAID) → `onRetailPaymentSettled` (`retail-stock.service.ts`): lock ແຖວ
+      retail_sales + `lockProductRows` → `deductStock` type SOLD (FEFO, lot slices) refId `sale:<retailSaleId>`, valueChange = −COGS,
+      ກວດ `allowNegativeStock`; idempotent (`stockPostedAt` + ກວດແຖວ SOLD). ຕັດບໍ່ໄດ້ (ສະຕັອກບໍ່ພໍ) → ເງິນຍັງຮັບ, ບິນ PAID + `stockError`
+      → `POST /retail-sales/:id/post-stock` ລອງຄືນ. ຈຳນວນເປັນໜ່ວຍພື້ນຖານ (ໜ່ວຍຂາຍ × factor ຜ່ານ `resolveUomFactors` ຕອນສ້າງ).
+    - **ຄືນສິນຄ້າ**: `POST /retail-sales/:id/returns {lines:[{saleLineId, qty, restock}], reason, method}` → `createRefund` (engine ເດີມ,
+      ມີ hook `afterCreate` ຂຽນແຖວຄືນໃນ tx ດຽວ; ຍອດ = qty × ລາຄາສຸດທິ/ໜ່ວຍ + VAT EXCLUSIVE). ຕອນ `payRefund` PAID →
+      `postRetailReturnForRefund`: SALE_RETURN refId `saleret:<refundId>` ເຂົ້າ lot ເດີມ ຕາມ unitCost ຂອງແຖວ SOLD ເດີມ (ລົບສ່ວນທີ່ຄືນແລ້ວຕໍ່ lot),
+      WAC ບໍ່ປ່ຽນ; restock=false = ຄືນເງິນຢ່າງດຽວ. ຄືນເງິນຜ່ານ `/payments/:id/refunds` ໂດຍກົງ = ເງິນຢ່າງດຽວ (ບໍ່ເຂົ້າສະຕັອກ).
+      `RefundBillKind` + `RETAIL_SALE`. Void ກ່ອນຈ່າຍ = `voidPayment` ເດີມ (ໝາຍ RetailSale VOIDED; ບໍ່ມີສະຕັອກໃຫ້ຄືນ).
+    - **ຄະແນນ**: `earnPoints` ເດີມຜູກ appointment → ບິນ retail ມີລູກຄ້າ earn ແຍກ refId `sale:<id>` (idempotent); clawback ຕອນຄືນເງິນ.
+    - **P&L**: `cogs` ລວມ SOLD − SALE_RETURN; ແຖວ memo `retailRevenue` (tender ຂອງບິນ retail) + `retailCogs`. SOLD/SALE_RETURN ບໍ່ແມ່ນ
+      ADJUSTMENT_DEDUCT → ບໍ່ເຄີຍເປັນ shrinkage (`SHRINKAGE_MOVEMENT_WHERE` ບໍ່ຕ້ອງແກ້, ມີ test). Turnover/ABC ນັບ SOLD − SALE_RETURN ນຳ.
+      `MOVEMENT_SIGN` SOLD −1 / SALE_RETURN +1 → `reconcileStock()` + delta ຂອງໃບນັບ ຮັບຮູ້ (ມີ test). Reorder avgDailyUsage =
+      (SERVICE_CONSUMED + SOLD − SALE_RETURN) ÷ 90.
+    - **ລາຍງານ**: `GET /retail-sales/margin` → Reports ▸ ລາຍງານມາດຕະຖານ ▸ "ກຳໄລຂາຍໜ້າຮ້ານຕໍ່ສິນຄ້າ" (LedgerTable + CSV); P&L ມີແຖວ memo.
+    - **ສິດ**: `/retail-sales` admin + `finance:manage` (ສ້າງ/void/post-stock, ຄືກັບ RecordPaymentPanel), `payments:refund` (ຄືນ),
+      `finance:view` (ອ່ານ/export/margin); BRANCH_ADMIN ຖືກ scope.
+    - **Web-admin**: tab "ຂາຍໜ້າຮ້ານ" (`/inventory/sales`, `RetailSalesPage`): ກະຕ່າ (ScanInput + ຄົ້ນສິນຄ້າທີ່ຂາຍໄດ້, ຈຳນວນ + ເລືອກໜ່ວຍ,
+      ລາຄາ, ສ່ວນຫຼຸດ, ລູກຄ້າ) → ສ້າງບິນ → `RecordPaymentPanel` + `ReceiptDialog` + `RefundPanel` ຂອງ finance; void, ຄືນສິນຄ້າ, ລອງຕັດສະຕັອກຄືນ,
+      ລາຍການ + CSV/Excel. ຟອມສິນຄ້າມີ "ຂາຍໜ້າຮ້ານໄດ້" + ລາຄາຂາຍ; ledger ສະແດງ SOLD/SALE_RETURN. MSW mock ຄົບ.
+    - Test: `tests/integration/inventory-retail.test.ts` (7 test).
+12. ✅ **ລາຍງານ: turnover, days-on-hand, stock aging, ການໃຊ້ຕໍ່ບໍລິການ — DONE 2026-09-25.** (`inventory-reports.service.ts`, admin, BRANCH_ADMIN ຖືກ scope)
+    `GET /stock-movements/turnover?from&to&branchId` — turnover = COGS ÷ ((ມູນຄ່າທ້າຍວັນກ່ອນ from + ທ້າຍວັນ to) ÷ 2) ຜ່ານ `getStockValuation`,
+    days on hand = ມູນຄ່າສະເລ່ຍ × ຈຳນວນວັນ ÷ COGS (ຕໍ່ສິນຄ້າ + ລວມ); `GET /stock-movements/aging?branchId` — lot ຕາມ receivedAt (ມູນຄ່າ lot),
+    ສ່ວນທີ່ບໍ່ມີ lot ຕາມ PURCHASE_IN ຫຼ້າສຸດ (ບໍ່ເຄີຍຮັບ = ວັນສ້າງສິນຄ້າ, ມູນຄ່າ WAC), ຊ່ວງ 0–30/31–60/61–90/90+; `GET /stock-movements/service-usage`
+    — SERVICE_CONSUMED (refId `appt:`) ຕໍ່ ບໍລິການ × ສິນຄ້າ (ຈຳນວນ, ມູນຄ່າ, ຕໍ່ນັດ). Reports ▸ ລາຍງານມາດຕະຖານ ກຸ່ມ "ກຳໄລ" ເພີ່ມ 3 ລາຍງານ
+    (LedgerTable + CSV, ຊ່ວງວັນ DateField ໃຊ້ຮ່ວມກັບ shrinkage).
 > **ຜົນ:** ທຽບເທົ່າໂມດູນ Inventory ຂອງ ERP ລະດັບກາງ
 
 ---

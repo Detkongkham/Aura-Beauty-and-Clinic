@@ -17,18 +17,26 @@ import {
   homeServiceTripsRouter,
 } from './modules/home-service/home-service.routes.js';
 import {
+  productCategoriesRouter,
   productsRouter,
   purchaseOrdersRouter,
+  retailSalesRouter,
   stockLotsRouter,
+  stockAdjustmentsRouter,
   stockMovementsRouter,
   stockTransfersRouter,
+  stockCountsRouter,
+  supplierReturnsRouter,
   suppliersRouter,
+  uomsRouter,
 } from './modules/inventory/inventory.routes.js';
 import { loyaltyRouter } from './modules/loyalty/loyalty.routes.js';
 import { marketingRouter } from './modules/marketing/marketing.routes.js';
 import { consentRouter } from './modules/marketing/consent.routes.js';
 import { expensesRouter } from './modules/expenses/expenses.routes.js';
+import { financeLedgerRouter } from './modules/finance-ledger/finance-ledger.routes.js';
 import { payrollRouter } from './modules/payroll/payroll.routes.js';
+import { portalRouter } from './modules/portal/portal.routes.js';
 import { pricingQuoteRouter, pricingRulesRouter } from './modules/pricing/pricing.routes.js';
 import {
   affiliateSelfRouter,
@@ -72,10 +80,12 @@ apiRouter.use('/chatbot', chatbotRouter);
 apiRouter.use('/conversations', conversationsRouter);
 apiRouter.use('/customers', customersRouter);
 apiRouter.use('/dashboard', dashboardRouter);
+apiRouter.use('/portal', portalRouter);
 apiRouter.use('/payments/webhooks', paymentsWebhookRouter);
 apiRouter.use('/payments', paymentsRouter);
 apiRouter.use('/payments-treasury', paymentsTreasuryRouter);
 apiRouter.use('/expenses', expensesRouter);
+apiRouter.use('/finance-ledger', financeLedgerRouter);
 apiRouter.use('/loyalty', loyaltyRouter);
 apiRouter.use('/gift-cards', giftCardsRouter);
 apiRouter.use('/packages', packagesRouter);
@@ -85,10 +95,16 @@ apiRouter.use('/waitlist', waitlistRouter);
 apiRouter.use('/queue', queueRouter);
 apiRouter.use('/suppliers', suppliersRouter);
 apiRouter.use('/products', productsRouter);
+apiRouter.use('/uoms', uomsRouter);
+apiRouter.use('/product-categories', productCategoriesRouter);
 apiRouter.use('/stock-movements', stockMovementsRouter);
 apiRouter.use('/stock-lots', stockLotsRouter);
+apiRouter.use('/stock-adjustments', stockAdjustmentsRouter);
 apiRouter.use('/purchase-orders', purchaseOrdersRouter);
 apiRouter.use('/stock-transfers', stockTransfersRouter);
+apiRouter.use('/stock-counts', stockCountsRouter);
+apiRouter.use('/supplier-returns', supplierReturnsRouter);
+apiRouter.use('/retail-sales', retailSalesRouter);
 apiRouter.use('/services', servicesAdminRouter);
 apiRouter.use('/service-categories', serviceCategoriesRouter);
 apiRouter.use('/settings', settingsRouter);

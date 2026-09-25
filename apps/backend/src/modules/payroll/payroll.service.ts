@@ -5,6 +5,7 @@ import type {
   CommissionPayInput,
   KpiGoalWriteInput,
   KpiRecomputeInput,
+  KpiBulkTargetInput,
   PayrollAttendance,
   PayrollBreakdown,
   PayrollCommissionLine,
@@ -19,6 +20,50 @@ import { prisma } from '../../config/database.js';
 import { ApiError } from '../../utils/ApiError.js';
 import { BONUS_RATE_DEFAULT, BONUS_RATE_SETTING_KEY } from '../../constants/phase6.js';
 import { vientianeDateKey, vientianeDayStart } from '../../utils/dateHelpers.js';
+import {
+  COLLECTED_APPOINTMENT_WHERE,
+  COLLECTION_SELECT,
+  commissionRequiresCollection,
+  isAppointmentCollected,
+} from './commission.js';
+import { assertNotInApprovedRun, commissionIdsInPaidRuns, getPayrollSettings } from './payroll-run.service.js';
+
+/**
+ * ຜູ້ກະທຳ + ຂອບເຂດ. `branchId` != null = BRANCH_ADMIN — ທຸກການອ່ານ/ຂຽນຖືກບັງຄັບໃຫ້ຢູ່ໃນສາຂານັ້ນ
+ * (docs/payroll-audit.md C4). SUPER_ADMIN = null (ບໍ່ຈຳກັດ).
+ */
+export type PayrollActor = { userId: string; branchId: string | null };
+
+/** BRANCH_ADMIN ເບິ່ງ/ຈ່າຍໄດ້ສະເພາະຊ່າງທີ່ສັງກັດສາຂາຕົນ. */
+async function assertStaffInScope(actor: PayrollActor, staffProfileIds: string[]): Promise<void> {
+  if (!actor.branchId) return;
+  const ids = [...new Set(staffProfileIds)];
+  const inBranch = await prisma.staffBranch.count({
+    where: { staffProfileId: { in: ids }, branchId: actor.branchId },
+  });
+  if (inBranch !== ids.length) throw ApiError.forbidden('ຈັດການໄດ້ສະເພາະຊ່າງຂອງສາຂາທ່ານ');
+}
+
+/** C3 — ທຸກການຂຽນຂອງ payroll ບັນທຶກ AuditLog ພ້ອມຄ່າກ່ອນ/ຫຼັງ (middleware ກາງຂ້າມ /payroll). */
+async function auditPayroll(
+  actor: PayrollActor,
+  action: string,
+  entityId: string | null,
+  oldValue: unknown,
+  newValue: unknown,
+): Promise<void> {
+  await prisma.auditLog.create({
+    data: {
+      branchId: actor.branchId,
+      userId: actor.userId,
+      action: `staff.${action}`,
+      entityName: 'staff',
+      entityId,
+      oldValue: (oldValue ?? undefined) as never,
+      newValue: (newValue ?? undefined) as never,
+    },
+  });
+}
 
 function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
@@ -115,7 +160,7 @@ type BuiltReport = {
   previous: { grossRevenue: number; completedJobs: number; commissionTotal: number; payable: number };
 };
 
-async function buildRows(query: PayrollQuery): Promise<BuiltReport> {
+async function buildRows(query: PayrollQuery, requireCollection: boolean): Promise<BuiltReport> {
   const range = monthRange(query.monthYear);
   const { from, to, dateFrom, dateTo, label } = range;
   const branchId = query.branchId;
@@ -174,7 +219,12 @@ async function buildRows(query: PayrollQuery): Promise<BuiltReport> {
             ...(branchId ? { branchId } : {}),
           },
         },
-        select: { staffProfileId: true, payoutAmount: true, isPaid: true },
+        select: {
+          staffProfileId: true,
+          payoutAmount: true,
+          isPaid: true,
+          appointment: { select: COLLECTION_SELECT },
+        },
       }),
       prisma.staffCommission.aggregate({
         where: {
@@ -240,13 +290,14 @@ async function buildRows(query: PayrollQuery): Promise<BuiltReport> {
     prevBy.set(a.staffProfileId, e);
   }
 
-  const commBy = new Map<string, { total: number; paid: number; lines: number }>();
+  const commBy = new Map<string, { total: number; paid: number; held: number; lines: number }>();
   for (const c of commissions) {
-    const e = commBy.get(c.staffProfileId) ?? { total: 0, paid: 0, lines: 0 };
+    const e = commBy.get(c.staffProfileId) ?? { total: 0, paid: 0, held: 0, lines: 0 };
     const p = c.payoutAmount.toNumber();
     e.total += p;
     e.lines += 1;
     if (c.isPaid) e.paid += p;
+    else if (requireCollection && !isAppointmentCollected(c.appointment)) e.held += p;
     commBy.set(c.staffProfileId, e);
   }
 
@@ -269,7 +320,7 @@ async function buildRows(query: PayrollQuery): Promise<BuiltReport> {
     const br = primaryBranch(s);
     const gross = grossBy.get(s.id) ?? { jobs: 0, revenue: 0 };
     const prev = prevBy.get(s.id) ?? { jobs: 0, revenue: 0 };
-    const comm = commBy.get(s.id) ?? { total: 0, paid: 0, lines: 0 };
+    const comm = commBy.get(s.id) ?? { total: 0, paid: 0, held: 0, lines: 0 };
     const goal = goalBy.get(s.id);
     const target = goal ? goal.targetRevenue.toNumber() : 0;
     const actual = round2(gross.revenue);
@@ -278,11 +329,14 @@ async function buildRows(query: PayrollQuery): Promise<BuiltReport> {
     const commissionTotal = round2(comm.total);
     const commissionPaid = round2(comm.paid);
     const commissionUnpaid = round2(commissionTotal - commissionPaid);
+    const commissionHeld = round2(comm.held);
     const claw = clawBy.get(s.id) ?? { total: 0, unsettled: 0 };
     const clawbackTotal = round2(claw.total);
     const clawbackUnsettled = round2(claw.unsettled);
     const payable = round2(commissionTotal + bonusAmount - clawbackTotal);
-    const outstanding = round2(Math.max(0, commissionUnpaid + (bonusPaid ? 0 : bonusAmount) - clawbackUnsettled));
+    const outstanding = round2(
+      Math.max(0, commissionUnpaid - commissionHeld + (bonusPaid ? 0 : bonusAmount) - clawbackUnsettled),
+    );
     const prevRevenue = round2(prev.revenue);
 
     return {
@@ -297,6 +351,7 @@ async function buildRows(query: PayrollQuery): Promise<BuiltReport> {
       commissionTotal,
       commissionPaid,
       commissionUnpaid,
+      commissionHeld,
       targetRevenue: target,
       actualRevenue: actual,
       targetMet: target > 0 && actual >= target,
@@ -351,8 +406,9 @@ async function buildRows(query: PayrollQuery): Promise<BuiltReport> {
 }
 
 export async function getPayrollReport(query: PayrollQuery): Promise<PayrollReport> {
+  const requireCollection = await commissionRequiresCollection();
   const [{ range, rows, daily, previous }, bonusRate] = await Promise.all([
-    buildRows(query),
+    buildRows(query, requireCollection),
     getBonusRate(),
   ]);
 
@@ -377,6 +433,7 @@ export async function getPayrollReport(query: PayrollQuery): Promise<PayrollRepo
     monthYear: range.label,
     generatedAt: new Date().toISOString(),
     bonusRate,
+    commissionRequiresCollection: requireCollection,
     isCurrentMonth,
     daysElapsed,
     daysInMonth,
@@ -390,6 +447,7 @@ export async function getPayrollReport(query: PayrollQuery): Promise<PayrollRepo
       commissionTotal,
       commissionPaid: sum((r) => r.commissionPaid),
       commissionUnpaid: sum((r) => r.commissionUnpaid),
+      commissionHeld: sum((r) => r.commissionHeld),
       bonusTotal,
       bonusUnpaid: sum((r) => (r.bonusPaid ? 0 : r.bonusAmount)),
       clawbackTotal,
@@ -415,10 +473,16 @@ export async function getPayrollReport(query: PayrollQuery): Promise<PayrollRepo
 export async function getStaffBreakdown(
   staffProfileId: string,
   query: PayrollQuery,
+  actor: PayrollActor,
 ): Promise<PayrollBreakdown> {
-  const { rows, range } = await buildRows({ ...query, branchId: undefined });
+  await assertStaffInScope(actor, [staffProfileId]);
+  // SUPER_ADMIN: payslip ລວມທຸກສາຂາ; BRANCH_ADMIN: ສະເພາະສາຂາຕົນ.
+  const scopeBranchId = actor.branchId ?? undefined;
+  const requireCollection = await commissionRequiresCollection();
+  const { rows, range } = await buildRows({ ...query, branchId: scopeBranchId }, requireCollection);
   const row = rows.find((r) => r.staffProfileId === staffProfileId);
   if (!row) throw ApiError.notFound('ບໍ່ພົບຊ່າງ');
+  const branchWhere = scopeBranchId ? { branchId: scopeBranchId } : {};
 
   const commissions = await prisma.staffCommission.findMany({
     where: {
@@ -427,6 +491,7 @@ export async function getStaffBreakdown(
         status: 'COMPLETED',
         deletedAt: null,
         startAt: { gte: range.from, lt: range.to },
+        ...branchWhere,
       },
     },
     select: {
@@ -435,8 +500,10 @@ export async function getStaffBreakdown(
       commissionRate: true,
       payoutAmount: true,
       isPaid: true,
+      paidAt: true,
       appointment: {
         select: {
+          ...COLLECTION_SELECT,
           id: true,
           startAt: true,
           totalAmount: true,
@@ -460,6 +527,8 @@ export async function getStaffBreakdown(
     commissionRate: c.commissionRate,
     payoutAmount: round2(c.payoutAmount.toNumber()),
     isPaid: c.isPaid,
+    paidAt: c.paidAt?.toISOString() ?? null,
+    collected: !requireCollection || isAppointmentCollected(c.appointment),
   }));
 
   // ລາຍຮັບລາຍວັນ + top services ອີງຄິວຂອງຄົນນີ້ (ບໍ່ແມ່ນສະເພາະແຖວທີ່ມີຄ່າຄອມ).
@@ -469,6 +538,7 @@ export async function getStaffBreakdown(
       status: 'COMPLETED',
       deletedAt: null,
       startAt: { gte: range.from, lt: range.to },
+      ...branchWhere,
     },
     select: { startAt: true, totalAmount: true, service: { select: { name: true } } },
   });
@@ -516,6 +586,7 @@ export async function getStaffBreakdown(
         status: 'COMPLETED',
         deletedAt: null,
         startAt: { gte: oldest.from, lt: range.to },
+        ...branchWhere,
       },
       select: { startAt: true, totalAmount: true },
     }),
@@ -526,6 +597,7 @@ export async function getStaffBreakdown(
           status: 'COMPLETED',
           deletedAt: null,
           startAt: { gte: oldest.from, lt: range.to },
+          ...branchWhere,
         },
       },
       select: { payoutAmount: true, appointment: { select: { startAt: true } } },
@@ -581,6 +653,7 @@ export async function exportPayrollCsv(query: PayrollQuery): Promise<{ filename:
     'commission_total',
     'commission_paid',
     'commission_unpaid',
+    'commission_held',
     'target_revenue',
     'actual_revenue',
     'attainment_pct',
@@ -614,6 +687,7 @@ export async function exportPayrollCsv(query: PayrollQuery): Promise<{ filename:
         r.commissionTotal,
         r.commissionPaid,
         r.commissionUnpaid,
+        r.commissionHeld,
         r.targetRevenue,
         r.actualRevenue,
         r.attainmentPct,
@@ -634,177 +708,384 @@ export async function exportPayrollCsv(query: PayrollQuery): Promise<{ filename:
   return { filename: `payroll-${report.monthYear}.csv`, csv: `${"﻿"}${lines.join('\n')}\n` };
 }
 
-async function recomputeGoal(
-  staffProfileId: string,
-  label: string,
-  from: Date,
-  to: Date,
+
+/**
+ * ຄິດເປົ້າ/ລາຍຮັບຈິງ/ໂບນັດ ໃໝ່ໃຫ້ຫຼາຍຄົນໃນຄັ້ງດຽວ (G4.5 — ໜຶ່ງ groupBy ແທນ N aggregate, ຢູ່ໃນ transaction ດຽວ).
+ * ລາຍຮັບຈິງລວມທຸກສາຂາ ເພາະເປົ້າເປັນຂອງຄົນຕໍ່ເດືອນ (ບໍ່ແມ່ນຕໍ່ສາຂາ).
+ * ໂບນັດທີ່ຈ່າຍແລ້ວບໍ່ຖືກປ່ຽນ — ຈ່າຍແລ້ວຄືຈ່າຍແລ້ວ.
+ */
+async function recomputeGoals(
+  staffProfileIds: string[],
+  range: MonthRange,
   bonusRate: number,
-  branchId: string | undefined,
-  targetOverride?: number,
-): Promise<void> {
-  const existing = await prisma.staffKpiGoal.findFirst({
-    where: { staffProfileId, monthYear: label },
-    select: { id: true, targetRevenue: true },
-  });
-  const target = targetOverride ?? (existing ? existing.targetRevenue.toNumber() : 0);
-
-  const agg = await prisma.appointment.aggregate({
-    where: {
-      staffProfileId,
-      status: 'COMPLETED',
-      deletedAt: null,
-      startAt: { gte: from, lt: to },
-      ...(branchId ? { branchId } : {}),
-    },
-    _sum: { totalAmount: true },
-  });
-  const actual = round2(agg._sum.totalAmount?.toNumber() ?? 0);
-  const bonus = target > 0 && actual > target ? round2((actual - target) * bonusRate) : 0;
-
-  if (existing) {
-    await prisma.staffKpiGoal.update({
-      where: { id: existing.id },
-      data: {
-        targetRevenue: new Prisma.Decimal(target.toFixed(2)),
-        actualRevenue: new Prisma.Decimal(actual.toFixed(2)),
-        bonusAmount: new Prisma.Decimal(bonus.toFixed(2)),
+  targetOverride?: number | Map<string, number>,
+): Promise<number> {
+  if (staffProfileIds.length === 0) return 0;
+  const [existing, actuals] = await Promise.all([
+    prisma.staffKpiGoal.findMany({
+      where: { staffProfileId: { in: staffProfileIds }, monthYear: range.label },
+      select: { staffProfileId: true, targetRevenue: true, isBonusPaid: true },
+    }),
+    prisma.appointment.groupBy({
+      by: ['staffProfileId'],
+      where: {
+        staffProfileId: { in: staffProfileIds },
+        status: 'COMPLETED',
+        deletedAt: null,
+        startAt: { gte: range.from, lt: range.to },
       },
-    });
-  } else {
-    await prisma.staffKpiGoal.create({
-      data: {
-        staffProfileId,
-        monthYear: label,
-        targetRevenue: new Prisma.Decimal(target.toFixed(2)),
-        actualRevenue: new Prisma.Decimal(actual.toFixed(2)),
-        bonusAmount: new Prisma.Decimal(bonus.toFixed(2)),
-      },
-    });
+      _sum: { totalAmount: true },
+    }),
+  ]);
+  const goalBy = new Map(existing.map((g) => [g.staffProfileId, g]));
+  const actualBy = new Map(actuals.map((a) => [a.staffProfileId, a._sum.totalAmount?.toNumber() ?? 0]));
+  const dec = (n: number) => new Prisma.Decimal(n.toFixed(2));
+
+  await prisma.$transaction(
+    staffProfileIds.map((staffProfileId) => {
+      const goal = goalBy.get(staffProfileId);
+      const override = targetOverride instanceof Map ? targetOverride.get(staffProfileId) : targetOverride;
+      const target = override ?? (goal ? goal.targetRevenue.toNumber() : 0);
+      const actual = round2(actualBy.get(staffProfileId) ?? 0);
+      const bonus = target > 0 && actual > target ? round2((actual - target) * bonusRate) : 0;
+      const frozen = goal?.isBonusPaid === true;
+      return prisma.staffKpiGoal.upsert({
+        where: { staffProfileId_monthYear: { staffProfileId, monthYear: range.label } },
+        update: {
+          actualRevenue: dec(actual),
+          ...(frozen ? {} : { targetRevenue: dec(target), bonusAmount: dec(bonus) }),
+        },
+        create: {
+          staffProfileId,
+          monthYear: range.label,
+          targetRevenue: dec(target),
+          actualRevenue: dec(actual),
+          bonusAmount: dec(bonus),
+        },
+      });
+    }),
+  );
+  return staffProfileIds.length;
+}
+
+/**
+ * G4.3 — ໂບນັດເປັນ snapshot ທີ່ປ່ຽນສະເພາະຕອນ recompute. ຮອບຈ່າຍເງິນເອີ້ນອັນນີ້ກ່ອນສ້າງໃບ ເພື່ອໃຫ້ໂບນັດ
+ * ອີງລາຍຮັບລ່າສຸດສະເໝີ (ສະເພາະຄົນທີ່ມີເປົ້າຢູ່ແລ້ວ — ບໍ່ສ້າງແຖວເປົ້າ 0 ໃຫ້ທຸກຄົນ).
+ */
+export async function refreshBonuses(staffProfileIds: string[], monthYear: string): Promise<void> {
+  const withGoal = await prisma.staffKpiGoal.findMany({
+    where: { staffProfileId: { in: staffProfileIds }, monthYear, isBonusPaid: false },
+    select: { staffProfileId: true },
+  });
+  if (withGoal.length === 0) return;
+  await recomputeGoals(
+    withGoal.map((g) => g.staffProfileId),
+    monthRange(monthYear),
+    await getBonusRate(),
+  );
+}
+
+/** G3.5 — ການຈ່າຍດ່ວນ (ນອກຮອບ) ຂອງ BRANCH_ADMIN ຈຳກັດຍອດຕໍ່ຄັ້ງ; ຍອດໃຫຍ່ກວ່ານັ້ນ ເຈົ້າຂອງຈ່າຍ ຫຼື ຜ່ານຮອບຈ່າຍ. */
+async function assertQuickPayLimit(actor: PayrollActor, amount: number): Promise<void> {
+  if (!actor.branchId || amount <= 0) return;
+  const { quickPayLimitLak } = await getPayrollSettings();
+  if (amount > quickPayLimitLak) {
+    throw ApiError.forbidden(
+      `ຍອດ ${Math.round(amount).toLocaleString('en-US')} ກີບ ເກີນເພດານຈ່າຍດ່ວນຂອງຜູ້ຈັດການສາຂາ (${Math.round(quickPayLimitLak).toLocaleString('en-US')} ກີບ) — ໃຫ້ເຈົ້າຂອງຈ່າຍ ຫຼື ຈ່າຍຜ່ານຮອບເງິນເດືອນ`,
+    );
   }
+}
+
+/**
+ * G5.5 — ຕັ້ງເປົ້າ KPI ໃຫ້ຫຼາຍຄົນໃນຄັ້ງດຽວ. PREV_MONTH_PCT ຂ້າມຄົນທີ່ເດືອນກ່ອນບໍ່ມີລາຍຮັບ.
+ * ຄ່າເລີ່ມຕົ້ນບໍ່ທັບເປົ້າທີ່ຕັ້ງໄວ້ແລ້ວ; ເປົ້າທີ່ໂບນັດຈ່າຍແລ້ວບໍ່ປ່ຽນສະເໝີ.
+ */
+export async function setKpiTargetsBulk(
+  input: KpiBulkTargetInput,
+  actor: PayrollActor,
+): Promise<{ monthYear: string; updated: number; skipped: number }> {
+  const branchId = actor.branchId ?? input.branchId;
+  const range = monthRange(input.monthYear);
+  const prev = monthRange(prevMonthLabel(range.label));
+  const staff = await prisma.staffProfile.findMany({
+    where: { deletedAt: null, isActive: true, ...(branchId ? { staffBranches: { some: { branchId } } } : {}) },
+    select: { id: true },
+  });
+  const ids = staff.map((s) => s.id);
+  const [existing, prevActuals] = await Promise.all([
+    prisma.staffKpiGoal.findMany({
+      where: { staffProfileId: { in: ids }, monthYear: range.label },
+      select: { staffProfileId: true, targetRevenue: true, isBonusPaid: true },
+    }),
+    prisma.appointment.groupBy({
+      by: ['staffProfileId'],
+      where: { staffProfileId: { in: ids }, status: 'COMPLETED', deletedAt: null, startAt: { gte: prev.from, lt: prev.to } },
+      _sum: { totalAmount: true },
+    }),
+  ]);
+  const goalBy = new Map(existing.map((g) => [g.staffProfileId, g]));
+  const prevBy = new Map(prevActuals.map((a) => [a.staffProfileId, a._sum.totalAmount?.toNumber() ?? 0]));
+  const targets = new Map<string, number>();
+  for (const id of ids) {
+    const goal = goalBy.get(id);
+    if (goal?.isBonusPaid) continue;
+    if (!input.overwrite && goal && goal.targetRevenue.toNumber() > 0) continue;
+    const target =
+      input.mode === 'FIXED' ? input.value : Math.round(((prevBy.get(id) ?? 0) * input.value) / 100 / 1000) * 1000;
+    if (target > 0) targets.set(id, target);
+  }
+  const updated = await recomputeGoals([...targets.keys()], range, await getBonusRate(), targets);
+  await auditPayroll(actor, 'kpi_targets_bulk_set', null, null, {
+    monthYear: range.label,
+    branchId: branchId ?? null,
+    mode: input.mode,
+    value: input.value,
+    overwrite: input.overwrite,
+    updated,
+  });
+  return { monthYear: range.label, updated, skipped: ids.length - updated };
 }
 
 export async function setKpiGoal(
   staffProfileId: string,
   input: KpiGoalWriteInput,
+  actor: PayrollActor,
 ): Promise<PayrollRow> {
   const staff = await prisma.staffProfile.findFirst({
     where: { id: staffProfileId, deletedAt: null },
     select: { id: true },
   });
   if (!staff) throw ApiError.notFound('ບໍ່ພົບຊ່າງ');
-  const { from, to, label } = monthRange(input.monthYear);
-  const bonusRate = await getBonusRate();
-  await recomputeGoal(staffProfileId, label, from, to, bonusRate, undefined, input.targetRevenue);
-  const { rows } = await buildRows({ monthYear: input.monthYear });
+  await assertStaffInScope(actor, [staffProfileId]);
+  const range = monthRange(input.monthYear);
+  const before = await prisma.staffKpiGoal.findUnique({
+    where: { staffProfileId_monthYear: { staffProfileId, monthYear: range.label } },
+    select: { targetRevenue: true, bonusAmount: true, isBonusPaid: true },
+  });
+  if (before?.isBonusPaid && before.targetRevenue.toNumber() !== input.targetRevenue) {
+    throw ApiError.conflict('ໂບນັດເດືອນນີ້ຈ່າຍແລ້ວ — ຍົກເລີກການຈ່າຍກ່ອນຈຶ່ງປ່ຽນເປົ້າໄດ້');
+  }
+  await recomputeGoals([staffProfileId], range, await getBonusRate(), input.targetRevenue);
+  const { rows } = await buildRows(
+    { monthYear: input.monthYear, branchId: actor.branchId ?? undefined },
+    await commissionRequiresCollection(),
+  );
   const row = rows.find((r) => r.staffProfileId === staffProfileId);
   if (!row) throw ApiError.notFound('ບໍ່ພົບແຖວ payroll ຫຼັງບັນທຶກ');
+  await auditPayroll(
+    actor,
+    'kpi_goal_set',
+    staffProfileId,
+    before ? { monthYear: range.label, targetRevenue: before.targetRevenue.toNumber(), bonusAmount: before.bonusAmount.toNumber() } : null,
+    { monthYear: range.label, targetRevenue: row.targetRevenue, bonusAmount: row.bonusAmount },
+  );
   return row;
 }
 
-export async function recomputeKpi(input: KpiRecomputeInput): Promise<{ monthYear: string; updated: number }> {
-  const { from, to, label } = monthRange(input.monthYear);
-  const bonusRate = await getBonusRate();
+export async function recomputeKpi(
+  input: KpiRecomputeInput,
+  actor: PayrollActor,
+): Promise<{ monthYear: string; updated: number }> {
+  const range = monthRange(input.monthYear);
+  const branchId = actor.branchId ?? input.branchId;
   const staff = await prisma.staffProfile.findMany({
     where: {
       deletedAt: null,
-      ...(input.branchId ? { staffBranches: { some: { branchId: input.branchId } } } : {}),
+      ...(branchId ? { staffBranches: { some: { branchId } } } : {}),
     },
     select: { id: true },
   });
-  for (const s of staff) {
-    await recomputeGoal(s.id, label, from, to, bonusRate, input.branchId);
+  const updated = await recomputeGoals(
+    staff.map((s) => s.id),
+    range,
+    await getBonusRate(),
+  );
+  await auditPayroll(actor, 'kpi_recomputed', null, null, { monthYear: range.label, branchId: branchId ?? null, updated });
+  return { monthYear: range.label, updated };
+}
+
+async function applyBonusPaid(
+  staffProfileIds: string[],
+  monthYear: string,
+  isBonusPaid: boolean,
+  reason: string | undefined,
+  actor: PayrollActor,
+): Promise<number> {
+  await assertStaffInScope(actor, staffProfileIds);
+  await assertNotInApprovedRun(staffProfileIds);
+  const goals = await prisma.staffKpiGoal.findMany({
+    where: { staffProfileId: { in: staffProfileIds }, monthYear, isBonusPaid: !isBonusPaid },
+    select: { id: true, staffProfileId: true, bonusAmount: true },
+  });
+  if (goals.length === 0) return 0;
+  if (isBonusPaid) await assertQuickPayLimit(actor, goals.reduce((t, g) => t + g.bonusAmount.toNumber(), 0));
+  if (!isBonusPaid) {
+    const inPaidRun = await prisma.payslip.count({
+      where: { bonusGoalId: { in: goals.map((g) => g.id) }, run: { status: 'PAID' } },
+    });
+    if (inPaidRun > 0) throw ApiError.conflict('ໂບນັດນີ້ຈ່າຍຜ່ານຮອບເງິນເດືອນແລ້ວ — ຍົກເລີກບໍ່ໄດ້');
   }
-  return { monthYear: label, updated: staff.length };
+  await prisma.staffKpiGoal.updateMany({
+    where: { id: { in: goals.map((g) => g.id) } },
+    data: isBonusPaid
+      ? { isBonusPaid: true, bonusPaidAt: new Date(), bonusPaidById: actor.userId }
+      : { isBonusPaid: false, bonusPaidAt: null, bonusPaidById: null },
+  });
+  const detail = goals.map((g) => ({ staffProfileId: g.staffProfileId, bonusAmount: g.bonusAmount.toNumber() }));
+  await auditPayroll(
+    actor,
+    isBonusPaid ? 'bonus_paid' : 'bonus_payment_cancelled',
+    goals.length === 1 ? goals[0]!.staffProfileId : null,
+    { monthYear, isBonusPaid: !isBonusPaid, staff: detail },
+    {
+      monthYear,
+      isBonusPaid,
+      total: round2(detail.reduce((t, d) => t + d.bonusAmount, 0)),
+      ...(reason ? { reason } : {}),
+    },
+  );
+  return goals.length;
 }
 
 export async function setBonusPaid(
   staffProfileId: string,
   input: BonusPaidInput,
+  actor: PayrollActor,
 ): Promise<{ staffProfileId: string; monthYear: string; isBonusPaid: boolean }> {
-  const goal = await prisma.staffKpiGoal.findFirst({
-    where: { staffProfileId, monthYear: input.monthYear },
+  const goal = await prisma.staffKpiGoal.findUnique({
+    where: { staffProfileId_monthYear: { staffProfileId, monthYear: input.monthYear } },
     select: { id: true },
   });
   if (!goal) throw ApiError.notFound('ບໍ່ພົບເປົ້າ KPI ຂອງເດືອນນີ້');
-  await prisma.staffKpiGoal.update({ where: { id: goal.id }, data: { isBonusPaid: input.isBonusPaid } });
+  await applyBonusPaid([staffProfileId], input.monthYear, input.isBonusPaid, input.reason, actor);
   return { staffProfileId, monthYear: input.monthYear, isBonusPaid: input.isBonusPaid };
 }
 
 export async function setBonusPaidBulk(
   input: BonusBulkPaidInput,
+  actor: PayrollActor,
 ): Promise<{ monthYear: string; isBonusPaid: boolean; affected: number }> {
-  const res = await prisma.staffKpiGoal.updateMany({
-    where: { staffProfileId: { in: input.staffProfileIds }, monthYear: input.monthYear },
-    data: { isBonusPaid: input.isBonusPaid },
-  });
-  return { monthYear: input.monthYear, isBonusPaid: input.isBonusPaid, affected: res.count };
+  const affected = await applyBonusPaid(input.staffProfileIds, input.monthYear, input.isBonusPaid, input.reason, actor);
+  return { monthYear: input.monthYear, isBonusPaid: input.isBonusPaid, affected };
 }
 
 /**
- * ໝາຍຄ່າຄອມຂອງເດືອນວ່າຈ່າຍແລ້ວ/ຍັງ.
+ * ໝາຍຄ່າຄອມຂອງເດືອນວ່າຈ່າຍແລ້ວ/ຍັງ ໃຫ້ຊ່າງໜຶ່ງຄົນ ຫຼື ຫຼາຍຄົນ.
  *
- * `branchId` ຕ້ອງຖືກສົ່ງຜ່ານລົງ where ນຳ — ບໍ່ດັ່ງນັ້ນການກົດ "ຈ່າຍ" ໃນມຸມມອງ
- * ທີ່ກັ່ນຕອງດ້ວຍສາຂາໜຶ່ງ ຈະໄປຈ່າຍຄ່າຄອມຂອງຄິວສາຂາອື່ນຂອງຄົນດຽວກັນນຳ.
+ * - `branchId` ຕ້ອງຖືກສົ່ງລົງ where — ບໍ່ດັ່ງນັ້ນການກົດ "ຈ່າຍ" ໃນມຸມມອງທີ່ກັ່ນຕອງດ້ວຍສາຂາໜຶ່ງ
+ *   ຈະໄປຈ່າຍຄ່າຄອມຂອງຄິວສາຂາອື່ນຂອງຄົນດຽວກັນນຳ. BRANCH_ADMIN ຖືກບັງຄັບເປັນສາຂາຕົນ (C4).
+ * - C2: ຈ່າຍໄດ້ສະເພາະນັດທີ່ເກັບເງິນບິນຄົບແລ້ວ — ສ່ວນທີ່ເຫຼືອຍັງ "held".
+ * - C3: ບັນທຶກ paidAt/paidById + AuditLog (ຍອດ ແລະ ລາຍການ).
  */
-export async function payCommissions(
-  input: CommissionPayInput & { branchId?: string },
-): Promise<{ staffProfileId: string; monthYear: string; isPaid: boolean; affected: number }> {
-  const { from, to } = monthRange(input.monthYear);
-  const res = await prisma.staffCommission.updateMany({
-    where: {
-      staffProfileId: input.staffProfileId,
-      appointment: {
-        status: 'COMPLETED',
-        deletedAt: null,
-        startAt: { gte: from, lt: to },
-        ...(input.branchId ? { branchId: input.branchId } : {}),
-      },
-    },
-    data: { isPaid: input.isPaid },
-  });
-  // ຂໍ້ຈຳກັດ 10B — ຈ່າຍຄອມເດືອນນີ້ = ຫັກ clawback ຂອງເດືອນນີ້ແລ້ວ (ຍົກເລີກການຈ່າຍ → ຍັງບໍ່ຫັກ).
-  await prisma.commissionClawback.updateMany({
-    where: { staffProfileId: input.staffProfileId, monthYear: input.monthYear, ...(input.branchId ? { branchId: input.branchId } : {}) },
-    data: { isSettled: input.isPaid },
-  });
-  return {
-    staffProfileId: input.staffProfileId,
-    monthYear: input.monthYear,
-    isPaid: input.isPaid,
-    affected: res.count,
+async function applyCommissionPaid(
+  staffProfileIds: string[],
+  monthYear: string,
+  isPaid: boolean,
+  requestedBranchId: string | undefined,
+  reason: string | undefined,
+  actor: PayrollActor,
+): Promise<{ affected: number; amount: number; held: number }> {
+  await assertStaffInScope(actor, staffProfileIds);
+  await assertNotInApprovedRun(staffProfileIds);
+  const branchId = actor.branchId ?? requestedBranchId;
+  if (actor.branchId && requestedBranchId && requestedBranchId !== actor.branchId) {
+    throw ApiError.forbidden('ຈັດການໄດ້ສະເພາະສາຂາຂອງທ່ານ');
+  }
+  const { from, to } = monthRange(monthYear);
+  const requireCollection = isPaid && (await commissionRequiresCollection());
+  const apptWhere: Prisma.AppointmentWhereInput = {
+    status: 'COMPLETED',
+    deletedAt: null,
+    startAt: { gte: from, lt: to },
+    ...(branchId ? { branchId } : {}),
   };
+
+  const { targets, held } = await prisma.$transaction(async (tx) => {
+    const candidates = await tx.staffCommission.findMany({
+      where: { staffProfileId: { in: staffProfileIds }, isPaid: !isPaid, appointment: apptWhere },
+      select: { id: true, staffProfileId: true, appointmentId: true, payoutAmount: true, appointment: { select: COLLECTION_SELECT } },
+    });
+    const targets = requireCollection ? candidates.filter((c) => isAppointmentCollected(c.appointment)) : candidates;
+    if (!isPaid && targets.length > 0) {
+      const locked = await commissionIdsInPaidRuns(staffProfileIds);
+      if (targets.some((c) => locked.has(c.id))) {
+        throw ApiError.conflict('ຄ່າຄອມບາງລາຍການຈ່າຍຜ່ານຮອບເງິນເດືອນແລ້ວ — ຍົກເລີກບໍ່ໄດ້');
+      }
+    }
+    if (isPaid) await assertQuickPayLimit(actor, targets.reduce((t, c) => t + c.payoutAmount.toNumber(), 0));
+    const heldAmount = candidates
+      .filter((c) => !targets.includes(c))
+      .reduce((t, c) => t + c.payoutAmount.toNumber(), 0);
+    if (targets.length > 0) {
+      await tx.staffCommission.updateMany({
+        // isPaid ຊ້ຳໃນ where = ກັນສອງ request ຈ່າຍແຖວດຽວກັນພ້ອມກັນ.
+        where: {
+          id: { in: targets.map((c) => c.id) },
+          isPaid: !isPaid,
+          ...(requireCollection ? { appointment: COLLECTED_APPOINTMENT_WHERE } : {}),
+        },
+        data: isPaid
+          ? { isPaid: true, paidAt: new Date(), paidById: actor.userId }
+          : { isPaid: false, paidAt: null, paidById: null },
+      });
+    }
+    // ຂໍ້ຈຳກັດ 10B — ຈ່າຍຄອມເດືອນນີ້ = ຫັກ clawback ຂອງເດືອນນີ້ແລ້ວ (ຍົກເລີກການຈ່າຍ → ຍັງບໍ່ຫັກ).
+    await tx.commissionClawback.updateMany({
+      where: { staffProfileId: { in: staffProfileIds }, monthYear, ...(branchId ? { branchId } : {}) },
+      data: { isSettled: isPaid },
+    });
+    return { targets, held: round2(heldAmount) };
+  });
+
+  const amount = round2(targets.reduce((t, c) => t + c.payoutAmount.toNumber(), 0));
+  if (targets.length > 0) {
+    await auditPayroll(
+      actor,
+      isPaid ? 'commission_paid' : 'commission_payment_cancelled',
+      staffProfileIds.length === 1 ? staffProfileIds[0]! : null,
+      { monthYear, isPaid: !isPaid },
+      {
+        monthYear,
+        isPaid,
+        branchId: branchId ?? null,
+        amount,
+        lines: targets.length,
+        held,
+        commissionIds: targets.slice(0, 200).map((c) => c.id),
+        ...(reason ? { reason } : {}),
+      },
+    );
+  }
+  return { affected: targets.length, amount, held };
 }
 
-/** ຈ່າຍຄ່າຄອມຫຼາຍຄົນໃນຄັ້ງດຽວ — ໜຶ່ງ statement, ບໍ່ແມ່ນ loop ຂອງ request. */
+export async function payCommissions(
+  input: CommissionPayInput,
+  actor: PayrollActor,
+): Promise<{ staffProfileId: string; monthYear: string; isPaid: boolean; affected: number; amount: number; held: number }> {
+  const res = await applyCommissionPaid(
+    [input.staffProfileId],
+    input.monthYear,
+    input.isPaid,
+    input.branchId,
+    input.reason,
+    actor,
+  );
+  return { staffProfileId: input.staffProfileId, monthYear: input.monthYear, isPaid: input.isPaid, ...res };
+}
+
+/** ຈ່າຍຄ່າຄອມຫຼາຍຄົນໃນຄັ້ງດຽວ — ໜຶ່ງ transaction, ບໍ່ແມ່ນ loop ຂອງ request. */
 export async function payCommissionsBulk(
   input: CommissionBulkPayInput,
-): Promise<{ monthYear: string; isPaid: boolean; affected: number; staff: number }> {
-  const { from, to } = monthRange(input.monthYear);
-  const res = await prisma.staffCommission.updateMany({
-    where: {
-      staffProfileId: { in: input.staffProfileIds },
-      appointment: {
-        status: 'COMPLETED',
-        deletedAt: null,
-        startAt: { gte: from, lt: to },
-        ...(input.branchId ? { branchId: input.branchId } : {}),
-      },
-    },
-    data: { isPaid: input.isPaid },
-  });
-  await prisma.commissionClawback.updateMany({
-    where: {
-      staffProfileId: { in: input.staffProfileIds },
-      monthYear: input.monthYear,
-      ...(input.branchId ? { branchId: input.branchId } : {}),
-    },
-    data: { isSettled: input.isPaid },
-  });
-  return {
-    monthYear: input.monthYear,
-    isPaid: input.isPaid,
-    affected: res.count,
-    staff: input.staffProfileIds.length,
-  };
+  actor: PayrollActor,
+): Promise<{ monthYear: string; isPaid: boolean; affected: number; amount: number; held: number; staff: number }> {
+  const res = await applyCommissionPaid(
+    input.staffProfileIds,
+    input.monthYear,
+    input.isPaid,
+    input.branchId,
+    input.reason,
+    actor,
+  );
+  return { monthYear: input.monthYear, isPaid: input.isPaid, ...res, staff: input.staffProfileIds.length };
 }

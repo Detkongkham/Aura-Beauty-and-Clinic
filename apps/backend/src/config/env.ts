@@ -19,6 +19,9 @@ const envSchema = z.object({
   /** ຊື່ທີ່ສະແດງໃນແອັບ authenticator. */
   TWO_FACTOR_ISSUER: z.string().default('Aura Clinic'),
 
+  /** ບ່ອນເກັບໄຟລ໌ backup (pg_dump) — /portal system status ອ່ານໄຟລ໌ໃໝ່ສຸດ. ບໍ່ຕັ້ງ = ບໍ່ມີ backup. */
+  BACKUP_DIR: z.string().optional(),
+
   STORAGE_DRIVER: z.enum(['local']).default('local'),
   STORAGE_LOCAL_DIR: z.string().default('./uploads'),
   STORAGE_PUBLIC_URL: z.string().url().default('http://localhost:4000/uploads'),

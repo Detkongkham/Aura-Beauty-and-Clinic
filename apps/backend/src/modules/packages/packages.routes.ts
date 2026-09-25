@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { z } from 'zod';
 import {
   createPackageSchema,
@@ -15,6 +15,9 @@ import * as packages from './packages.service.js';
 
 const idParam = z.object({ id: z.string().uuid() });
 const adminQuery = z.object({ branchId: z.string().uuid().optional() });
+
+/** BRANCH_ADMIN → ສາຂາຂອງຕົນ; SUPER_ADMIN → null (ບໍ່ຈຳກັດ). */
+const adminScope = (req: Request): string | null => (req.auth?.role === 'BRANCH_ADMIN' ? (req.auth.branchId ?? null) : null);
 
 export const packagesRouter: Router = Router();
 packagesRouter.use(authGuard);
@@ -61,7 +64,7 @@ packagesRouter.get(
   roleGuard('SUPER_ADMIN', 'BRANCH_ADMIN'),
   validateRequest({ query: adminQuery }),
   asyncHandler(async (req, res) => {
-    res.json({ data: await packages.adminListPackages(req.query.branchId as string | undefined) });
+    res.json({ data: await packages.adminListPackages(adminScope(req) ?? (req.query.branchId as string | undefined)) });
   }),
 );
 
@@ -70,7 +73,7 @@ packagesRouter.post(
   roleGuard('SUPER_ADMIN', 'BRANCH_ADMIN'),
   validateRequest({ body: createPackageSchema }),
   asyncHandler(async (req, res) => {
-    res.status(201).json({ data: await packages.createPackage(req.body) });
+    res.status(201).json({ data: await packages.createPackage(req.body, adminScope(req)) });
   }),
 );
 
@@ -79,7 +82,7 @@ packagesRouter.patch(
   roleGuard('SUPER_ADMIN', 'BRANCH_ADMIN'),
   validateRequest({ params: idParam, body: updatePackageSchema }),
   asyncHandler(async (req, res) => {
-    res.json({ data: await packages.updatePackage(req.params.id!, req.body) });
+    res.json({ data: await packages.updatePackage(req.params.id!, req.body, adminScope(req)) });
   }),
 );
 

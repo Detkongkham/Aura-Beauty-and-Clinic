@@ -1,0 +1,148 @@
+// ໝວດ: Payroll runs & payslips — docs/payroll-audit.md P2 (ຮອບຈ່າຍ/ອະນຸມັດ/ປິດງວດ) + P3 (ເງິນເດືອນ/OT/ຫັກ/ປະກັນສັງຄົມ/ອາກອນ) + P4 (ລົງລາຍຈ່າຍ)
+
+enum SalaryType {
+  NONE
+  MONTHLY
+  DAILY
+  HOURLY
+}
+
+/// DRAFT (ຄິດໃໝ່ໄດ້ເລື້ອຍໆ) → APPROVED (ຕົວເລກຖືກແຊ່ແຂງ, ຈ່າຍດ່ວນແບບເກົ່າຖືກກັນ) → PAID (ສຸດທ້າຍ, ລົງລາຍຈ່າຍແລ້ວ).
+/// APPROVED → DRAFT ໄດ້ດ້ວຍເຫດຜົນ (reopen). PAID ບໍ່ປ່ຽນອີກ.
+enum PayrollRunStatus {
+  DRAFT
+  APPROVED
+  PAID
+}
+
+enum PayrollAdjustmentType {
+  /// ເງິນເພີ່ມ (ຄ່າອາຫານ, ຄ່າເດີນທາງ, ...) — ເປັນລາຍໄດ້ຕ້ອງເສຍອາກອນ.
+  ALLOWANCE
+  /// ຫັກຄືນເງິນເບີກລ່ວງໜ້າ.
+  ADVANCE
+  /// ຄ່າປັບ.
+  PENALTY
+  OTHER_DEDUCTION
+}
+
+/// ລາຍການເພີ່ມ/ຫັກ ຕໍ່ຄົນຕໍ່ເດືອນ — ຖືກດຶງເຂົ້າໃບຈ່າຍເງິນຕອນຄິດຮອບ. ລັອກເມື່ອຮອບຂອງເດືອນນັ້ນ APPROVED/PAID.
+model PayrollAdjustment {
+  id             String                @id @default(uuid())
+  staffProfileId String
+  monthYear      String
+  type           PayrollAdjustmentType
+  amount         Decimal               @db.Decimal(16, 2)
+  label          String
+  createdById    String
+  createdAt      DateTime              @default(now())
+
+  staffProfile StaffProfile @relation(fields: [staffProfileId], references: [id], onDelete: Cascade)
+
+  @@index([staffProfileId, monthYear])
+  @@map("payroll_adjustments")
+}
+
+/// ໜຶ່ງຮອບຈ່າຍ ຕໍ່ ໜຶ່ງສາຂາ ຕໍ່ ໜຶ່ງເດືອນ. ພະນັກງານເຂົ້າຮອບຂອງສາຂາຫຼັກ (isPrimary) ຂອງຕົນ.
+model PayrollRun {
+  id               String           @id @default(uuid())
+  branchId         String
+  monthYear        String
+  status           PayrollRunStatus @default(DRAFT)
+  note             String?
+  preparedById     String
+  preparedAt       DateTime         @default(now())
+  approvedById     String?
+  approvedAt       DateTime?
+  paidById         String?
+  paidAt           DateTime?
+  /// CASH | TRANSFER
+  paymentMethod    String?
+  paymentReference String?
+  /// ບັນຊີທະນາຄານທີ່ໂອນອອກ (TRANSFER) — ຄືກັບ Expense.paidFromAccountId ຂອງລາຍຈ່າຍທີ່ລົງ.
+  bankAccountId    String?
+  reopenCount      Int              @default(0)
+  lastReopenReason String?
+
+  totalGross       Decimal @default(0.0) @db.Decimal(16, 2)
+  totalDeductions  Decimal @default(0.0) @db.Decimal(16, 2)
+  totalNet         Decimal @default(0.0) @db.Decimal(16, 2)
+  totalCommission  Decimal @default(0.0) @db.Decimal(16, 2)
+  totalBonus       Decimal @default(0.0) @db.Decimal(16, 2)
+  totalEmployerSso Decimal @default(0.0) @db.Decimal(16, 2)
+  totalIncomeTax   Decimal @default(0.0) @db.Decimal(16, 2)
+  /// P4 — ລາຍຈ່າຍ SALARY (ສ່ວນທີ່ບໍ່ແມ່ນຄ່າຄອມ/ໂບນັດ) ທີ່ລົງຕອນ PAID.
+  expenseId        String?  @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  payslips Payslip[]
+
+  @@unique([branchId, monthYear])
+  @@index([monthYear])
+  @@map("payroll_runs")
+}
+
+/// Snapshot ຂອງໃບຈ່າຍເງິນ — ບໍ່ປ່ຽນຫຼັງ APPROVED. ຍອດທັງໝົດເປັນ LAK.
+model Payslip {
+  id             String     @id @default(uuid())
+  payrollRunId   String
+  staffProfileId String
+  staffName      String
+  salaryType     SalaryType
+  /// ອັດຕາຕາມສັນຍາ (ຕໍ່ເດືອນ/ມື້/ຊົ່ວໂມງ) ຕອນຄິດຮອບ.
+  baseRate       Decimal    @db.Decimal(16, 2)
+  daysPresent    Int        @default(0)
+  daysAbsent     Int        @default(0)
+  hoursWorked    Decimal    @default(0.0) @db.Decimal(8, 2)
+  overtimeHours  Decimal    @default(0.0) @db.Decimal(8, 2)
+
+  basePay          Decimal @default(0.0) @db.Decimal(16, 2)
+  absenceDeduction Decimal @default(0.0) @db.Decimal(16, 2)
+  overtimePay      Decimal @default(0.0) @db.Decimal(16, 2)
+  commission       Decimal @default(0.0) @db.Decimal(16, 2)
+  bonus            Decimal @default(0.0) @db.Decimal(16, 2)
+  allowances       Decimal @default(0.0) @db.Decimal(16, 2)
+  grossPay         Decimal @default(0.0) @db.Decimal(16, 2)
+  ssoBase          Decimal @default(0.0) @db.Decimal(16, 2)
+  ssoEmployee      Decimal @default(0.0) @db.Decimal(16, 2)
+  ssoEmployer      Decimal @default(0.0) @db.Decimal(16, 2)
+  taxableIncome    Decimal @default(0.0) @db.Decimal(16, 2)
+  incomeTax        Decimal @default(0.0) @db.Decimal(16, 2)
+  advances         Decimal @default(0.0) @db.Decimal(16, 2)
+  otherDeductions  Decimal @default(0.0) @db.Decimal(16, 2)
+  clawback         Decimal @default(0.0) @db.Decimal(16, 2)
+  netPay           Decimal @default(0.0) @db.Decimal(16, 2)
+
+  /// ລາຍການອ້າງອີງທີ່ຈະຖືກໝາຍວ່າຈ່າຍ/ຫັກແລ້ວ ຕອນຮອບ PAID.
+  commissionIds    Json @default("[]")
+  clawbackIds      Json @default("[]")
+  bonusGoalId      String?
+  /// [{ type, label, amount }]
+  adjustments      Json @default("[]")
+  /// ຂັ້ນໄດອາກອນທີ່ໃຊ້ຄິດ: [{ from, to, rate, tax }]
+  taxBreakdown     Json @default("[]")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  run          PayrollRun   @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  staffProfile StaffProfile @relation(fields: [staffProfileId], references: [id])
+
+  @@unique([payrollRunId, staffProfileId])
+  @@index([staffProfileId])
+  @@map("payslips")
+}
+
+/// G1.8 — ອັດຕາຄ່າຄອມຕໍ່ບໍລິການ (ທັບອັດຕາຂອງພະນັກງານ). ບໍ່ມີແຖວ = ໃຊ້ StaffProfile.commissionRate.
+/// serviceId ເກັບເປັນ string (ບໍ່ຜູກ relation ເພື່ອບໍ່ແຕະ catalog.prisma); service ຖືກກວດຕອນຂຽນ.
+model ServiceCommissionRule {
+  id          String   @id @default(uuid())
+  serviceId   String   @unique
+  rate        Float
+  updatedById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("service_commission_rules")
+}

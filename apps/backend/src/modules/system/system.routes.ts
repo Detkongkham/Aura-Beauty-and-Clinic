@@ -124,6 +124,14 @@ const eodQuerySchema = z.object({
 /** GET /reports/end-of-day */
 export const reportsRouter: Router = Router();
 reportsRouter.use(authGuard, roleGuard('SUPER_ADMIN', 'BRANCH_ADMIN'));
+/** GET /reports/status-counts — live per-state counts for the /system-map status machines (system-wide → SUPER_ADMIN). */
+reportsRouter.get(
+  '/status-counts',
+  roleGuard('SUPER_ADMIN'),
+  asyncHandler(async (_req, res) => {
+    res.json({ data: await system.statusMachineCounts() });
+  }),
+);
 reportsRouter.get(
   '/end-of-day',
   validateRequest({ query: eodQuerySchema }),

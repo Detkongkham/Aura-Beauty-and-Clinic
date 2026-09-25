@@ -305,6 +305,11 @@ Test 3 ຊັ້ນຂອງ Module 39: **unit** (`payments-treasury.registry`, 
 **integration** (`payments-treasury`, `-webhook`, `-slips` ດ້ວຍ OCR ຈິງ, `-w5`, `expenses`), **UI** (web-admin: BanksPage,
 SlipReviewPage, ExpensesPage, ReconciliationPage, slipModel). mobile ບໍ່ມີ UI test ໃນ repo — ກວດໄດ້ສະເພາະ tsc + eslint.
 
+> **ອັບເດດ 2026-09-26:** ຂໍ້ 3 (Refund API/UI — `refunds.service.ts`, Wave 10B), ຂໍ້ 4 (OCR ໃບຮັບເງິນ — expenses E7),
+> ຂໍ້ 5 (signed URL `/uploads` 2026-09-25), ຂໍ້ 7 (push-tap deep-link — `apps/mobile/src/lib/pushRouting.ts`) ແລະ
+> ຂໍ້ 8 (COGS ແບບ WAC — inventory C4) **ແກ້ແລ້ວ**. ທີ່ຍັງເຫຼືອແມ່ນຂໍ້ 1, 2 ແລະ 6 ເຊິ່ງຕ້ອງໃຊ້ບັນຊີ/ຂໍ້ມູນຈິງຈາກທະນາຄານ
+> ແລະ ການທົດສອບດ້ວຍຕາ.
+
 **ຍັງຄ້າງກ່ອນ production (ບໍ່ blocked ການປິດ Module):**
 1. ເຊື່ອມ API ທະນາຄານຈິງ (ທຸກ provider ຍັງ MOCK; ປ່ຽນຜ່ານ `providers/registry.ts` ໂດຍບໍ່ແຕະ route) + IP allowlist ຂອງ webhook.
 2. ເກັບສະລິບຈິງ BCEL/LDB/JDB ມາປັບ parser/QR (ຍັງບໍ່ໄດ້ທົດສອບກັບຂອງຈິງ; `Bank.ocrTemplate` ຍັງບໍ່ໄດ້ໃຊ້).

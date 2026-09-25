@@ -168,9 +168,23 @@ export async function listConversations(
 
 /** ໂມດູນ 38 Wave 8C — admin lock/unlock ຫ້ອງແຊັດໃດກໍ່ໄດ້ (moderation). ຍັງອ່ານໄດ້ ພຽງແຕ່ສົ່ງບໍ່ໄດ້
  * ຕອນ locked (ບັງຄັບຢູ່ `chat.service.postMessage`). */
-export async function setThreadLock(threadId: string, isLocked: boolean): Promise<void> {
-  const existing = await prisma.chatThread.findUnique({ where: { id: threadId }, select: { id: true } });
+export async function setThreadLock(threadId: string, isLocked: boolean, actor?: AccessTokenPayload): Promise<void> {
+  const existing = await prisma.chatThread.findUnique({
+    where: { id: threadId },
+    select: { id: true, branchId: true, type: true, participants: { select: { user: { select: { branchId: true } } } } },
+  });
   if (!existing) throw ApiError.notFound('ບໍ່ພົບຫົວຂໍ້ສົນທະນານີ້');
+  // BRANCH_ADMIN ລັອກ/ປົດໄດ້ສະເພາະຫ້ອງຂອງສາຂາຕົນ: ຫ້ອງນັດ = branchId ຂອງຫ້ອງ; ຫ້ອງພາຍໃນ (ບໍ່ມີສາຂາ) =
+  // ມີສະມາຊິກຈາກສາຂາຕົນ; DIRECT (ລູກຄ້າ↔ລູກຄ້າ) = SUPER_ADMIN ເທົ່ານັ້ນ.
+  if (actor?.role === 'BRANCH_ADMIN') {
+    const allowed =
+      existing.type === 'DIRECT'
+        ? false
+        : existing.branchId
+          ? existing.branchId === actor.branchId
+          : existing.participants.some((p) => p.user.branchId === actor.branchId);
+    if (!allowed) throw ApiError.forbidden('ຈັດການໄດ້ສະເພາະຫ້ອງສົນທະນາຂອງສາຂາທ່ານ');
+  }
   await prisma.chatThread.update({ where: { id: threadId }, data: { isLocked } });
 }
 
@@ -314,3 +328,34 @@ export async function reviewChatReport(id: string, status: 'REVIEWED' | 'ACTIONE
     await prisma.chatThread.update({ where: { id: report.conversationId }, data: { isLocked: true } });
   }
 }
+
+/** ໜ້າ moderation — ລາຍການ block ທັງໝົດ (ອ່ານຢ່າງດຽວ: ການ block ເປັນສິດຂອງຜູ້ໃຊ້) + ຈຳນວນຄັ້ງທີ່ຄົນໜຶ່ງຖືກ block. */
+export type AdminChatBlockView = {
+  id: string;
+  blockerId: string;
+  blockerName: string;
+  blockedId: string;
+  blockedName: string;
+  /** ຈຳນວນຄົນທີ່ block ຜູ້ໃຊ້ນີ້ທັງໝົດ — ສັນຍານຂອງການລົບກວນ. */
+  blockedCount: number;
+  createdAt: string;
+};
+
+export async function listAllChatBlocks(): Promise<AdminChatBlockView[]> {
+  const rows = await prisma.chatBlock.findMany({ orderBy: { createdAt: 'desc' }, take: 500 });
+  const ids = [...new Set(rows.flatMap((r) => [r.blockerId, r.blockedId]))];
+  const users = await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
+  const name = new Map(users.map((u) => [u.id, u.name]));
+  const counts = new Map<string, number>();
+  for (const r of rows) counts.set(r.blockedId, (counts.get(r.blockedId) ?? 0) + 1);
+  return rows.map((r) => ({
+    id: r.id,
+    blockerId: r.blockerId,
+    blockerName: name.get(r.blockerId) ?? '—',
+    blockedId: r.blockedId,
+    blockedName: name.get(r.blockedId) ?? '—',
+    blockedCount: counts.get(r.blockedId) ?? 1,
+    createdAt: r.createdAt.toISOString(),
+  }));
+}
+

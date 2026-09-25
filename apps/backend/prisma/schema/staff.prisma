@@ -20,6 +20,13 @@ model StaffProfile {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
+  /// Payroll P3 — ໂຄງສ້າງເງິນເດືອນ. NONE = ຮັບແຕ່ຄ່າຄອມ/ໂບນັດ (ພຶດຕິກຳເດີມ).
+  salaryType  SalaryType @default(NONE)
+  /// ເດືອນ (MONTHLY) / ມື້ (DAILY) / ຊົ່ວໂມງ (HOURLY) — LAK.
+  baseSalary  Decimal    @default(0.0) @db.Decimal(16, 2)
+  /// ເຂົ້າກອງທຶນປະກັນສັງຄົມ (ຫັກສ່ວນລູກຈ້າງ + ນາຍຈ້າງສົມທົບ).
+  ssoEnrolled Boolean    @default(true)
+
   /// ໂມດູນ 29 — ຊ່າງເປີດຮັບວຽກ Home Service ຢູ່ບໍ່ (ສະຫຼັບເອງໃນແອັບມືຖື).
   isHomeServiceAvailable Boolean   @default(false)
   lastKnownLatitude      Float?
@@ -30,6 +37,7 @@ model StaffProfile {
   staffBranches       StaffBranch[]
   workingHours        WorkingHour[]
   timeOffs            StaffTimeOff[]
+  gratuityShares      GratuityShare[]
   staffServices       StaffService[]
   appointments        Appointment[]        @relation("StaffAppointments")
   commissions         StaffCommission[]
@@ -37,6 +45,8 @@ model StaffProfile {
   attendances         StaffAttendance[]
   kpiGoals            StaffKpiGoal[]
   homeServiceTrips    HomeServiceTrip[]    @relation("HomeServiceTrips")
+  payslips            Payslip[]
+  payrollAdjustments  PayrollAdjustment[]
 
   @@map("staff_profiles")
 }
@@ -112,10 +122,15 @@ model StaffKpiGoal {
   actualRevenue  Decimal  @default(0.0) @db.Decimal(16, 2)
   bonusAmount    Decimal  @default(0.0) @db.Decimal(16, 2)
   isBonusPaid    Boolean  @default(false)
+  /// Payroll C3 — ຫຼັກຖານການຈ່າຍໂບນັດ (null ເມື່ອຍັງບໍ່ຈ່າຍ / ຖືກຍົກເລີກການຈ່າຍ).
+  bonusPaidAt    DateTime?
+  bonusPaidById  String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   staffProfile StaffProfile @relation(fields: [staffProfileId], references: [id], onDelete: Cascade)
 
+  /// Payroll C1 — ໜຶ່ງເປົ້າຕໍ່ຄົນຕໍ່ເດືອນ (ກັນ recompute ພ້ອມກັນສ້າງແຖວຊ້ຳ).
+  @@unique([staffProfileId, monthYear])
   @@map("staff_kpi_goals")
 }

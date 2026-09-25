@@ -146,7 +146,7 @@ export function useDeleteExpense() {
 
 export type ExpenseAction =
   | { id: string; action: 'submit' }
-  | { id: string; action: 'approve' }
+  | { id: string; action: 'approve'; overrideMatch?: boolean; overrideReason?: string }
   | { id: string; action: 'reject'; reason: string }
   | { id: string; action: 'pay'; input: PayExpenseInput }
   | { id: string; action: 'void'; reason: string };
@@ -156,7 +156,13 @@ export function useExpenseAction() {
   return useMutation({
     mutationFn: async (a: ExpenseAction) => {
       const body =
-        a.action === 'reject' || a.action === 'void' ? { reason: a.reason } : a.action === 'pay' ? a.input : undefined;
+        a.action === 'reject' || a.action === 'void'
+          ? { reason: a.reason }
+          : a.action === 'pay'
+            ? a.input
+            : a.action === 'approve' && a.overrideMatch
+              ? { overrideMatch: true, overrideReason: a.overrideReason }
+              : undefined;
       return (
         await http.post<Envelope<ExpenseView>>(`${BASE}/${a.id}/${a.action}`, body, {
           headers: { 'Idempotency-Key': crypto.randomUUID() },

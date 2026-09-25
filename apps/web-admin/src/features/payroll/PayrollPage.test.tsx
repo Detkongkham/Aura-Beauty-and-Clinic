@@ -84,4 +84,23 @@ describe('PayrollPage', () => {
       expect(within(screen.getByRole('table')).getAllByRole('row').length).toBeLessThan(before),
     );
   });
+
+  it('pay runs view: shows the branch run, its payslips and opens a payslip', async () => {
+    await i18n.changeLanguage('en');
+    const { db } = await import('@/mocks/fixtures/store');
+    const branch = db.branches[0]!;
+    renderWithProviders(<PayrollPage />, { route: `/staff/payroll?view=runs&branch=${branch.id}` });
+
+    expect(await screen.findByText('Total net pay')).toBeInTheDocument();
+    expect(screen.getByText('Draft')).toBeInTheDocument();
+    // Owner sees the approve action on a draft.
+    expect(screen.getByRole('button', { name: /approve/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Allowances & deductions' })).toBeInTheDocument();
+
+    await userEvent.click(await screen.findByText('ນາງ ສົມໃຈ', { selector: 'td p' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('Earnings')).toBeInTheDocument();
+    expect(within(dialog).getByText('Net pay')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: /print/i })).toBeInTheDocument();
+  });
 });

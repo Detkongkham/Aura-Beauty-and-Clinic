@@ -25,7 +25,6 @@ const RESOURCE_ENTITY: Record<string, string> = {
   customers: 'customer',
   staff: 'staff',
   'staff-portal': 'staff',
-  payroll: 'staff',
   branches: 'branch',
   'branch-closures': 'branch',
   users: 'users',
@@ -41,7 +40,9 @@ const RESOURCE_ENTITY: Record<string, string> = {
   conversations: 'conversation',
 };
 
-const SKIP_HEAD = new Set(['auth', 'audit-logs', 'notifications', 'dashboard', 'reports', 'catalog']);
+// payroll ຂຽນ AuditLog ເອງພ້ອມຄ່າກ່ອນ/ຫຼັງ (payroll.service auditPayroll) — ຂ້າມເພື່ອບໍ່ໃຫ້ຊ້ຳ.
+// Wave 11 — branches ກໍຂຽນເອງ (branches.service auditBranch) ພ້ອມ diff ກ່ອນ/ຫຼັງ ສຳລັບແທັບປະຫວັດສາຂາ.
+const SKIP_HEAD = new Set(['auth', 'audit-logs', 'notifications', 'dashboard', 'reports', 'catalog', 'payroll', 'branches']);
 
 function verbFor(method: string, path: string): string {
   const tail = path.split('/').filter(Boolean).pop() ?? '';

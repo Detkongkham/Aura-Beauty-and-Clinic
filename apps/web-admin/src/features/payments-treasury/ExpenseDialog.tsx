@@ -147,9 +147,19 @@ export function ExpenseDialog({ open, onClose, expense, template, branches, defa
     for (const file of Array.from(files)) {
       try {
         const { contentType, dataBase64 } = await fileToBase64(file);
-        // E7 — read the first photo so the form can be pre-filled (suggestion only; the user applies it).
-        if (contentType === 'image/jpeg' && !scan.isPending && !suggestion) {
-          scan.mutate({ contentType, dataBase64 }, { onSuccess: setSuggestion, onError: () => toast.error(t('payTreasury.exp.scanFailed')) });
+        // E7 — read the first photo (or a digital PDF's text layer, Wave 11) so the form can be pre-filled
+        // (suggestion only; the user applies it).
+        if (!scan.isPending && !suggestion) {
+          scan.mutate(
+            { contentType, dataBase64 },
+            {
+              onSuccess: setSuggestion,
+              onError: (e) =>
+                toast.error(
+                  contentType === 'application/pdf' && e instanceof NormalizedApiError ? e.message : t('payTreasury.exp.scanFailed'),
+                ),
+            },
+          );
         }
         setStaged((s) => [
           ...s,

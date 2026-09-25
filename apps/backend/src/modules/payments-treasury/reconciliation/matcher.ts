@@ -13,7 +13,7 @@ import { BANK_TENDERS, DAY_MS, dateToKey, keyToDate } from './recon.util.js';
  */
 
 type Candidate = {
-  kind: 'TX' | 'EXPENSE' | 'REFUND';
+  kind: 'TX' | 'EXPENSE' | 'REFUND' | 'CASH_FUND';
   id: string;
   amount: number;
   /** ຍອດທີ່ທະນາຄານຄວນສະແດງ (gross − fee ສຳລັບ provider ທີ່ໂອນສຸດທິ). */
@@ -75,14 +75,15 @@ export async function loadCandidates(bankAccountId: string, fromKey: string, toK
   const matched = excludeMatched
     ? await prisma.bankStatementLine.findMany({
         where: { bankAccountId, matchStatus: 'MATCHED' },
-        select: { matchedTxId: true, matchedExpenseId: true, matchedRefundId: true },
+        select: { matchedTxId: true, matchedExpenseId: true, matchedRefundId: true, matchedCashFundEntryId: true },
       })
     : [];
   const usedTx = new Set(matched.map((m) => m.matchedTxId).filter(Boolean));
   const usedExp = new Set(matched.map((m) => m.matchedExpenseId).filter(Boolean));
   const usedRef = new Set(matched.map((m) => m.matchedRefundId).filter(Boolean));
+  const usedFund = new Set(matched.map((m) => m.matchedCashFundEntryId).filter(Boolean));
 
-  const [txs, expenses, refunds] = await Promise.all([
+  const [txs, expenses, refunds, fundTopups] = await Promise.all([
     prisma.paymentTransaction.findMany({
       where: { bankAccountId, status: 'SUCCESS', method: { in: [...BANK_TENDERS] }, createdAt: { gte: start, lt: end } },
       select: {
@@ -101,6 +102,10 @@ export async function loadCandidates(bankAccountId: string, fromKey: string, toK
     prisma.refund.findMany({
       where: { bankAccountId, status: 'PAID', paidAt: { gte: start, lt: end } },
       select: { id: true, amount: true, paidAt: true, providerRef: true },
+    }),
+    prisma.cashFundEntry.findMany({
+      where: { bankAccountId, type: 'TOPUP', createdAt: { gte: start, lt: end } },
+      select: { id: true, amount: true, createdAt: true },
     }),
   ]);
 
@@ -143,6 +148,17 @@ export async function loadCandidates(bankAccountId: string, fromKey: string, toK
         dateKey: dateToKey(vientianeDateKey(r.paidAt!)),
         refs: r.providerRef ? [r.providerRef] : [],
       })),
+    ...fundTopups
+      .filter((f) => !usedFund.has(f.id))
+      .map((f) => ({
+        kind: 'CASH_FUND' as const,
+        id: f.id,
+        amount: Math.abs(toNum(f.amount)),
+        netAmount: Math.abs(toNum(f.amount)),
+        at: f.createdAt,
+        dateKey: dateToKey(vientianeDateKey(f.createdAt)),
+        refs: [] as string[],
+      })),
   ];
   return { credits, debits };
 }
@@ -182,6 +198,7 @@ export async function autoMatch(bankAccountId: string, fromKey: string, toKey: s
         matchedTxId: pick.kind === 'TX' ? pick.id : null,
         matchedExpenseId: pick.kind === 'EXPENSE' ? pick.id : null,
         matchedRefundId: pick.kind === 'REFUND' ? pick.id : null,
+        matchedCashFundEntryId: pick.kind === 'CASH_FUND' ? pick.id : null,
         matchedById: null,
         matchedAt: now,
       },

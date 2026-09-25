@@ -157,7 +157,7 @@ export function StaffDetailPage() {
               <PersonAvatar name={data.name} size={56} className="border border-border" />
 
               <div className="min-w-0 flex-1">
-                <h1 className="font-display text-2xl font-semibold leading-tight">{data.name}</h1>
+                <h1 className="font-sans text-2xl font-semibold leading-tight">{data.name}</h1>
                 <p className="mt-0.5 truncate text-sm text-muted-foreground">
                   {data.jobTitle} · {data.branchName}
                 </p>

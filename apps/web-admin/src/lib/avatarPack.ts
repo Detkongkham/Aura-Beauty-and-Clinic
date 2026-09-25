@@ -25,3 +25,8 @@ function hashOf(s: string): number {
 export function avatarImage(seed: string): string {
   return AVATAR_PACK[hashOf((seed ?? '').trim() || 'Aura') % AVATAR_PACK.length]!;
 }
+
+/** Face URL for a 1-based pack index (from a user-picked `pack:NN` token). */
+export function avatarImageAt(index: number): string {
+  return AVATAR_PACK[(index - 1 + AVATAR_PACK.length) % AVATAR_PACK.length]!;
+}

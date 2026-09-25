@@ -1,6 +1,7 @@
+import { parsePackAvatar } from '@abcp/shared-types';
 import { useEffect, useState } from 'react';
 
-import { avatarImage } from '@/lib/avatarPack';
+import { avatarImage, avatarImageAt } from '@/lib/avatarPack';
 import { cn } from '@/lib/utils';
 
 type Tint = 'primary' | 'accent' | 'muted';
@@ -14,7 +15,7 @@ const TINT_BG: Record<Tint, string> = {
 interface PersonAvatarProps {
   /** Seed for the deterministic cartoon face — usually the person's name. */
   name: string;
-  /** Real photo URL, if any. */
+  /** Real photo URL, or a user-picked `pack:NN` cartoon token (honoured in every mode). */
   src?: string | null;
   /** Pixel size of the square. */
   size?: number;
@@ -43,14 +44,16 @@ export function PersonAvatar({
   className,
   alt,
 }: PersonAvatarProps) {
-  const wantPhoto = mode === 'auto' && !!src;
+  const picked = parsePackAvatar(src);
+  const wantPhoto = mode === 'auto' && !!src && picked === null;
   const [showPhoto, setShowPhoto] = useState(wantPhoto);
 
   useEffect(() => {
     setShowPhoto(wantPhoto);
   }, [wantPhoto, src]);
 
-  const source = showPhoto && src ? src : avatarImage(name);
+  const source =
+    picked !== null ? avatarImageAt(picked) : showPhoto && src ? src : avatarImage(name);
 
   return (
     <span

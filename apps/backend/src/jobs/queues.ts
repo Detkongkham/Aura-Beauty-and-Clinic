@@ -21,6 +21,9 @@ export const QueueName = {
   RECON_REMINDER: 'recon-reminder',
   SLIP_SLA: 'slip-sla',
   LOT_EXPIRY: 'lot-expiry',
+  REORDER_POINT: 'reorder-point',
+  FINANCE_DAILY: 'finance-daily',
+  UPLOAD_GC: 'upload-gc',
 } as const;
 
 export type ReminderJobData = { appointmentId?: string };
@@ -40,6 +43,9 @@ export type RecurringExpenseJobData = Record<string, never>;
 export type ReconReminderJobData = Record<string, never>;
 export type SlipSlaJobData = Record<string, never>;
 export type LotExpiryJobData = Record<string, never>;
+export type ReorderPointJobData = Record<string, never>;
+export type FinanceDailyJobData = Record<string, never>;
+export type UploadGcJobData = Record<string, never>;
 
 const defaultJobOptions = {
   attempts: 3,
@@ -114,7 +120,25 @@ export const lotExpiryQueue = new Queue<LotExpiryJobData>(QueueName.LOT_EXPIRY, 
   defaultJobOptions,
 });
 
+/** Inventory 9D (H7/M11) — ສ້ອມແປງການຈອງ + ຄິດ reorder point ທຸກຄືນ. */
+export const reorderPointQueue = new Queue<ReorderPointJobData>(QueueName.REORDER_POINT, {
+  connection,
+  defaultJobOptions,
+});
+
+export const uploadGcQueue = new Queue<UploadGcJobData>(QueueName.UPLOAD_GC, {
+  connection,
+  defaultJobOptions,
+});
+
+/** Wave 11 — FX feed + ຄະແນນໝົດອາຍຸ + breakage ບັດຂອງຂວັນ ທຸກເຊົ້າ. */
+export const financeDailyQueue = new Queue<FinanceDailyJobData>(QueueName.FINANCE_DAILY, {
+  connection,
+  defaultJobOptions,
+});
+
 export const allQueues = [
+  financeDailyQueue,
   reminderQueue,
   waitlistQueue,
   marketingQueue,
@@ -126,6 +150,8 @@ export const allQueues = [
   reconReminderQueue,
   slipSlaQueue,
   lotExpiryQueue,
+  reorderPointQueue,
+  uploadGcQueue,
 ];
 
 /**
@@ -187,8 +213,26 @@ export async function registerRepeatableJobs(): Promise<void> {
       {},
       { repeat: { pattern: '30 8 * * *', tz: 'Asia/Vientiane' }, jobId: 'lot-expiry-daily' },
     );
+    // Inventory 9D — 04:15 ເວລາວຽງຈັນ (ຫຼັງ stock reconcile / chat-lock, ກ່ອນ recurring expense): ການຈອງ + reorder point.
+    await reorderPointQueue.add(
+      'nightly',
+      {},
+      { repeat: { pattern: '15 4 * * *', tz: 'Asia/Vientiane' }, jobId: 'reorder-point-nightly' },
+    );
+    // ລ້າງຮູບບໍລິການທີ່ອັບໂຫລດແລ້ວບໍ່ໄດ້ບັນທຶກ (> 24h, ບໍ່ມີແຖວອ້າງອີງ).
+    await uploadGcQueue.add(
+      'nightly',
+      {},
+      { repeat: { pattern: '45 3 * * *', tz: 'Asia/Vientiane' }, jobId: 'upload-gc-nightly' },
+    );
+    // Wave 11 — 05:30 ເວລາວຽງຈັນ: FX feed, ຄະແນນໝົດອາຍຸ, breakage (ກ່ອນ recurring expense 06:00).
+    await financeDailyQueue.add(
+      'daily',
+      {},
+      { repeat: { pattern: '30 5 * * *', tz: 'Asia/Vientiane' }, jobId: 'finance-daily' },
+    );
     logger.info(
-      '🔁 repeatable jobs ລົງທະບຽນແລ້ວ (reminder sweep, marketing daily, chat-lock daily, home-service SLA sweep, stock reconcile nightly, payment expiry sweep, recurring expense daily, recon reminder daily, slip SLA sweep, lot expiry daily)',
+      '🔁 repeatable jobs ລົງທະບຽນແລ້ວ (reminder sweep, marketing daily, chat-lock daily, home-service SLA sweep, stock reconcile nightly, payment expiry sweep, recurring expense daily, recon reminder daily, slip SLA sweep, lot expiry daily, reorder point nightly, upload gc nightly)',
     );
   } catch (err) {
     logger.warn({ err }, 'ລົງທະບຽນ repeatable jobs ບໍ່ສຳເລັດ (Redis?)');

@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
-import { attainmentTone, formatDelta, paceRatio, TONE } from './payroll.lib';
+import { attainmentTone, commissionPayableNow, formatDelta, paceRatio, TONE } from './payroll.lib';
 import { AttainmentMeter, PayoutStatePill, RankBadge, SectionCard } from './payroll.parts';
 
 interface Props {
@@ -251,12 +251,21 @@ export function PayrollRoster({
                 {t('payroll.ratePct', { rate: Math.round(r.commissionRate * 100) })} ·{' '}
                 {t('payroll.linesCount', { count: r.commissionLines })}
               </div>
-              {r.commissionUnpaid > 0 ? (
+              {commissionPayableNow(r) > 0 ? (
                 <div className="mt-0.5 inline-flex items-center gap-1 text-2xs font-medium text-warning">
                   <TriangleAlert className="h-2.5 w-2.5" aria-hidden="true" />
-                  <CurrencyText amount={r.commissionUnpaid} />
+                  <CurrencyText amount={commissionPayableNow(r)} />
                 </div>
-              ) : r.commissionTotal > 0 ? (
+              ) : null}
+              {r.commissionHeld > 0 ? (
+                <div
+                  className="mt-0.5 block text-2xs text-muted-foreground"
+                  title={t('payroll.heldHint')}
+                >
+                  {t('payroll.heldShort')} <CurrencyText amount={r.commissionHeld} />
+                </div>
+              ) : null}
+              {r.commissionUnpaid <= 0 && r.commissionTotal > 0 ? (
                 <div className="mt-0.5 inline-flex items-center gap-1 text-2xs text-success">
                   <CheckCircle2 className="h-2.5 w-2.5" aria-hidden="true" />
                   {t('payroll.allPaid')}
@@ -310,11 +319,11 @@ export function PayrollRoster({
         cell: ({ row }) => {
           const r = row.original;
           if (!canManage) return null;
-          const hasAction = r.commissionUnpaid > 0 || (r.bonusAmount > 0 && !r.bonusPaid);
+          const hasAction = commissionPayableNow(r) > 0 || (r.bonusAmount > 0 && !r.bonusPaid);
           if (!hasAction) return null;
           return (
             <div className="flex justify-end gap-1">
-              {r.commissionUnpaid > 0 ? (
+              {commissionPayableNow(r) > 0 ? (
                 <Button
                   variant="ghost"
                   size="sm"

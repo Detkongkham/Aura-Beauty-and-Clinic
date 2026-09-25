@@ -1,8 +1,9 @@
 import type { AccountOverview } from '@abcp/shared-types';
-import { Camera, Lock, Trash2, UserRound } from 'lucide-react';
+import { Camera, Lock, Smile, Trash2, UserRound } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { AvatarPickerDialog } from '@/components/shared/AvatarPickerDialog';
 import { PersonAvatar } from '@/components/shared/PersonAvatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,6 +29,7 @@ export function ProfileSection({ data, index }: ProfileSectionProps) {
   const update = useUpdateProfile();
   const avatar = useUpdateProfile();
   const fileRef = useRef<HTMLInputElement>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const initial = { name: data.user.name, email: data.user.email ?? '' };
   const [form, setForm] = useState(initial);
@@ -91,6 +93,18 @@ export function ProfileSection({ data, index }: ProfileSectionProps) {
     }
   };
 
+  const pickAvatar = (token: string) =>
+    avatar.mutate(
+      { avatarUrl: token },
+      {
+        onSuccess: () => {
+          setPickerOpen(false);
+          toast.success(t('account.profile.avatarSaved'));
+        },
+        onError: (err) => toast.error((err as Error).message),
+      },
+    );
+
   const removePhoto = () =>
     avatar.mutate(
       { avatarUrl: null },
@@ -127,6 +141,16 @@ export function ProfileSection({ data, index }: ProfileSectionProps) {
                   ? t('account.profile.changePhoto')
                   : t('account.profile.uploadPhoto')}
             </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={avatar.isPending}
+              onClick={() => setPickerOpen(true)}
+            >
+              <Smile aria-hidden="true" />
+              {t('account.profile.chooseAvatar')}
+            </Button>
             {data.avatarUrl ? (
               <Button
                 type="button"
@@ -150,6 +174,13 @@ export function ProfileSection({ data, index }: ProfileSectionProps) {
               void onFile(e.target.files?.[0]);
               e.target.value = '';
             }}
+          />
+          <AvatarPickerDialog
+            open={pickerOpen}
+            onOpenChange={setPickerOpen}
+            current={data.avatarUrl}
+            pending={avatar.isPending}
+            onPick={pickAvatar}
           />
         </div>
       </SettingsRow>

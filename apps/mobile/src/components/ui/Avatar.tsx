@@ -1,3 +1,4 @@
+import { parsePackAvatar } from '@abcp/shared-types';
 import { useEffect, useState } from 'react';
 import { Image, type ImageSourcePropType, View } from 'react-native';
 import { AVATAR_PACK } from '../../lib/avatarPack';
@@ -21,6 +22,11 @@ function hashOf(s: string): number {
 /** ຮູບ avatar 3D deterministic ຈາກຊຸດ — ໃຊ້ໄດ້ນອກ <Avatar> ຄືກັນ. */
 export function avatarSource(seed: string): ImageSourcePropType {
   return AVATAR_PACK[hashOf(seed.trim() || 'Aura') % AVATAR_PACK.length]!;
+}
+
+/** ຮູບ avatar ຈາກເລກ 1-based ທີ່ຜູ້ໃຊ້ເລືອກເອງ (token `pack:NN`). */
+export function avatarSourceAt(index: number): ImageSourcePropType {
+  return AVATAR_PACK[(index - 1 + AVATAR_PACK.length) % AVATAR_PACK.length]!;
 }
 
 type Tint = 'primary' | 'accent' | 'muted';
@@ -48,7 +54,9 @@ export function Avatar({
   mode?: 'auto' | 'cartoon';
   className?: string;
 }): React.JSX.Element {
-  const wantPhoto = mode === 'auto' && !!uri;
+  // token `pack:NN` = avatar ທີ່ຜູ້ໃຊ້ເລືອກເອງ → ໃຊ້ສະເໝີ ບໍ່ວ່າ mode ໃດ (ຄືກັບ web PersonAvatar).
+  const picked = parsePackAvatar(uri);
+  const wantPhoto = mode === 'auto' && !!uri && picked === null;
   const [showPhoto, setShowPhoto] = useState(wantPhoto);
 
   useEffect(() => {
@@ -56,7 +64,8 @@ export function Avatar({
   }, [wantPhoto, uri]);
 
   const radius = shape === 'full' ? 'rounded-full' : 'rounded-lg';
-  const source = showPhoto && uri ? { uri } : avatarSource(name);
+  const source =
+    picked !== null ? avatarSourceAt(picked) : showPhoto && uri ? { uri } : avatarSource(name);
 
   return (
     <View

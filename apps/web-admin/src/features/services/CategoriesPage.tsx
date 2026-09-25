@@ -1,4 +1,4 @@
-import { FolderOpen, Pencil, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
+import { FolderOpen, ImageOff, Pencil, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -31,6 +31,8 @@ import { cn } from '@/lib/utils';
 import { NormalizedApiError } from '@/services/apiError';
 import type { ServiceCategory } from '@/types/models';
 
+import { ServiceImageField } from './ServiceImageField';
+import { useImageUploadSession } from './useImageUploadSession';
 import { ServicesTabs } from './ServicesTabs';
 import { useDeleteCategory, useSaveCategory, useServiceCategories } from './services.api';
 
@@ -45,8 +47,10 @@ export function CategoriesPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<ServiceCategory | null>(null);
   const [name, setName] = useState('');
+  const [imageUrl, setImageUrl] = useState('');
 
   const save = useSaveCategory(editing?.id);
+  const uploads = useImageUploadSession(open);
   const del = useDeleteCategory();
   const { page, pageSize, setPage, setPageSize } = usePagination();
 
@@ -65,18 +69,21 @@ export function CategoriesPage() {
   const openCreate = () => {
     setEditing(null);
     setName('');
+    setImageUrl('');
     setOpen(true);
   };
   const openEdit = (cat: ServiceCategory) => {
     setEditing(cat);
     setName(cat.name);
+    setImageUrl(cat.imageUrl ?? '');
     setOpen(true);
   };
 
   const submit = () => {
     if (!name.trim()) return;
+    uploads.keep(imageUrl.trim() || null);
     save.mutate(
-      { name: name.trim() },
+      { name: name.trim(), imageUrl: imageUrl.trim() || null },
       {
         onSuccess: () => {
           toast.success(t('services.categorySaved'));
@@ -84,7 +91,10 @@ export function CategoriesPage() {
           setEditing(null);
           setOpen(false);
         },
-        onError: () => toast.error(t('services.saveError')),
+        onError: () => {
+          uploads.keep(null);
+          toast.error(t('services.saveError'));
+        },
       },
     );
   };
@@ -248,9 +258,12 @@ export function CategoriesPage() {
                       {rowOffset + i + 1}
                     </TableCell>
                     <TableCell>
-                      <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-1 text-[13px] font-semibold text-primary">
-                        {c.name}
-                      </span>
+                      <div className="flex items-center gap-3">
+                        <CategoryThumb url={c.imageUrl} name={c.name} />
+                        <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-1 text-[13px] font-semibold text-primary">
+                          {c.name}
+                        </span>
+                      </div>
                     </TableCell>
                     <TableCell className="text-center">
                       <span className="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 px-2.5 py-1 text-xs font-semibold tabular-nums text-primary">
@@ -309,7 +322,7 @@ export function CategoriesPage() {
           if (!next) setEditing(null);
         }}
       >
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>
               {editing ? t('services.editCategory') : t('services.newCategory')}
@@ -324,6 +337,15 @@ export function CategoriesPage() {
               onKeyDown={(e) => e.key === 'Enter' && submit()}
             />
           </div>
+          <div className="space-y-1.5">
+            <Label>{t('services.categoryImage')}</Label>
+            <ServiceImageField
+              value={imageUrl}
+              name={name}
+              onChange={setImageUrl}
+              onUploaded={uploads.track}
+            />
+          </div>
           <DialogFooter>
             <Button variant="secondary" onClick={() => setOpen(false)}>
               {t('common.cancel')}
@@ -335,5 +357,20 @@ export function CategoriesPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/** Row thumbnail for a category — falls back to an icon when unset or broken. */
+function CategoryThumb({ url, name }: { url: string | null; name: string }) {
+  const [broken, setBroken] = useState(false);
+  useEffect(() => setBroken(false), [url]);
+  return (
+    <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/50 text-muted-foreground">
+      {url && !broken ? (
+        <img src={url} alt={name} className="h-full w-full object-cover" onError={() => setBroken(true)} />
+      ) : (
+        <ImageOff className="h-4 w-4" aria-hidden="true" />
+      )}
+    </span>
   );
 }

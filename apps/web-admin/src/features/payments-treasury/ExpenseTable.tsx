@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { SectionCard } from '@/features/payroll/payroll.parts';
 import { formatDate } from '@/lib/format';
 
-import { CategoryGlyph, DueChip, ExpenseMarkers, ExpenseStatusPill, WaitingChip } from './expense.parts';
+import { CategoryGlyph, DueChip, ExpenseMarkers, ExpenseStatusPill, PoMatchChip, WaitingChip } from './expense.parts';
 import { categoryColor, categoryName, isForeign, weekdayShort } from './expenses.lib';
 
 interface Props {
@@ -70,6 +70,7 @@ export function ExpenseTable(p: Props) {
               <div className="flex min-w-0 items-center gap-1.5 text-xs">
                 <span className="truncate text-sm font-medium">{e.title}</span>
                 <ExpenseMarkers expense={e} />
+                {e.purchaseOrder ? <PoMatchChip match={e.poMatch} /> : null}
               </div>
               <div className="truncate text-2xs text-muted-foreground">
                 {categoryName(e.category, p.lang)}

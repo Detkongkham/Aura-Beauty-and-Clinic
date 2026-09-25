@@ -45,6 +45,7 @@ async function wipe(): Promise<void> {
     await prisma.stockLot.deleteMany({ where: { productId: { in: lp } } });
     await prisma.purchaseOrderItem.deleteMany({ where: { productId: { in: lp } } });
     await prisma.stockTransferItem.deleteMany({ where: { productId: { in: lp } } });
+    await prisma.stockAdjustmentRequest.deleteMany({ where: { productId: { in: lp } } });
     await prisma.serviceConsumable.deleteMany({ where: { productId: { in: lp } } });
     await prisma.product.deleteMany({ where: { id: { in: lp } } });
   }
@@ -102,7 +103,7 @@ describe('Phase 6 — Inventory (Suppliers, Purchase Orders, BOM ledger)', () =>
     expect(res.status).toBe(403);
   });
 
-  it('supplier CRUD + delete blocked while a PO references it', async () => {
+  it('supplier CRUD + delete becomes soft delete while a PO references it', async () => {
     const created = await request(app)
       .post('/api/v1/suppliers')
       .set(...bearer(adminToken))
@@ -146,15 +147,15 @@ describe('Phase 6 — Inventory (Suppliers, Purchase Orders, BOM ledger)', () =>
     const dec = await request(app)
       .post('/api/v1/stock-movements/adjust')
       .set(...bearer(adminToken))
-      .send({ productId, delta: -2, notes: 'ເສຍຫາຍ' });
+      .send({ productId, reason: 'DAMAGED', delta: -2, notes: 'ເສຍຫາຍ' });
     expect(dec.status).toBe(201);
-    expect(dec.body.data.type).toBe('ADJUSTMENT_DEDUCT');
-    expect(dec.body.data.balanceAfter).toBe(2);
+    expect(dec.body.data.movement.type).toBe('ADJUSTMENT_DEDUCT');
+    expect(dec.body.data.movement.balanceAfter).toBe(2);
 
     const bad = await request(app)
       .post('/api/v1/stock-movements/adjust')
       .set(...bearer(adminToken))
-      .send({ productId, delta: -10 });
+      .send({ productId, reason: 'DAMAGED', delta: -10 });
     expect(bad.status).toBe(409);
 
     // purchase order → receive
@@ -167,7 +168,7 @@ describe('Phase 6 — Inventory (Suppliers, Purchase Orders, BOM ledger)', () =>
         items: [{ productId, quantity: 20, unitCost: 11500 }],
       });
     expect(po.status).toBe(201);
-    expect(po.body.data.poNumber).toMatch(/^PO-[0-9A-F]{8}$/);
+    expect(po.body.data.poNumber).toMatch(/^PO-[A-Z0-9]+-\d{4}-\d{6}$/);
     expect(po.body.data.totalAmount).toBe(230000);
     const poId = po.body.data.id as string;
 
@@ -186,11 +187,14 @@ describe('Phase 6 — Inventory (Suppliers, Purchase Orders, BOM ledger)', () =>
       .set(...bearer(adminToken));
     expect(recv2.status).toBe(409);
 
-    // supplier delete blocked (PO exists)
-    const delBlocked = await request(app)
+    // M20 (9D) — supplier with a PO → soft delete (row kept for the historical PO, hidden from lists)
+    const delSoft = await request(app)
       .delete(`/api/v1/suppliers/${supplierId}`)
       .set(...bearer(adminToken));
-    expect(delBlocked.status).toBe(409);
+    expect(delSoft.status).toBe(204);
+    const soft = await prisma.supplier.findUniqueOrThrow({ where: { id: supplierId } });
+    expect(soft.deletedAt).not.toBeNull();
+    expect(soft.isActive).toBe(false);
   });
 
   it('BOM — completing a haircut appointment deducts shampoo 0.03 exactly once', async () => {
@@ -287,7 +291,7 @@ describe('Phase 6 — Inventory (Suppliers, Purchase Orders, BOM ledger)', () =>
       const blockedAdjust = await request(app)
         .post('/api/v1/stock-movements/adjust')
         .set(...bearer(managerToken))
-        .send({ productId: foreignId, delta: 1 });
+        .send({ productId: foreignId, reason: 'OPENING_BALANCE', delta: 1 });
       expect(blockedAdjust.status).toBe(403);
 
       const blockedCreate = await request(app)
@@ -307,13 +311,13 @@ describe('Phase 6 — Inventory (Suppliers, Purchase Orders, BOM ledger)', () =>
       const ownAdjust = await request(app)
         .post('/api/v1/stock-movements/adjust')
         .set(...bearer(managerToken))
-        .send({ productId: shampoo.id, delta: 1, notes: 'branch-scope ok' });
+        .send({ productId: shampoo.id, reason: 'OPENING_BALANCE', delta: 1, notes: 'branch-scope ok' });
       expect(ownAdjust.status).toBe(201);
       // put it back
       await request(app)
         .post('/api/v1/stock-movements/adjust')
         .set(...bearer(managerToken))
-        .send({ productId: shampoo.id, delta: -1 });
+        .send({ productId: shampoo.id, reason: 'DAMAGED', delta: -1 });
     } finally {
       await prisma.stockMovement.deleteMany({ where: { productId: foreignId } });
       await prisma.product.deleteMany({ where: { id: foreignId } });
@@ -359,10 +363,10 @@ describe('Phase 6 — Inventory (Suppliers, Purchase Orders, BOM ledger)', () =>
     const adj = await request(app)
       .post('/api/v1/stock-movements/adjust')
       .set(...bearer(adminToken))
-      .send({ productId, delta: 2 });
+      .send({ productId, reason: 'OPENING_BALANCE', delta: 2 });
     expect(adj.status).toBe(201);
-    expect(adj.body.data.createdByUserId).toBeTruthy();
-    expect(adj.body.data.createdByUserName).toBeTruthy();
+    expect(adj.body.data.movement.createdByUserId).toBeTruthy();
+    expect(adj.body.data.movement.createdByUserName).toBeTruthy();
 
     // opening-stock movement ຄວນເປັນ null (ລະບົບ, ບໍ່ແມ່ນມະນຸດກົດຕອນ create ດ້ວຍ authenticated user? —
     // ຕົວຈິງ createProduct ກໍ່ຮັບ createdByUserId ນຳ, ດັ່ງນັ້ນຄວນມີຄ່າເໝືອນກັນ).
@@ -409,7 +413,7 @@ describe('Phase 6 — Inventory (Suppliers, Purchase Orders, BOM ledger)', () =>
       const adj = await request(app)
         .post('/api/v1/stock-movements/adjust')
         .set(...bearer(adminToken))
-        .send({ productId: product.id, delta: 1 });
+        .send({ productId: product.id, reason: 'OPENING_BALANCE', delta: 1 });
       expect(adj.status).toBe(201);
       const today = new Date().toISOString().slice(0, 10);
 
@@ -443,7 +447,7 @@ describe('Phase 6 — Inventory (Suppliers, Purchase Orders, BOM ledger)', () =>
           request(app)
             .post('/api/v1/stock-movements/adjust')
             .set(...bearer(adminToken))
-            .send({ productId: product.id, delta: -1 }),
+            .send({ productId: product.id, reason: 'DAMAGED', delta: -1 }),
         ),
       );
       expect(results.every((r) => r.status === 201)).toBe(true);
@@ -927,14 +931,14 @@ describe('Phase 6 — Inventory (Suppliers, Purchase Orders, BOM ledger)', () =>
       expect(off.status).toBe(409);
       // ປັບເພີ່ມມືໂດຍບໍ່ບອກ lot → 400; ຫັກມື 3 ໃຊ້ FEFO
       expect(
-        (await request(app).post('/api/v1/stock-movements/adjust').set(...bearer(adminToken)).send({ productId, delta: 1 })).status,
+        (await request(app).post('/api/v1/stock-movements/adjust').set(...bearer(adminToken)).send({ productId, reason: 'OPENING_BALANCE', delta: 1 })).status,
       ).toBe(400);
       const ded = await request(app)
         .post('/api/v1/stock-movements/adjust')
         .set(...bearer(adminToken))
-        .send({ productId, delta: -3 });
+        .send({ productId, reason: 'DAMAGED', delta: -3 });
       expect(ded.status).toBe(201);
-      expect(ded.body.data.lotNumber).toBe('L1');
+      expect(ded.body.data.movement.lotNumber).toBe('L1');
       expect((await prisma.stockLot.findFirstOrThrow({ where: { productId, lotNumber: 'L1' } })).qtyOnHand.toNumber()).toBe(1);
     } finally {
       await cleanupLotProduct(productId);

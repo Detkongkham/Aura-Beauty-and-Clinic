@@ -51,7 +51,7 @@ export function BranchCheckInQrDialog({ branch, open, onOpenChange }: BranchChec
     if (!w || !url) return;
     w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(branch.name)}</title>
 <style>body{font-family:'Noto Sans Lao',system-ui,sans-serif;text-align:center;padding:48px;color:#1E293B}
-h1{font-size:28px;margin:0 0 4px}h2{font-size:18px;font-weight:500;color:#64748B;margin:0 0 32px}
+h1{font-family:'Plus Jakarta Sans',Inter,'Noto Sans Lao',system-ui,-apple-system,sans-serif;font-size:28px;margin:0 0 4px}h2{font-size:18px;font-weight:500;color:#64748B;margin:0 0 32px}
 img{width:360px;height:360px}ol{display:inline-block;text-align:left;font-size:16px;line-height:1.9;margin-top:28px}
 .brand{letter-spacing:.2em;color:#7C3AED;font-size:13px;margin-bottom:16px}</style></head><body>
 <div class="brand">AURA</div><h1>${esc(t('branches.checkInQr.printTitle'))}</h1><h2>${esc(branch.name)}</h2>

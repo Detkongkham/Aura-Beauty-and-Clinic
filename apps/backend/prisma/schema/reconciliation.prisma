@@ -69,6 +69,8 @@ model BankStatementLine {
   matchedTxId      String?                @unique
   matchedExpenseId String?                @unique
   matchedRefundId  String?                @unique
+  /// Wave 11 — ແຖວ statement ທີ່ຈັບຄູ່ກັບການເຕີມ/ຖອນເງິນກ່ອງເງິນສົດຍ່ອຍ ຜ່ານບັນຊີທະນາຄານ.
+  matchedCashFundEntryId String?          @unique
   /// null = ຈັບຄູ່ອັດຕະໂນມັດ.
   matchedById      String?
   matchedAt        DateTime?

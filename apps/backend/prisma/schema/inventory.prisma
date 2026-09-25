@@ -8,12 +8,35 @@ enum StockMovementType {
   RETURN_TO_SUPPLIER
   TRANSFER_OUT
   TRANSFER_IN
+  /// M13 — ຂາຍສິນຄ້າໜ້າຮ້ານ (retail/OTC): ຕັດອອກ (FEFO) ຕອນບິນ FULLY_PAID. refId `sale:<retailSaleId>`.
+  SOLD
+  /// M13 — ລູກຄ້າຄືນສິນຄ້າ (ຄືນເງິນ PAID): ເຂົ້າ lot ເດີມ ຕາມຕົ້ນທຶນເດີມ, WAC ບໍ່ປ່ຽນ. refId `saleret:<refundId>`.
+  SALE_RETURN
 }
 
+/// M13 — ບິນຂາຍໜ້າຮ້ານ: PENDING_PAYMENT → PAID (Payment FULLY_PAID + ຕັດສະຕັອກ) | VOIDED (ຍົກເລີກກ່ອນຈ່າຍ).
+enum RetailSaleStatus {
+  PENDING_PAYMENT
+  PAID
+  VOIDED
+}
+
+/// 9D (M6/H4) — DRAFT → [PENDING_APPROVAL →] ORDERED → PARTIALLY_RECEIVED → RECEIVED; CANCELLED ກ່ອນມີການຮັບ.
+/// PENDING_APPROVAL = ຍອດເກີນ `inventory.poApprovalThresholdLak` ແລະ ຜູ້ສັ່ງບໍ່ແມ່ນ SUPER_ADMIN.
+/// "ປິດຮັບບໍ່ຄົບ" (close short) = RECEIVED + `closedShortAt` (ບໍ່ມີ status ແຍກ) — ຈຳນວນທີ່ຄ້າງບໍ່ນັບເປັນ on-order ອີກ.
 enum POStatus {
   DRAFT
+  PENDING_APPROVAL
   ORDERED
+  PARTIALLY_RECEIVED
   RECEIVED
+  CANCELLED
+}
+
+/// H5 — ໃບຄືນສິນຄ້າຜູ້ສະໜອງ: DRAFT → POSTED (ຕັດສະຕັອກ RETURN_TO_SUPPLIER + ອອກ debit note) | CANCELLED.
+enum SupplierReturnStatus {
+  DRAFT
+  POSTED
   CANCELLED
 }
 
@@ -28,20 +51,207 @@ enum StockTransferStatus {
   CANCELLED
 }
 
+/// H2 (audit ຄື້ນ 9B) — ເຫດຜົນການປັບສະຕັອກດ້ວຍມື (ສຳລັບລາຍງານການສູນເສຍ/shrinkage).
+/// OPENING_BALANCE ໃຊ້ກັບຍອດເປີດຂອງສິນຄ້າໃໝ່; SUPPLIER_RETURN ບໍ່ນັບເປັນການສູນເສຍໃນ P&L.
+enum StockAdjustReason {
+  DAMAGED
+  EXPIRED
+  LOST_OR_THEFT
+  COUNT_VARIANCE
+  SAMPLE_OR_TESTER
+  INTERNAL_USE
+  CUSTOMER_COMPENSATION
+  SUPPLIER_RETURN
+  OPENING_BALANCE
+  OTHER
+}
+
+/// H2 — maker-checker ຂອງການປັບສະຕັອກທີ່ມູນຄ່າເກີນເກນ (AppSetting `inventory.adjustApprovalThresholdLak`).
+enum StockAdjustRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+/// H3 (audit ຄື້ນ 9B) — ໃບນັບສະຕັອກ: DRAFT (ເລືອກສິນຄ້າ) → COUNTING (snapshot ຍອດລະບົບແລ້ວ, ກຳລັງນັບ)
+/// → PENDING_APPROVAL (ສົ່ງແລ້ວ ທຸກແຖວມີ countedQty) → POSTED (ສ່ວນຕ່າງຖືກ post ເປັນ ADJUSTMENT_* reason
+/// COUNT_VARIANCE). ປະຕິເສດ = ກັບໄປ COUNTING. CANCELLED ໄດ້ທຸກຂັ້ນກ່ອນ POSTED.
+enum StockCountStatus {
+  DRAFT
+  COUNTING
+  PENDING_APPROVAL
+  POSTED
+  CANCELLED
+}
+
+/// FULL = ທຸກສິນຄ້າທີ່ active ຂອງສາຂາ; CYCLE = ນັບວຽນຕາມຮອບ (ເລືອກສິນຄ້າ); SPOT = ສຸ່ມກວດ (ເລືອກສິນຄ້າ).
+enum StockCountType {
+  FULL
+  CYCLE
+  SPOT
+}
+
+/// H7 (ຄື້ນ 9D) — ການຈອງ consumable ຂອງນັດໝາຍ: ACTIVE (ນັດ CONFIRMED/IN_PROGRESS) → RELEASED (ຍົກເລີກ/NO_SHOW/
+/// ກັບເປັນ PENDING/ບໍລິການປ່ຽນ) | CONSUMED (COMPLETED — consumeServiceStock ຕັດຈິງແລ້ວ).
+enum StockReservationStatus {
+  ACTIVE
+  RELEASED
+  CONSUMED
+}
+
+/// M8/M9/M20 (ຄື້ນ 9D) — branchId null = ຜູ້ສະໜອງທີ່ໃຊ້ຮ່ວມທຸກສາຂາ (SUPER_ADMIN ເທົ່ານັ້ນທີ່ແກ້ໄດ້).
+/// ລຶບຜູ້ສະໜອງທີ່ມີ PO/ລາຍຈ່າຍ/ໃບຄືນ = soft delete (`deletedAt`) — ຍັງສະແດງໃນ PO ເກົ່າ, ເຊື່ອງຈາກ dropdown.
 model Supplier {
-  id            String   @id @default(uuid())
-  name          String
-  contactPerson String?
-  phone         String
-  email         String?
-  address       String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id               String    @id @default(uuid())
+  name             String
+  contactPerson    String?
+  phone            String
+  email            String?
+  address          String?
+  /// M8 — ເລກປະຈຳຕົວຜູ້ເສຍພາສີ / VAT.
+  taxId            String?
+  /// M8 — ເງື່ອນໄຂຊຳລະ (ວັນ, ເຊັ່ນ 30 = NET30).
+  paymentTermsDays Int?
+  /// M8/M11 — lead time ມາດຕະຖານ (ວັນ) — SupplierProduct.leadTimeDays ທັບໄດ້.
+  leadTimeDays     Int?
+  /// M8/M10 — ສະກຸນເງິນທີ່ຜູ້ສະໜອງອອກໃບເກັບເງິນ (default ຂອງ PO ໃໝ່).
+  currency         String    @default("LAK")
+  bankName         String?
+  bankAccountName  String?
+  bankAccountNo    String?
+  isActive         Boolean   @default(true)
+  deletedAt        DateTime?
+  /// M9 — null = ໃຊ້ຮ່ວມທຸກສາຂາ.
+  branchId         String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  purchaseOrders PurchaseOrder[]
-  expenses       Expense[]
+  branch           Branch?           @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  purchaseOrders   PurchaseOrder[]
+  expenses         Expense[]
+  supplierReturns  SupplierReturn[]
+  supplierProducts SupplierProduct[]
 
+  @@index([branchId, isActive])
   @@map("suppliers")
+}
+
+/// M8 — ລາຍການລາຄາຂອງຜູ້ສະໜອງຕໍ່ສິນຄ້າ (ສິນຄ້າເປັນຂອງສາຂາ → price list ກໍຕໍ່ສາຂາໂດຍປະລິຍາຍ).
+/// unitCost ເປັນສະກຸນ `currency`. isPreferred = ຜູ້ສະໜອງຫຼັກຂອງສິນຄ້ານີ້ (ໃຊ້ຄິດ lead time + ຈັດກຸ່ມຄຳແນະນຳ PO).
+model SupplierProduct {
+  id           String   @id @default(uuid())
+  supplierId   String
+  productId    String
+  supplierSku  String?
+  unitCost     Decimal  @db.Decimal(16, 4)
+  currency     String   @default("LAK")
+  /// ຈຳນວນສັ່ງຂັ້ນຕ່ຳ (ຄຳແນະນຳ PO ປັດຂຶ້ນເປັນຜົນຄູນຂອງ MOQ).
+  moq          Decimal? @db.Decimal(16, 3)
+  /// ທັບ Supplier.leadTimeDays ສຳລັບສິນຄ້ານີ້.
+  leadTimeDays Int?
+  isPreferred  Boolean  @default(false)
+  /// M1 (ຄື້ນ 9C) — ໜ່ວຍຊື້ຂອງລາຍການລາຄານີ້: unitCost ແລະ moq ເປັນ "ຕໍ່ໜ່ວຍນີ້" (null = ໜ່ວຍພື້ນຖານ, factor 1).
+  uomId        String?
+  factorToBase Decimal  @default(1) @db.Decimal(16, 6)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  uom      Uom?     @relation(fields: [uomId], references: [id])
+
+  @@unique([supplierId, productId])
+  @@index([productId])
+  @@map("supplier_products")
+}
+
+/// H7 — ການຈອງ consumable ຕາມ BOM ຂອງນັດໝາຍ (ໜຶ່ງແຖວຕໍ່ ນັດ+ສິນຄ້າ → idempotent). ເປັນ "soft": ບໍ່ແຕະ stockQty/ledger
+/// (reconcileStock ບໍ່ກ່ຽວ), ບໍ່ບລັອກການຈອງ/ການປິດນັດ — ໃຊ້ຄິດ available = onHand − Σ ACTIVE ເທົ່ານັ້ນ.
+model StockReservation {
+  id            String                 @id @default(uuid())
+  productId     String
+  /// ສາຂາຂອງສິນຄ້າ (ບໍ່ແມ່ນສາຂາຂອງນັດ) — ຄືກັບ consumeServiceStock ທີ່ຕັດສິນຄ້າໃນ BOM ຕາມທີ່ມັນເປັນ.
+  branchId      String
+  appointmentId String
+  qty           Decimal                @db.Decimal(16, 3)
+  status        StockReservationStatus @default(ACTIVE)
+  releasedAt    DateTime?
+  consumedAt    DateTime?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+
+  product     Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  branch      Branch      @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@unique([appointmentId, productId])
+  @@index([productId, status])
+  @@index([branchId, status])
+  @@map("stock_reservations")
+}
+
+/// M1 (ຄື້ນ 9C) — ໜ່ວຍນັບ (ໃຊ້ຮ່ວມທົ່ວອົງກອນ). ບໍ່ລຶບ — ປິດດ້ວຍ isActive.
+model Uom {
+  id        String   @id @default(uuid())
+  /// ລະຫັດສັ້ນ (piece, bottle, box, ml …) — unique.
+  code      String   @unique
+  name      String
+  nameLo    String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  baseProducts     Product[]              @relation("ProductBaseUom")
+  conversions      ProductUomConversion[]
+  consumables      ServiceConsumable[]
+  supplierProducts SupplierProduct[]
+  poItems          PurchaseOrderItem[]
+  receiptLines     GoodsReceiptLine[]
+  retailSaleLines  RetailSaleLine[]
+
+  @@map("uoms")
+}
+
+/// M1 — ອັດຕາແປງໜ່ວຍຂອງສິນຄ້າ: 1 `uom` = factorToBase × ໜ່ວຍພື້ນຖານ (ເຊັ່ນ ກ່ອງ = 12 ຕຸກ, ml = 0.002 ຕຸກ).
+/// ການແປງເກີດສະເພາະຕອນ input (PO/GRN/BOM/ລາຍການລາຄາ) — ທຸກຈຳນວນທີ່ເກັບໃນສະຕັອກ/ledger ເປັນໜ່ວຍພື້ນຖານ.
+model ProductUomConversion {
+  id                String   @id @default(uuid())
+  productId         String
+  uomId             String
+  factorToBase      Decimal  @db.Decimal(16, 6)
+  /// ໜ່ວຍເລີ່ມຕົ້ນຕອນສັ່ງຊື້ (PO) / ຕອນຂຽນ BOM (ໜຶ່ງອັນຕໍ່ສິນຄ້າ).
+  isPurchaseDefault Boolean  @default(false)
+  isConsumeDefault  Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  uom     Uom     @relation(fields: [uomId], references: [id])
+
+  @@unique([productId, uomId])
+  @@map("product_uom_conversions")
+}
+
+/// M3 (ຄື້ນ 9C) — ໝວດສິນຄ້າ (ຊ້ອນໄດ້ 1 ຊັ້ນ). branchId null = ໃຊ້ຮ່ວມທົ່ວອົງກອນ (SUPER_ADMIN ເທົ່ານັ້ນທີ່ແກ້ໄດ້).
+model ProductCategory {
+  id        String   @id @default(uuid())
+  name      String
+  nameLo    String?
+  parentId  String?
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  branchId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  parent   ProductCategory?  @relation("ProductCategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children ProductCategory[] @relation("ProductCategoryTree")
+  branch   Branch?           @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  products Product[]
+
+  @@index([branchId, isActive])
+  @@index([parentId])
+  @@map("product_categories")
 }
 
 model Product {
@@ -61,20 +271,52 @@ model Product {
   unit        String
   /// C5 — ຕິດຕາມ lot/ວັນໝົດອາຍຸ (ເຄື່ອງສຳອາງ/ຢາສີດ). false = ຜ້າເຊັດມື ແລະ ຂອງທົ່ວໄປ, ໃຊ້ stockQty ລ້ວນໆ.
   trackLot    Boolean   @default(false)
+  /// M11 (ຄື້ນ 9D) — ຄິດທຸກຄືນ (reorder-point job): avgDailyUsage × leadTime + safetyStock. null = ຍັງບໍ່ເຄີຍຄິດ.
+  /// ເກນທີ່ໃຊ້ຈິງ = max(minStockQty, reorderPoint) — minStockQty ຍັງເປັນພື້ນຂັ້ນຕ່ຳທີ່ຕັ້ງດ້ວຍມື.
+  reorderPoint      Decimal?  @db.Decimal(16, 3)
+  avgDailyUsage     Decimal?  @db.Decimal(16, 4)
+  reorderComputedAt DateTime?
+  /// M1 (ຄື້ນ 9C) — ໜ່ວຍພື້ນຖານ (ໜ່ວຍເກັບສະຕັອກ). `unit` ຍັງເກັບໄວ້ເປັນຂໍ້ຄວາມສະແດງຜົນ (back-compat).
+  baseUomId   String?
+  /// M2 (ຄື້ນ 9C) — GS1 GTIN-8/12/13/14 (ກວດ check digit ໃນ zod) + ລະຫັດພາຍໃນ. unique ຕໍ່ສາຂາ;
+  /// soft-delete ຕໍ່ທ້າຍ `:deleted:<ts>` ຄືກັບ sku ເພື່ອປົດປ່ອຍລະຫັດ.
+  gtin        String?
+  barcode     String?
+  /// M3 (ຄື້ນ 9C) — ໝວດສິນຄ້າ.
+  categoryId  String?
+  /// M3 — ABC (A/B/C) ຄິດທຸກຄືນ (reorder-point job) ຕາມມູນຄ່າການໃຊ້ 90 ວັນ ຕໍ່ສາຂາ. null = ຍັງບໍ່ຄິດ.
+  abcClass      String?   @db.VarChar(1)
+  abcComputedAt DateTime?
+  /// M13 — ຂາຍໜ້າຮ້ານໄດ້ (isSellable) + ລາຄາຂາຍຕໍ່ໜ່ວຍພື້ນຖານ (LAK, ລວມ/ບໍ່ລວມ VAT ຕາມ finance-vat mode).
+  retailPrice Decimal?  @db.Decimal(16, 2)
+  isSellable  Boolean   @default(false)
   isActive    Boolean   @default(true)
   deletedAt   DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  branch             Branch              @relation(fields: [branchId], references: [id])
+  branch             Branch                   @relation(fields: [branchId], references: [id])
+  baseUom            Uom?                     @relation("ProductBaseUom", fields: [baseUomId], references: [id])
+  category           ProductCategory?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  uomConversions     ProductUomConversion[]
+  supplierProducts   SupplierProduct[]
+  reservations       StockReservation[]
   consumableServices ServiceConsumable[]
   purchaseOrderItems PurchaseOrderItem[]
   stockMovements     StockMovement[]
   transferItems      StockTransferItem[]
   lots               StockLot[]
+  adjustmentRequests StockAdjustmentRequest[]
+  countLines         StockCountLine[]
+  receiptLines       GoodsReceiptLine[]
+  returnLines        SupplierReturnLine[]
+  retailSaleLines    RetailSaleLine[]
 
   @@unique([branchId, sku])
+  @@unique([branchId, gtin])
+  @@unique([branchId, barcode])
   @@index([branchId, isActive])
+  @@index([categoryId])
   @@map("products")
 }
 
@@ -96,9 +338,12 @@ model StockLot {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
-  product   Product         @relation(fields: [productId], references: [id])
-  branch    Branch          @relation(fields: [branchId], references: [id])
-  movements StockMovement[]
+  product    Product          @relation(fields: [productId], references: [id])
+  branch     Branch           @relation(fields: [branchId], references: [id])
+  movements    StockMovement[]
+  countLines   StockCountLine[]
+  receiptLines GoodsReceiptLine[]
+  returnLines  SupplierReturnLine[]
 
   @@unique([productId, branchId, lotNumber])
   @@index([productId, expiryDate])
@@ -107,25 +352,29 @@ model StockLot {
 }
 
 model StockMovement {
-  id              String            @id @default(uuid())
+  id              String             @id @default(uuid())
   branchId        String
   productId       String
   type            StockMovementType
-  qty             Decimal           @db.Decimal(16, 3)
-  balanceAfter    Decimal           @db.Decimal(16, 3)
-  /// C4 — WAC ທີ່ໃຊ້ຢູ່ ณ ເວລານັ້ນ (null ສຳລັບແຖວເກົ່າກ່ອນ migration ນີ້ — ບໍ່ backfill ຍ້ອນຫຼັງ).
+  qty             Decimal            @db.Decimal(16, 3)
+  balanceAfter    Decimal            @db.Decimal(16, 3)
+  /// C4 — WAC ທີ່ໃຊ້ຢູ່ àºàº²àº¡ ເວລານັ້ນ (null ສຳລັບແຖວເກົ່າກ່ອນ migration ນີ້ — ບໍ່ backfill ຍ້ອນຫຼັງ).
   /// PURCHASE_IN/TRANSFER_IN = ຕົ້ນທຶນທີ່ຮັບເຂົ້າ; SERVICE_CONSUMED/TRANSFER_OUT/ADJUSTMENT_DEDUCT
   /// = WAC ກ່ອນຕັດ (ບໍ່ແມ່ນ WAC ໃໝ່ຫຼັງຕັດ, ຮັກສາຫຼັກ "COGS = qty × cost ກ່ອນຫນ້າ").
-  unitCost        Decimal?          @db.Decimal(16, 4)
+  unitCost        Decimal?           @db.Decimal(16, 4)
   /// C4 — ມູນຄ່າ LAK ຂອງລາຍການເໜັງຕີງນີ້ (signed): ບວກ = ສະຕັອກເຂົ້າ, ລົບ = ສະຕັອກອອກ/COGS.
-  valueChange     Decimal?          @db.Decimal(16, 2)
+  valueChange     Decimal?           @db.Decimal(16, 2)
   /// C5 — lot ທີ່ຖືກເໜັງຕີງ (null = ສິນຄ້າບໍ່ trackLot, ຫຼື ສະຕັອກເກົ່າທີ່ບໍ່ມີ lot). ຕັດຂ້າມຫຼາຍ lot = ຫຼາຍແຖວ.
   lotId           String?
+  /// H2 — ເຫດຜົນຂອງ ADJUSTMENT_ADD/DEDUCT (null = ແຖວເກົ່າ ຫຼື ປະເພດອື່ນ).
+  reasonCode      StockAdjustReason?
+  /// H2 — ຮູບຫຼັກຖານ (ເຊັ່ນ ຂອງເສຍຫາຍ) ທີ່ແນບຕອນປັບ.
+  attachmentUrl   String?
   refId           String?
   notes           String?
   /// ຜູ້ເຮັດລາຍການ — null = ລະບົບອັດຕະໂນມັດ (ເຊັ່ນ BOM ຕັດຕອນ COMPLETED).
   createdByUserId String?
-  createdAt       DateTime          @default(now())
+  createdAt       DateTime           @default(now())
 
   branch        Branch    @relation(fields: [branchId], references: [id])
   product       Product   @relation(fields: [productId], references: [id])
@@ -139,22 +388,142 @@ model StockMovement {
   @@map("stock_movements")
 }
 
-model PurchaseOrder {
-  id           String    @id @default(uuid())
-  branchId     String
-  supplierId   String
-  poNumber     String    @unique
-  totalAmount  Decimal   @db.Decimal(16, 2)
-  status       POStatus  @default(DRAFT)
-  orderDate    DateTime  @default(now())
-  receivedDate DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+/// H2 — ຄຳຂໍປັບສະຕັອກທີ່ລໍຖ້າ SUPER_ADMIN ອະນຸມັດ. ຍັງບໍ່ແຕະ stockQty ຈົນກວ່າຈະ APPROVED
+/// (ຕອນອະນຸມັດ ຈຶ່ງ lock ແຖວສິນຄ້າ ແລ້ວ post ຜ່ານເສັ້ນທາງ adjust ປົກກະຕິ — ກວດຍອດຕິດລົບຄືນໃໝ່ຕອນນັ້ນ).
+model StockAdjustmentRequest {
+  id                String                   @id @default(uuid())
+  branchId          String
+  productId         String
+  delta             Decimal                  @db.Decimal(16, 3)
+  reason            StockAdjustReason
+  notes             String?
+  /// lot ທີ່ຈະເພີ່ມເຂົ້າ (delta > 0 ໃນສິນຄ້າ trackLot). ຫັກອອກໃຊ້ FEFO ຕອນອະນຸມັດ.
+  lotNumber         String?
+  expiryDate        DateTime?                @db.Date
+  mfgDate           DateTime?                @db.Date
+  /// WAC ແລະ |delta| × WAC ຕອນຍື່ນຄຳຂໍ (ຄ່າທີ່ໃຊ້ທຽບເກນ).
+  unitCost          Decimal                  @db.Decimal(16, 4)
+  estimatedValue    Decimal                  @db.Decimal(16, 2)
+  status            StockAdjustRequestStatus @default(PENDING)
+  attachmentUrl     String?
+  requestedByUserId String
+  reviewedByUserId  String?
+  reviewedAt        DateTime?
+  rejectReason      String?
+  /// ແຖວ ledger ທຳອິດທີ່ສ້າງຕອນອະນຸມັດ (ຕັດຫຼາຍ lot = ຫຼາຍແຖວ, ຈື່ແຖວທຳອິດ).
+  movementId        String?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
 
-  branch   Branch              @relation(fields: [branchId], references: [id])
-  supplier Supplier            @relation(fields: [supplierId], references: [id])
-  items    PurchaseOrderItem[]
-  expenses Expense[]
+  branch      Branch  @relation(fields: [branchId], references: [id])
+  product     Product @relation(fields: [productId], references: [id])
+  requestedBy User    @relation("StockAdjustRequestedBy", fields: [requestedByUserId], references: [id])
+  reviewedBy  User?   @relation("StockAdjustReviewedBy", fields: [reviewedByUserId], references: [id])
+
+  @@index([status, branchId])
+  @@index([productId])
+  @@map("stock_adjustment_requests")
+}
+
+/// H3 — ໃບນັບສະຕັອກ (stock-take / cycle count). ເລກ `SC-<ລະຫັດສາຂາ>-<ປີ>-000001` ຜ່ານ nextDocumentNo.
+/// ບໍ່ lock ສິນຄ້າລະຫວ່າງນັບ — ໃຊ້ "snapshot + delta" (ດູ postStockCount ໃນ inventory.service.ts).
+model StockCount {
+  id               String           @id @default(uuid())
+  branchId         String
+  countNumber      String           @unique
+  status           StockCountStatus @default(DRAFT)
+  type             StockCountType
+  scheduledAt      DateTime?
+  /// DRAFT → COUNTING: ເວລາທີ່ snapshot systemQty (ຈຸດອ້າງອີງຂອງ delta).
+  startedAt        DateTime?
+  submittedAt      DateTime?
+  postedAt         DateTime?
+  cancelledAt      DateTime?
+  createdByUserId  String?
+  countedByUserId  String?
+  approvedByUserId String?
+  rejectReason     String?
+  cancelReason     String?
+  notes            String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  branch     Branch           @relation(fields: [branchId], references: [id])
+  createdBy  User?            @relation("StockCountCreatedBy", fields: [createdByUserId], references: [id])
+  countedBy  User?            @relation("StockCountCountedBy", fields: [countedByUserId], references: [id])
+  approvedBy User?            @relation("StockCountApprovedBy", fields: [approvedByUserId], references: [id])
+  lines      StockCountLine[]
+
+  @@index([branchId, status])
+  @@map("stock_counts")
+}
+
+/// H3 — ແຖວນັບ: ໜຶ່ງແຖວຕໍ່ສິນຄ້າ (ບໍ່ trackLot) ຫຼື ໜຶ່ງແຖວຕໍ່ lot + ໜຶ່ງແຖວ "ບໍ່ມີ lot" (lotId null) ສຳລັບ
+/// ສະຕັອກເກົ່າທີ່ບໍ່ມີ lot. variance/varianceValue ຄິດຕອນ submit ແລະ ຄິດຄືນ (ສຸດທ້າຍ) ຕອນ post.
+model StockCountLine {
+  id            String             @id @default(uuid())
+  countId       String
+  productId     String
+  lotId         String?
+  /// snapshot ຍອດລະບົບຕອນເລີ່ມນັບ (null ໃນ DRAFT).
+  systemQty     Decimal?           @db.Decimal(16, 3)
+  /// null = ຍັງບໍ່ໄດ້ນັບ.
+  countedQty    Decimal?           @db.Decimal(16, 3)
+  /// countedQty − (systemQty + ການເໜັງຕີງສຸດທິລະຫວ່າງນັບ).
+  variance      Decimal?           @db.Decimal(16, 3)
+  /// ຕົ້ນທຶນ/ໜ່ວຍທີ່ໃຊ້ຕີມູນຄ່າ (ຕົ້ນທຶນ lot ຫຼື WAC).
+  unitCost      Decimal?           @db.Decimal(16, 4)
+  varianceValue Decimal?           @db.Decimal(16, 2)
+  reasonCode    StockAdjustReason?
+  notes         String?
+  countedAt     DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  count   StockCount @relation(fields: [countId], references: [id], onDelete: Cascade)
+  product Product    @relation(fields: [productId], references: [id])
+  lot     StockLot?  @relation(fields: [lotId], references: [id])
+
+  @@index([countId])
+  @@index([productId])
+  @@map("stock_count_lines")
+}
+
+model PurchaseOrder {
+  id                String    @id @default(uuid())
+  branchId          String
+  supplierId        String
+  poNumber          String    @unique
+  /// M10 — totalAmount/unitCost ເປັນສະກຸນນີ້. fxRate = 1 ໜ່ວຍ currency ເປັນ LAK; ລັອກ (ແກ້ບໍ່ໄດ້) ເມື່ອມີການຮັບເຄື່ອງແລ້ວ.
+  currency          String    @default("LAK")
+  fxRate            Decimal   @default(1) @db.Decimal(18, 6)
+  totalAmount       Decimal   @db.Decimal(16, 2)
+  status            POStatus  @default(DRAFT)
+  orderDate         DateTime  @default(now())
+  receivedDate      DateTime?
+  /// M6 — ຜູ້ກົດ "ສັ່ງຊື້" (DRAFT → ORDERED/PENDING_APPROVAL) — ຮັບແຈ້ງເຕືອນຜົນການອະນຸມັດ.
+  orderedByUserId   String?
+  approvedByUserId  String?
+  approvedAt        DateTime?
+  /// M6 — ເຫດຜົນທີ່ SUPER_ADMIN ປະຕິເສດ (PO ກັບເປັນ DRAFT). ລ້າງເມື່ອສັ່ງໃໝ່.
+  rejectedReason    String?
+  /// H4 — ປິດຮັບບໍ່ຄົບ: status = RECEIVED, ຈຳນວນທີ່ຍັງຄ້າງບໍ່ຖືວ່າ on-order ອີກ.
+  closedShortAt     DateTime?
+  closedShortReason String?
+  closedByUserId    String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  branch          Branch              @relation(fields: [branchId], references: [id])
+  supplier        Supplier            @relation(fields: [supplierId], references: [id])
+  orderedBy       User?               @relation("PoOrderedBy", fields: [orderedByUserId], references: [id])
+  approvedBy      User?               @relation("PoApprovedBy", fields: [approvedByUserId], references: [id])
+  closedBy        User?               @relation("PoClosedBy", fields: [closedByUserId], references: [id])
+  items           PurchaseOrderItem[]
+  expenses        Expense[]
+  receipts        GoodsReceipt[]
+  supplierReturns SupplierReturn[]
+  revisions       PurchaseOrderRevision[]
 
   @@index([branchId, status])
   @@map("purchase_orders")
@@ -164,18 +533,145 @@ model PurchaseOrderItem {
   id              String    @id @default(uuid())
   purchaseOrderId String
   productId       String
+  /// ໜ່ວຍພື້ນຖານຂອງສິນຄ້າສະເໝີ (M1 — ຈຳນວນທີ່ປ້ອນເປັນໜ່ວຍຊື້ ຖືກແປງ × factorToBase ຕອນບັນທຶກ).
   quantity        Decimal   @db.Decimal(16, 3)
-  unitCost        Decimal   @db.Decimal(16, 2)
+  /// ລາຄາຕໍ່ໜ່ວຍພື້ນຖານ (ສະກຸນ PO). M1 — ຂະຫຍາຍເປັນ 6dp ເພື່ອບໍ່ໃຫ້ ລາຄາ/ກ່ອງ ÷ 12 ປັດເສດຜິດ.
+  unitCost        Decimal   @db.Decimal(18, 6)
+  /// M1 — ໜ່ວຍທີ່ໃຊ້ສັ່ງ (null = ໜ່ວຍພື້ນຖານ) + snapshot ອັດຕາແປງ ນະເວລາສັ່ງ (ສະແດງ "5 ກ່ອງ = 60 ຕຸກ").
+  uomId           String?
+  factorToBase    Decimal   @default(1) @db.Decimal(16, 6)
+  /// H4 — Σ ຈຳນວນທີ່ຮັບເຂົ້າສະຕັອກແລ້ວ (accepted) ຈາກທຸກ GRN — ຫຼຸດ quantity ຕ່ຳກວ່ານີ້ບໍ່ໄດ້ (M7).
+  qtyReceived     Decimal   @default(0) @db.Decimal(16, 3)
+  /// H4 — Σ ຈຳນວນທີ່ປະຕິເສດຕອນຮັບ (ບໍ່ເຂົ້າສະຕັອກ, ບໍ່ນັບເປັນການຮັບ — ຜູ້ສະໜອງຕ້ອງສົ່ງແທນ).
+  qtyRejected     Decimal   @default(0) @db.Decimal(16, 3)
   /// C5 — ຂໍ້ມູນ lot (ບໍ່ບັງຄັບຕອນສ້າງ PO; ຕອນ "ຮັບເຄື່ອງ" ສາມາດສົ່ງທັບໄດ້ ເພາະເລກ lot ມັກຮູ້ຕອນເຄື່ອງມາຮອດ).
   lotNumber       String?
   expiryDate      DateTime? @db.Date
   mfgDate         DateTime? @db.Date
 
-  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
-  product       Product       @relation(fields: [productId], references: [id])
+  purchaseOrder PurchaseOrder      @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  product       Product            @relation(fields: [productId], references: [id])
+  uom           Uom?               @relation(fields: [uomId], references: [id])
+  receiptLines  GoodsReceiptLine[]
 
   @@unique([purchaseOrderId, productId])
   @@map("purchase_order_items")
+}
+
+/// H4 — ໃບຮັບເຄື່ອງ (GRN). ເລກ `GRN-<ສາຂາ>-<ປີ>-000001`. PO ໜຶ່ງມີໄດ້ຫຼາຍ GRN (ຮັບບາງສ່ວນ/ຫຼາຍຮອບ).
+/// ທຸກແຖວ PURCHASE_IN ຂອງ GRN ມີ refId = `grn:<id>`.
+model GoodsReceipt {
+  id                   String   @id @default(uuid())
+  grnNumber            String   @unique
+  purchaseOrderId      String
+  branchId             String
+  receivedAt           DateTime @default(now())
+  receivedByUserId     String?
+  /// ເລກໃບສົ່ງຂອງຂອງຜູ້ສະໜອງ.
+  supplierDeliveryNote String?
+  notes                String?
+  /// M10 — ສະກຸນ/ອັດຕາຂອງ PO ທີ່ລັອກໄວ້ຕອນຮັບ (GoodsReceiptLine.unitCost ເປັນ LAK ແລ້ວ = unitCostForeign × fxRate).
+  currency             String   @default("LAK")
+  fxRate               Decimal  @default(1) @db.Decimal(18, 6)
+  createdAt            DateTime @default(now())
+
+  purchaseOrder   PurchaseOrder      @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  branch          Branch             @relation(fields: [branchId], references: [id])
+  receivedBy      User?              @relation("GoodsReceiptReceivedBy", fields: [receivedByUserId], references: [id])
+  lines           GoodsReceiptLine[]
+  supplierReturns SupplierReturn[]
+
+  @@index([purchaseOrderId])
+  @@index([branchId, receivedAt])
+  @@map("goods_receipts")
+}
+
+/// H4 — ແຖວ GRN: qtyReceived = ຈຳນວນທີ່ຮັບເຂົ້າສະຕັອກ (accepted), qtyRejected = ປະຕິເສດ (ບໍ່ເຂົ້າສະຕັອກ).
+model GoodsReceiptLine {
+  id             String    @id @default(uuid())
+  goodsReceiptId String
+  poItemId       String
+  productId      String
+  qtyReceived    Decimal   @db.Decimal(16, 3)
+  qtyRejected    Decimal   @default(0) @db.Decimal(16, 3)
+  rejectReason   String?
+  /// ຕົ້ນທຶນ/ໜ່ວຍທີ່ຮັບຈິງ **ເປັນ LAK** (default = ຕົ້ນທຶນໃນ PO × fxRate) — ໃຊ້ຄິດ WAC ແລະ 3-way match.
+  unitCost       Decimal   @db.Decimal(16, 4)
+  /// M10 — ຕົ້ນທຶນ/ໜ່ວຍເປັນສະກຸນຂອງ PO (null = PO ເປັນ LAK ຫຼື ແຖວເກົ່າ).
+  unitCostForeign Decimal? @db.Decimal(16, 4)
+  lotId          String?
+  lotNumber      String?
+  expiryDate     DateTime? @db.Date
+  mfgDate        DateTime? @db.Date
+  /// M1 — ໜ່ວຍທີ່ປ້ອນຕອນຮັບ + snapshot ອັດຕາແປງ (qtyReceived/qtyRejected/unitCost ເກັບເປັນໜ່ວຍພື້ນຖານແລ້ວ).
+  uomId          String?
+  factorToBase   Decimal   @default(1) @db.Decimal(16, 6)
+
+  goodsReceipt GoodsReceipt      @relation(fields: [goodsReceiptId], references: [id], onDelete: Cascade)
+  poItem       PurchaseOrderItem @relation(fields: [poItemId], references: [id], onDelete: Cascade)
+  product      Product           @relation(fields: [productId], references: [id])
+  lot          StockLot?         @relation(fields: [lotId], references: [id])
+  uom          Uom?              @relation(fields: [uomId], references: [id])
+
+  @@index([goodsReceiptId])
+  @@index([poItemId])
+  @@map("goods_receipt_lines")
+}
+
+/// H5 — ໃບຄືນສິນຄ້າຜູ້ສະໜອງ (RTS). ເລກ `RTS-<ສາຂາ>-<ປີ>-000001`. ໃບທີ່ POSTED ເຮັດໜ້າທີ່ເປັນ debit note:
+/// totalValue ເປັນເຄຣດິດຕໍ່ຜູ້ສະໜອງ (ຫັກໃນ 3-way match ຂອງ PO ທີ່ຜູກ ແລະ ຍອດຄົງຄ້າງຂອງຜູ້ສະໜອງ).
+model SupplierReturn {
+  id              String               @id @default(uuid())
+  returnNumber    String               @unique
+  branchId        String
+  supplierId      String
+  purchaseOrderId String?
+  goodsReceiptId  String?
+  status          SupplierReturnStatus @default(DRAFT)
+  reason          String
+  notes           String?
+  /// ມູນຄ່າ debit note (Σ ແຖວ, ຕັ້ງຕອນ post).
+  totalValue      Decimal              @default(0) @db.Decimal(16, 2)
+  createdByUserId String?
+  postedByUserId  String?
+  postedAt        DateTime?
+  cancelledAt     DateTime?
+  cancelReason    String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  branch        Branch               @relation(fields: [branchId], references: [id])
+  supplier      Supplier             @relation(fields: [supplierId], references: [id])
+  purchaseOrder PurchaseOrder?       @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
+  goodsReceipt  GoodsReceipt?        @relation(fields: [goodsReceiptId], references: [id], onDelete: SetNull)
+  createdBy     User?                @relation("SupplierReturnCreatedBy", fields: [createdByUserId], references: [id])
+  postedBy      User?                @relation("SupplierReturnPostedBy", fields: [postedByUserId], references: [id])
+  lines         SupplierReturnLine[]
+
+  @@index([branchId, status])
+  @@index([supplierId, status])
+  @@index([purchaseOrderId])
+  @@map("supplier_returns")
+}
+
+/// H5 — ແຖວຄືນ: lotId ບໍ່ໃສ່ = FEFO (ສິນຄ້າ trackLot). unitCost/value ຕັ້ງຕອນ post
+/// (ຕົ້ນທຶນ lot → ຕົ້ນທຶນ GRN ທີ່ຜູກ → WAC).
+model SupplierReturnLine {
+  id               String   @id @default(uuid())
+  supplierReturnId String
+  productId        String
+  lotId            String?
+  qty              Decimal  @db.Decimal(16, 3)
+  unitCost         Decimal? @db.Decimal(16, 4)
+  value            Decimal? @db.Decimal(16, 2)
+
+  supplierReturn SupplierReturn @relation(fields: [supplierReturnId], references: [id], onDelete: Cascade)
+  product        Product        @relation(fields: [productId], references: [id])
+  lot            StockLot?      @relation(fields: [lotId], references: [id])
+
+  @@index([supplierReturnId])
+  @@index([productId])
+  @@map("supplier_return_lines")
 }
 
 model StockTransfer {
@@ -293,4 +789,107 @@ model Expense {
   @@index([categoryId])
   @@index([status, dueDate])
   @@map("expenses")
+}
+
+/// M7 (remainder) — ປະຫວັດການແກ້/ປ່ຽນສະຖານະ PO. ໜຶ່ງແຖວຕໍ່ການປ່ຽນແປງ (ຂຽນໃນ tx ດຽວກັບການປ່ຽນ).
+/// snapshot = header + ລາຍການ **ກ່ອນ** ປ່ຽນ; diff = ລາຍການປ່ຽນແປງທີ່ອ່ານໄດ້ (field/ສິນຄ້າ, ເກົ່າ → ໃໝ່).
+model PurchaseOrderRevision {
+  id              String    @id @default(uuid())
+  purchaseOrderId String
+  revisionNo      Int
+  /// UPDATE | ORDER | SUBMIT_APPROVAL | CANCEL | REVERT_DRAFT | APPROVE | REJECT | CLOSE_SHORT | RECEIVE
+  action          String
+  fromStatus      POStatus?
+  toStatus        POStatus?
+  changedByUserId String?
+  changedAt       DateTime  @default(now())
+  snapshot        Json
+  diff            Json
+  summary         String
+  note            String?
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+
+  @@unique([purchaseOrderId, revisionNo])
+  @@map("purchase_order_revisions")
+}
+
+/// M13 — ບິນຂາຍສິນຄ້າໜ້າຮ້ານ (OTC). ເລກ `RS-<ສາຂາ>-<ປີ>-000001`. ຈ່າຍຜ່ານ Payment ປົກກະຕິ (tender/INV/VAT/refund/CN)
+/// — Payment 1:1 (ຄືກັບ giftCardPurchase/packagePurchase). ສະຕັອກຕັດ (SOLD) ເມື່ອ Payment FULLY_PAID (idempotent: stockPostedAt).
+model RetailSale {
+  id              String           @id @default(uuid())
+  saleNumber      String           @unique
+  branchId        String
+  customerId      String?
+  paymentId       String           @unique
+  status          RetailSaleStatus @default(PENDING_PAYMENT)
+  /// Σ (qty × unitPrice) ກ່ອນສ່ວນຫຼຸດ / Σ ສ່ວນຫຼຸດ / ສຸດທິ (ກ່ອນ VAT EXCLUSIVE — Payment.totalAmount ລວມ VAT ແລ້ວ).
+  subtotal        Decimal          @db.Decimal(16, 2)
+  discountTotal   Decimal          @default(0) @db.Decimal(16, 2)
+  total           Decimal          @db.Decimal(16, 2)
+  notes           String?
+  createdByUserId String?
+  paidAt          DateTime?
+  /// ເວລາທີ່ຕັດສະຕັອກ SOLD ສຳເລັດ (null = ຍັງ — ເຊັ່ນ ສະຕັອກບໍ່ພໍຕອນຈ່າຍ → `stockError`, ລອງຄືນໄດ້).
+  stockPostedAt   DateTime?
+  stockError      String?
+  voidedAt        DateTime?
+  voidReason      String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  branch    Branch           @relation(fields: [branchId], references: [id])
+  customer  User?            @relation("RetailSaleCustomer", fields: [customerId], references: [id])
+  createdBy User?            @relation("RetailSaleCreatedBy", fields: [createdByUserId], references: [id])
+  payment   Payment          @relation(fields: [paymentId], references: [id])
+  lines     RetailSaleLine[]
+
+  @@index([branchId, createdAt])
+  @@index([status])
+  @@map("retail_sales")
+}
+
+/// M13 — ແຖວຂາຍ: qty ເປັນໜ່ວຍພື້ນຖານ (uomQty × factorToBase); unitPrice = ລາຄາຕໍ່ໜ່ວຍທີ່ຂາຍ (uom).
+/// cogs = Σ −valueChange ຂອງ SOLD (ຕັ້ງຕອນຕັດ); qtyReturned = Σ SALE_RETURN ທີ່ post ແລ້ວ.
+model RetailSaleLine {
+  id           String   @id @default(uuid())
+  saleId       String
+  productId    String
+  qty          Decimal  @db.Decimal(16, 3)
+  uomId        String?
+  factorToBase Decimal  @default(1) @db.Decimal(16, 6)
+  uomQty       Decimal  @db.Decimal(16, 3)
+  unitPrice    Decimal  @db.Decimal(16, 2)
+  discount     Decimal  @default(0) @db.Decimal(16, 2)
+  lineTotal    Decimal  @db.Decimal(16, 2)
+  cogs         Decimal? @db.Decimal(16, 2)
+  qtyReturned  Decimal  @default(0) @db.Decimal(16, 3)
+
+  sale        RetailSale             @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product     Product                @relation(fields: [productId], references: [id])
+  uom         Uom?                   @relation(fields: [uomId], references: [id])
+  returnLines RetailSaleReturnLine[]
+
+  @@index([saleId])
+  @@index([productId])
+  @@map("retail_sale_lines")
+}
+
+/// M13 — ຄືນສິນຄ້າ (ຜູກກັບ Refund ຂອງບິນ): ສ້າງພ້ອມຄຳຮ້ອງຄືນເງິນ; ສະຕັອກເຂົ້າ (SALE_RETURN) ຕອນ Refund PAID
+/// (postedAt). restock = false → ຄືນເງິນແຕ່ບໍ່ເອົາເຂົ້າສະຕັອກ (ຂອງເສຍ/ເປີດໃຊ້ແລ້ວ).
+model RetailSaleReturnLine {
+  id         String    @id @default(uuid())
+  saleLineId String
+  refundId   String
+  qty        Decimal   @db.Decimal(16, 3)
+  amount     Decimal   @db.Decimal(16, 2)
+  restock    Boolean   @default(true)
+  postedAt   DateTime?
+  createdAt  DateTime  @default(now())
+
+  saleLine RetailSaleLine @relation(fields: [saleLineId], references: [id], onDelete: Cascade)
+
+  @@index([refundId])
+  @@index([saleLineId])
+  @@map("retail_sale_return_lines")
 }

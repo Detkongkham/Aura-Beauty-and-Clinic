@@ -2,6 +2,7 @@ import type { DashboardStatsQuery, DashboardStatsView } from '@abcp/shared-types
 import { Prisma } from '@prisma/client';
 import { recognisedOperatingCost } from '../expenses/expenses.service.js';
 import { prisma } from '../../config/database.js';
+import { reorderThresholdOf } from '../inventory/inventory.service.js';
 
 const DAY = 86_400_000;
 const VTE_OFFSET_MS = 7 * 3_600_000; // Asia/Vientiane = UTC+7, no DST
@@ -143,10 +144,11 @@ export async function getDashboardStats(query: DashboardStatsQuery): Promise<Das
         unit: true,
         stockQty: true,
         minStockQty: true,
+        reorderPoint: true,
         branch: { select: { name: true } },
       },
     }),
-    prisma.purchaseOrder.count({ where: { ...branchWhere, status: 'ORDERED' } }),
+    prisma.purchaseOrder.count({ where: { ...branchWhere, status: { in: ['ORDERED', 'PARTIALLY_RECEIVED'] } } }),
     prisma.stockTransfer.count({
       where: {
         status: 'IN_TRANSIT',
@@ -424,10 +426,12 @@ export async function getDashboardStats(query: DashboardStatsQuery): Promise<Das
       unit: p.unit,
       stockQty: p.stockQty.toNumber(),
       minStockQty: p.minStockQty.toNumber(),
+      // M11 — ເກນທີ່ໃຊ້ຈິງ = max(minStockQty, reorderPoint) ຄືກັບລາຍການສິນຄ້າ/ສະຖິຕິ inventory.
+      threshold: reorderThresholdOf(p),
       branchName: p.branch.name,
     }))
-    .filter((p) => p.stockQty <= p.minStockQty)
-    .sort((a, b) => a.stockQty / (a.minStockQty || 1) - b.stockQty / (b.minStockQty || 1));
+    .filter((p) => p.stockQty <= p.threshold)
+    .sort((a, b) => a.stockQty / (a.threshold || 1) - b.stockQty / (b.threshold || 1));
 
   const distribution = [0, 0, 0, 0, 0];
   for (const r of reviews) {

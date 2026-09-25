@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 import { NormalizedApiError } from '@/services/apiError';
 
 import { useCashFundAction, useCashFundEntries, useCashFunds, useSaveCashFund } from './expenses.api';
+import { useBankAccounts } from './treasury.api';
 
 type Mode = { fundId: string; kind: 'TOPUP' | 'WITHDRAW' | 'COUNT' } | null;
 
@@ -43,6 +44,9 @@ export function CashFundsPanel({
   const [mode, setMode] = useState<Mode>(null);
   const [value, setValue] = useState('');
   const [note, setNote] = useState('');
+  // Wave 11 — a top-up can come from a branch bank account; it then shows as a debit when reconciling that account.
+  const [fromAccount, setFromAccount] = useState('');
+  const { data: accounts = [] } = useBankAccounts(branchId || undefined);
   const [openHistory, setOpenHistory] = useState<string | null>(null);
   const [draft, setDraft] = useState({ name: '', opening: '', float: '' });
 
@@ -56,7 +60,16 @@ export function CashFundsPanel({
     act.mutate(
       mode.kind === 'COUNT'
         ? { id: f.id, kind: 'count', input: { countedAmount: n, note: note.trim() || undefined } }
-        : { id: f.id, kind: 'move', input: { type: mode.kind, amount: n, note: note.trim() || undefined } },
+        : {
+            id: f.id,
+            kind: 'move',
+            input: {
+              type: mode.kind,
+              amount: n,
+              note: note.trim() || undefined,
+              ...(mode.kind === 'TOPUP' && fromAccount ? { bankAccountId: fromAccount } : {}),
+            },
+          },
       {
         onSuccess: (v) => {
           toast.success(
@@ -67,6 +80,7 @@ export function CashFundsPanel({
           setMode(null);
           setValue('');
           setNote('');
+          setFromAccount('');
         },
         onError,
       },
@@ -206,6 +220,23 @@ export function CashFundsPanel({
                     <Button type="submit" size="sm" className="h-8" disabled={act.isPending || value === ''}>
                       {t('common.save')}
                     </Button>
+                    {mode.kind === 'TOPUP' ? (
+                      <div className="sm:col-span-3">
+                        <Select
+                          aria-label={t('payTreasury.exp.petty.fromAccount')}
+                          value={fromAccount}
+                          onChange={(e) => setFromAccount(e.target.value)}
+                          className="h-8"
+                          options={[
+                            { value: '', label: t('payTreasury.exp.petty.fromCash') },
+                            ...accounts
+                              .filter((a) => a.isActive && a.currency === f.currency)
+                              .map((a) => ({ value: a.id, label: `${a.bank.code} · ${a.accountNumber.slice(-4)} ${a.accountName}` })),
+                          ]}
+                        />
+                        {fromAccount ? <p className="mt-1 text-2xs text-muted-foreground">{t('payTreasury.exp.petty.fromAccountHint')}</p> : null}
+                      </div>
+                    ) : null}
                     {mode.kind === 'COUNT' && value !== '' ? (
                       <p className="text-2xs text-muted-foreground sm:col-span-3">
                         {t('payTreasury.exp.petty.countPreview', {
@@ -273,7 +304,8 @@ function FundHistory({ fundId, currency }: { fundId: string; currency: string })
           <span className="min-w-0">
             <span className="font-medium text-foreground">{t(`payTreasury.exp.petty.type.${r.type}`)}</span>
             <span className="block truncate text-muted-foreground">
-              {r.expense?.title ?? r.note ?? ''} · {r.createdBy} · {formatDateTime(r.createdAt)}
+              {r.expense?.title ?? r.note ?? ''}
+              {r.bankAccount ? ` · ${r.bankAccount.label}` : ''} · {r.createdBy} · {formatDateTime(r.createdAt)}
             </span>
           </span>
           <span className={cn('tabular-nums font-medium', r.amount < 0 ? 'text-destructive' : r.amount > 0 ? 'text-success' : 'text-muted-foreground')}>

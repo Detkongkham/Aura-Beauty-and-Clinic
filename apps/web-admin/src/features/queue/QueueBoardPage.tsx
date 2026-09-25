@@ -155,6 +155,19 @@ export function QueueBoardPage() {
       { replace: true },
     );
 
+  // ?walkin=1 (portal quick action) opens the walk-in dialog once, then drops the flag.
+  useEffect(() => {
+    if (params.get('walkin') !== '1') return;
+    setWalkInOpen(true);
+    setParams(
+      (p) => {
+        p.delete('walkin');
+        return p;
+      },
+      { replace: true },
+    );
+  }, [params, setParams]);
+
   const now = dataUpdatedAt || Date.now();
   const showBranch = branchId === 'all';
 

@@ -26,6 +26,16 @@ model Branch {
   closeTime          String    @default("20:00")
   /// ສິ່ງອຳນວຍຄວາມສະດວກທີ່ສາຂາມີ — enum-like string ('wifi','parking','drink','lounge','kids','card').
   amenities          String[]  @default([])
+  /// Wave 11 — ເວລາເປີດ-ປິດແຍກຕາມມື້ [{ day: 0–6 (0=ອາທິດ), open, close, closed }]; null = ໃຊ້ openTime/closeTime ທຸກມື້.
+  weeklyHours          Json?
+  /// Wave 11 — ຜູ້ຈັດການສາຂາ (User BRANCH_ADMIN/STAFF ຂອງສາຂານີ້).
+  managerUserId        String?
+  /// Wave 11 — ຮູບໜ້າປົກ + ຄັງຮູບສາຂາ (URL ບໍ່ມີລາຍເຊັນ).
+  coverImageUrl        String?
+  photoUrls            String[]  @default([])
+  /// Wave 11 — ເປົ້າໝາຍລາຍເດືອນ (ລາຍຮັບ LAK / ຈຳນວນນັດທີ່ສຳເລັດ); null = ບໍ່ຕັ້ງ.
+  monthlyRevenueTarget Decimal?  @db.Decimal(16, 2)
+  monthlyBookingTarget Int?
   /// Inventory audit C2 — ອະນຸຍາດໃຫ້ BOM ຕັດສະຕັອກຕິດລົບໄດ້ (backflush exception) ແທນທີ່ຈະ block
   /// ການປິດນັດໝາຍ. default ປິດ — ຄວນເປີດສະເພາະສາຂາທີ່ຍອມຮັບການແກ້ຍ້ອນຫຼັງດ້ວຍມື.
   allowNegativeStock Boolean   @default(false)
@@ -42,6 +52,7 @@ model Branch {
   appointments       Appointment[]
   bookingGroups      BookingGroup[]
   payments           Payment[]
+  gratuities         Gratuity[]
   inventories        Product[]
   expenses           Expense[]
   recurringExpenses  RecurringExpense[]
@@ -55,6 +66,14 @@ model Branch {
   stockLots          StockLot[]
   transfersOut       StockTransfer[]            @relation("StockTransferFrom")
   transfersIn        StockTransfer[]            @relation("StockTransferTo")
+  stockAdjRequests   StockAdjustmentRequest[]
+  stockCounts        StockCount[]
+  goodsReceipts      GoodsReceipt[]
+  supplierReturns    SupplierReturn[]
+  retailSales        RetailSale[]
+  suppliers          Supplier[]
+  productCategories  ProductCategory[]
+  stockReservations  StockReservation[]
   waitlists          Waitlist[]
   giftCards          GiftCard[]
   packages           Package[]
@@ -66,6 +85,8 @@ model Branch {
   bankAccounts       BankAccount[]
   bankAccountChanges BankAccountChangeRequest[]
   paymentSlips       PaymentSlip[]
+
+  manager            User?     @relation("ManagedBranches", fields: [managerUserId], references: [id], onDelete: SetNull)
 
   @@map("branches")
 }
@@ -91,6 +112,11 @@ model ExchangeRate {
   baseCurrency   String
   targetCurrency String
   rate           Decimal  @db.Decimal(12, 6)
+  /// Wave 11 (F-10) — MANUAL = ເຈົ້າຂອງຕັ້ງເອງ, FEED = job ດຶງອັດຕາປະຈຳວັນ.
+  source         String   @default("MANUAL")
+  /// true = ຫ້າມ feed ຂຽນທັບ (ອັດຕາບັນຊີທີ່ເຈົ້າຂອງລັອກໄວ້).
+  locked         Boolean  @default(false)
+  fetchedAt      DateTime?
   updatedAt      DateTime @updatedAt
 
   @@unique([baseCurrency, targetCurrency])
@@ -162,13 +188,19 @@ model Service {
 }
 
 model ServiceConsumable {
-  id        String  @id @default(uuid())
-  serviceId String
-  productId String
-  qtyPerUse Decimal @db.Decimal(10, 3)
+  id           String  @id @default(uuid())
+  serviceId    String
+  productId    String
+  /// ຈຳນວນຕໍ່ຄັ້ງ ເປັນໜ່ວຍ `uomId` (null = ໜ່ວຍພື້ນຖານຂອງສິນຄ້າ). ຈຳນວນທີ່ຕັດ/ຈອງຈິງ = qtyPerUse × factorToBase.
+  qtyPerUse    Decimal @db.Decimal(10, 3)
+  /// M1 (ຄື້ນ 9C) — ໜ່ວຍທີ່ຂຽນ BOM (ເຊັ່ນ ml ໃນຂະນະທີ່ສະຕັອກເປັນຕຸກ). null = ໜ່ວຍພື້ນຖານ (factor 1).
+  uomId        String?
+  /// M1 — snapshot ຂອງ ProductUomConversion.factorToBase (ອັບເດດຕາມເມື່ອແກ້ອັດຕາແປງຂອງສິນຄ້າ). ແຖວເກົ່າ = 1.
+  factorToBase Decimal @default(1) @db.Decimal(16, 6)
 
   service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  uom     Uom?    @relation(fields: [uomId], references: [id])
 
   @@unique([serviceId, productId])
   @@map("service_consumables")

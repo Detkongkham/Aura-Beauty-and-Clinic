@@ -14,7 +14,7 @@ import { Gradient } from '../../components/ui/Gradient';
 import { Segmented } from '../../components/ui/Segmented';
 import { Touchable } from '../../components/ui/Touchable';
 import { apiUpdateProfile } from '../../features/auth/auth.api';
-import { ChangePasswordSheet, ProfileEditSheet } from '../../features/auth/AccountSheets';
+import { AvatarPickerSheet, ChangePasswordSheet, ProfileEditSheet } from '../../features/auth/AccountSheets';
 import { TelegramLinkSheet } from '../../features/chatbot/TelegramLinkSheet';
 import { useMyAppointments } from '../../features/appointments/appointments.api';
 import { useMyLoyalty } from '../../features/loyalty/loyalty.api';
@@ -94,6 +94,7 @@ export function ProfileScreen({ navigation }: TabScreenProps<'ProfileTab'>): Rea
   const progress = loyalty.data ? tierProgress(loyalty.data) : 0;
 
   const [editOpen, setEditOpen] = useState(false);
+  const [avatarOpen, setAvatarOpen] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
   const [telegramOpen, setTelegramOpen] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
@@ -143,12 +144,21 @@ export function ProfileScreen({ navigation }: TabScreenProps<'ProfileTab'>): Rea
             <View className="items-center px-4 pb-3.5 pt-4">
               {/* avatar ວົງແຫວນ gradient + ປ້າຍລະດັບ */}
               <View className="items-center">
-                <View className="h-[72px] w-[72px] items-center justify-center rounded-full p-[2.5px]">
+                <Touchable
+                  onPress={() => setAvatarOpen(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('profile.avatarPickerTitle')}
+                  className="h-[72px] w-[72px] items-center justify-center rounded-full p-[2.5px]"
+                >
                   <Gradient preset="luxe" fill radius={999} pointerEvents="none" />
                   <View className="h-full w-full items-center justify-center overflow-hidden rounded-full border-2 border-aura-900 bg-aura-900">
-                    <Avatar name={name} size={60} mode="cartoon" className="bg-transparent" />
+                    <Avatar name={name} uri={user?.avatarUrl} size={60} mode="cartoon" className="bg-transparent" />
                   </View>
-                </View>
+                  {/* ປ້າຍແກ້ໄຂ — ບອກວ່າແຕະເພື່ອປ່ຽນ avatar ໄດ້ */}
+                  <View className="absolute right-0 top-0 h-5 w-5 items-center justify-center rounded-full border border-aura-900 bg-card">
+                    <Ionicons name="pencil" size={10} color={colors.primary} />
+                  </View>
+                </Touchable>
                 <View
                   className="-mt-2 flex-row items-center gap-1 overflow-hidden rounded-full border border-aura-900 px-2 py-0.5"
                   style={shadow.xs}
@@ -399,6 +409,7 @@ export function ProfileScreen({ navigation }: TabScreenProps<'ProfileTab'>): Rea
         </AnimatedEntrance>
 
         <ProfileEditSheet open={editOpen} onClose={() => setEditOpen(false)} />
+        <AvatarPickerSheet open={avatarOpen} onClose={() => setAvatarOpen(false)} />
         <ChangePasswordSheet open={pwOpen} onClose={() => setPwOpen(false)} />
         <TelegramLinkSheet open={telegramOpen} onClose={() => setTelegramOpen(false)} />
 

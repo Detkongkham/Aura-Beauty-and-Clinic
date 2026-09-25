@@ -218,3 +218,25 @@ export function DueChip({ expense, className }: { expense: Pick<ExpenseView, 'st
     </span>
   );
 }
+
+/** Inventory 9D — 3-way match result of the linked purchase order (PO ↔ GRN ↔ this invoice). */
+export function PoMatchChip({ match }: { match: ExpenseView['poMatch'] }) {
+  const { t } = useTranslation();
+  if (!match) return null;
+  const tone =
+    match.status === 'MATCHED'
+      ? 'bg-success-soft text-success'
+      : match.status === 'OVER_INVOICED'
+        ? 'bg-destructive-soft text-destructive'
+        : match.status === 'UNDER_RECEIVED'
+          ? 'bg-warning-soft text-warning'
+          : 'bg-muted text-muted-foreground';
+  return (
+    <span
+      className={cn('inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-2xs font-medium', tone)}
+      title={t('payTreasury.exp.poMatch.title')}
+    >
+      {t(`payTreasury.exp.poMatch.${match.status}`)}
+    </span>
+  );
+}
